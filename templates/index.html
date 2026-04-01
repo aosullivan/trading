@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trading App</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+:root {
+  --bg-0:#08090d; --bg-1:#0e1017; --bg-2:#141620; --bg-3:#1a1d2b; --bg-4:#22263a;
+  --bg-hover:#262b42; --border:#1c1f30; --border-2:#272b40;
+  --text-1:#eaedf5; --text-2:#9da3b8; --text-3:#6a7090; --text-4:#464c66;
+  --accent:#5b7fff; --accent-g:#5b7fff28; --green:#00e68a; --green-bg:#00e68a14;
+  --red:#ff5274; --red-bg:#ff527414; --orange:#ffa040; --purple:#b050ff; --cyan:#00d4ff; --yellow:#ffd644;
+  --r:6px; --t:0.2s cubic-bezier(.4,0,.2,1);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;display:flex;height:100vh;overflow:hidden;font-size:13px;-webkit-font-smoothing:antialiased}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bg-4);border-radius:3px}
+
+/* === LAYOUT === */
+.app{display:flex;flex:1;overflow:hidden}
+.center{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+
+/* === TOOLBAR === */
+.toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--bg-1);border-bottom:1px solid var(--border);flex-shrink:0}
+.tk-head{display:flex;align-items:baseline;gap:8px;padding-right:14px;border-right:1px solid var(--border)}
+.tk-sym{font-size:20px;font-weight:800;letter-spacing:-.5px}
+.tk-price{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums}
+.tk-chg{font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;font-variant-numeric:tabular-nums}
+.tk-chg.up{color:var(--green);background:var(--green-bg)}.tk-chg.dn{color:var(--red);background:var(--red-bg)}
+.tb-grp{display:flex;align-items:center;gap:5px;padding:0 10px;border-right:1px solid var(--border)}
+.tb-grp:last-of-type{border-right:none}
+.tb-lbl{font-size:10px;font-weight:600;color:var(--text-4);text-transform:uppercase;letter-spacing:.4px}
+.inp{background:var(--bg-3);border:1px solid var(--border);color:var(--text-1);padding:5px 8px;border-radius:4px;font-size:12px;font-family:inherit;transition:all var(--t)}
+.inp:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-g)}
+.inp-d{width:115px}.inp-n{width:46px;text-align:center}
+.btn-go{background:linear-gradient(135deg,var(--accent),#4a5cff);color:#fff;border:none;padding:6px 18px;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all var(--t);box-shadow:0 2px 8px var(--accent-g)}
+.btn-go:hover{transform:translateY(-1px);box-shadow:0 4px 14px var(--accent-g)}.btn-go:active{transform:none}.btn-go:disabled{opacity:.4;cursor:wait;transform:none}
+.ld{display:none;align-items:center;gap:5px;font-size:11px;color:var(--text-3)}.ld.on{display:flex}
+.spin{width:12px;height:12px;border:2px solid var(--bg-4);border-top-color:var(--accent);border-radius:50%;animation:sp .6s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* === OVERLAYS === */
+.overlays{display:flex;align-items:center;gap:3px;padding:5px 14px;background:var(--bg-1);border-bottom:1px solid var(--border);flex-shrink:0}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:500;cursor:pointer;user-select:none;color:var(--text-4);border:1px solid transparent;transition:all .15s}
+.chip:hover{color:var(--text-3);background:var(--bg-3)}
+.chip.on{color:var(--text-1);background:var(--bg-4);border-color:var(--border-2);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.chip .cd{width:7px;height:7px;border-radius:50%;transition:opacity .15s}.chip:not(.on) .cd{opacity:.35}
+.chip-sep{width:1px;height:16px;background:var(--border);margin:0 5px}
+
+/* === CHART === */
+.chart-area{flex:1;position:relative;min-height:200px;background:var(--bg-0);overflow:hidden}
+#chart-container{width:100%;height:100%}
+.chart-tag{position:absolute;top:10px;left:14px;z-index:5;font-size:11px;color:var(--text-4);font-weight:500;letter-spacing:.3px;pointer-events:none}
+
+/* === BACKTEST PANEL (docked bottom) === */
+.bt-panel-wrap{display:none;flex-direction:column;background:var(--bg-2);border-top:1px solid var(--border-2);flex-shrink:0;min-height:0}
+.bt-panel-wrap.open{display:flex}
+.bt-drag{height:6px;cursor:ns-resize;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:var(--bg-1);border-bottom:1px solid var(--border);transition:background .15s}
+.bt-drag:hover{background:var(--accent);opacity:.6}
+.bt-drag::after{content:'';width:40px;height:3px;background:var(--text-4);border-radius:3px;opacity:.5}
+.bt-drag:hover::after{background:#fff;opacity:1}
+.bt-head{display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid var(--border);flex-shrink:0}
+.bt-head h3{font-size:13px;font-weight:700;color:var(--text-1)}
+.bt-close{background:none;border:none;color:var(--text-3);font-size:18px;cursor:pointer;padding:2px 6px;border-radius:4px;transition:all .15s;line-height:1;margin-left:auto}
+.bt-close:hover{background:var(--bg-4);color:var(--text-1)}
+.bt-cfg{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-3);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.bt-apply{background:var(--accent);color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all var(--t)}
+.bt-apply:hover{background:#4a6cf0}
+.bt-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
+.bt-tab{padding:7px 16px;font-size:11px;font-weight:600;color:var(--text-3);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.bt-tab:hover{color:var(--text-2)}.bt-tab.active{color:var(--text-1);border-color:var(--accent)}
+.bt-body{overflow-y:auto;flex:1;min-height:0}
+.bt-panel{display:none}.bt-panel.vis{display:block}
+
+/* Stats */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:1px;background:var(--border)}
+.sc{background:var(--bg-2);padding:12px 10px;text-align:center;transition:background .15s}
+.sc:hover{background:var(--bg-3)}
+.sc-l{font-size:9px;font-weight:600;color:var(--text-4);text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
+.sc-v{font-size:16px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+.vg{color:var(--green)}.vr{color:var(--red)}
+
+/* Trades table */
+.t-scroll{overflow-y:auto}
+.ttbl{width:100%;border-collapse:collapse;font-size:11px}
+.ttbl th{text-align:left;padding:7px 12px;color:var(--text-4);font-weight:600;text-transform:uppercase;font-size:9px;letter-spacing:.6px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg-2)}
+.ttbl td{padding:6px 12px;border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums;color:var(--text-2)}
+.ttbl tr:hover td{background:var(--bg-3)}
+.badge-l{display:inline-block;padding:1px 6px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:.4px;background:var(--green-bg);color:var(--green)}
+
+/* BT toggle button */
+.bt-toggle{
+  position:absolute;bottom:14px;left:50%;transform:translateX(-50%);z-index:15;
+  display:inline-flex;align-items:center;gap:6px;
+  padding:7px 20px;border-radius:20px;font-size:11px;font-weight:600;
+  cursor:pointer;font-family:inherit;transition:all .25s;
+  border:1px solid var(--border-2);background:var(--bg-3);color:var(--text-2);
+  box-shadow:0 4px 16px rgba(0,0,0,.4);backdrop-filter:blur(8px);
+}
+.bt-toggle:hover{background:var(--bg-4);color:var(--text-1);border-color:var(--accent);box-shadow:0 4px 20px var(--accent-g)}
+.bt-toggle.active{background:linear-gradient(135deg,var(--accent),#4a5cff);color:#fff;border-color:transparent}
+.bt-toggle .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.bt-toggle.active .dot{background:var(--green);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* === WATCHLIST (RIGHT) === */
+.watchlist{
+  width:280px;min-width:200px;max-width:400px;background:var(--bg-1);
+  border-left:1px solid var(--border);display:flex;flex-direction:column;height:100vh;
+  position:relative;flex-shrink:0;
+}
+.wl-drag{position:absolute;left:-3px;top:0;bottom:0;width:6px;cursor:col-resize;z-index:10}
+.wl-drag:hover::after,.wl-drag:active::after{content:'';position:absolute;left:2px;top:0;bottom:0;width:2px;background:var(--accent);opacity:.5}
+.wl-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.wl-head h2{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-3)}
+.wl-cnt{font-size:10px;font-weight:600;color:var(--text-4);background:var(--bg-3);padding:2px 7px;border-radius:10px}
+.wl-add{padding:8px 10px;border-bottom:1px solid var(--border);display:flex;gap:5px}
+.wl-add input{flex:1;background:var(--bg-3);border:1px solid var(--border);color:var(--text-1);padding:7px 10px;border-radius:var(--r);font-size:12px;min-width:0;font-family:inherit;transition:all var(--t)}
+.wl-add input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-g)}
+.wl-add input::placeholder{color:var(--text-4)}
+.wl-add button{background:var(--accent);color:#fff;border:none;width:32px;border-radius:var(--r);cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center;transition:all var(--t)}
+.wl-add button:hover{background:#4a6cf0}
+/* Column headers */
+.wl-cols{display:grid;grid-template-columns:1fr 70px 58px 58px;padding:6px 14px 6px 14px;font-size:9px;font-weight:600;color:var(--text-4);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+.wl-cols span:not(:first-child){text-align:right}
+.wl-sort{cursor:pointer;user-select:none;transition:color .15s}.wl-sort:hover{color:var(--text-1)}
+.wl-sort i{font-style:normal;margin-left:2px;font-size:8px;opacity:.6}
+.wl-list{flex:1;overflow-y:auto}
+.wl-row{display:grid;grid-template-columns:1fr 70px 58px 58px;padding:8px 14px;cursor:pointer;align-items:center;transition:background .12s;border-bottom:1px solid var(--bg-2)}
+.wl-row:hover{background:var(--bg-3)}
+.wl-row.active{background:var(--bg-4)}
+.wl-row.active .wl-tk{color:var(--accent)}
+.wl-tk{font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;color:var(--text-1)}
+.wl-tk .wl-rm{opacity:0;color:var(--text-4);background:none;border:none;cursor:pointer;font-size:14px;line-height:1;transition:all .12s;padding:0}
+.wl-row:hover .wl-rm{opacity:1}.wl-rm:hover{color:var(--red)}
+.wl-v{text-align:right;font-size:11px;font-variant-numeric:tabular-nums;font-weight:500;color:var(--text-2)}
+.wl-v.up{color:var(--green)}.wl-v.dn{color:var(--red)}
+.wl-v.last{color:var(--text-1);font-weight:600}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- CENTER -->
+<div class="center">
+  <!-- TOOLBAR -->
+  <div class="toolbar">
+    <div class="tk-head">
+      <input type="text" id="ticker" value="TSLA" class="inp" style="width:68px;font-weight:700;font-size:13px;text-transform:uppercase;display:none">
+      <span class="tk-sym" id="tk-sym">TSLA</span>
+      <span class="tk-price" id="tk-price">--</span>
+      <span class="tk-chg" id="tk-chg">--</span>
+    </div>
+    <div class="tb-grp">
+      <select id="interval" class="inp" style="cursor:pointer" onchange="loadChart()"><option value="1d" selected>1D</option><option value="1wk">1W</option></select>
+    </div>
+    <div class="tb-grp">
+      <span class="tb-lbl">From</span>
+      <input type="date" id="start" value="2023-01-01" class="inp inp-d">
+      <span class="tb-lbl">To</span>
+      <input type="date" id="end" value="" class="inp inp-d">
+    </div>
+    <div class="tb-grp">
+      <span class="tb-lbl">ST</span>
+      <input type="number" id="period" value="10" min="1" max="100" class="inp inp-n">
+      <span style="color:var(--text-4)">/</span>
+      <input type="number" id="multiplier" value="3" min="0.1" max="10" step="0.1" class="inp inp-n">
+    </div>
+    <button class="btn-go" id="load-btn" onclick="loadChart()">Load</button>
+    <div class="ld" id="loading"><div class="spin"></div>Loading...</div>
+  </div>
+
+  <!-- OVERLAYS -->
+  <div class="overlays">
+    <div class="chip on" onclick="toggleChip(this,'st')"><span class="cd" style="background:var(--green)"></span>Supertrend</div>
+    <div class="chip" onclick="toggleChip(this,'sma50')"><span class="cd" style="background:var(--orange)"></span>SMA 50</div>
+    <div class="chip" onclick="toggleChip(this,'sma100')"><span class="cd" style="background:var(--purple)"></span>SMA 100</div>
+    <div class="chip" onclick="toggleChip(this,'sma200')"><span class="cd" style="background:var(--cyan)"></span>SMA 200</div>
+    <div class="chip" onclick="toggleChip(this,'sma200w')"><span class="cd" style="background:var(--yellow)"></span>200W MA</div>
+    <div class="chip-sep"></div>
+    <div class="chip" onclick="toggleChip(this,'emaCross')"><span class="cd" style="background:#ff9800"></span>EMA 9/21</div>
+    <div class="chip" onclick="toggleChip(this,'macd')"><span class="cd" style="background:#b050ff"></span>MACD</div>
+  </div>
+
+  <!-- CHART -->
+  <div class="chart-area">
+    <div class="chart-tag" id="chart-tag"></div>
+    <div id="chart-container"></div>
+
+    <!-- Backtest toggle button -->
+    <button class="bt-toggle" id="bt-btn" onclick="toggleBT()">
+      <span class="dot"></span>
+      <span id="bt-lbl">Backtest</span>
+    </button>
+  </div>
+
+  <!-- BACKTEST PANEL (docked bottom) -->
+  <div class="bt-panel-wrap" id="bt-panel-wrap">
+    <div class="bt-drag" id="bt-drag"></div>
+    <div class="bt-head">
+      <h3>Strategy Report</h3>
+      <select id="strategy-select" class="inp" style="font-size:11px;padding:4px 8px;border-radius:20px" onchange="switchStrategy(this.value)">
+        <option value="supertrend">Supertrend</option>
+        <option value="ema_crossover">EMA 9/21 Cross</option>
+        <option value="macd">MACD Signal</option>
+        <option value="ma_confirm">MA Confirmation (200/3)</option>
+      </select>
+      <button class="bt-close" onclick="toggleBT()">&times;</button>
+    </div>
+    <div class="bt-cfg">
+      <span class="tb-lbl">From</span>
+      <input type="date" id="bt-start" class="inp inp-d">
+      <span class="tb-lbl">To</span>
+      <input type="date" id="bt-end" class="inp inp-d">
+      <button class="bt-apply" onclick="applyBT()">Apply</button>
+    </div>
+    <div class="bt-tabs">
+      <div class="bt-tab active" onclick="showBTPanel('metrics',this)">Metrics</div>
+      <div class="bt-tab" onclick="showBTPanel('trades',this)">Trades</div>
+    </div>
+    <div class="bt-body">
+      <div class="bt-panel vis" data-bp="metrics" id="bp-metrics">
+        <div class="stats-row" id="stats"></div>
+      </div>
+      <div class="bt-panel" data-bp="trades" id="bp-trades">
+        <div class="t-scroll">
+          <table class="ttbl">
+            <thead><tr><th>#</th><th>Side</th><th>Entry</th><th>Entry $</th><th>Exit</th><th>Exit $</th><th>P&L</th><th>Return</th></tr></thead>
+            <tbody id="trades-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- WATCHLIST (RIGHT) -->
+<div class="watchlist" id="wl-panel">
+  <div class="wl-drag" id="wl-drag"></div>
+  <div class="wl-head">
+    <h2>Watchlist</h2>
+    <span class="wl-cnt" id="wl-count">0</span>
+  </div>
+  <div class="wl-add">
+    <input type="text" id="wl-input" placeholder="Add ticker..." onkeydown="if(event.key==='Enter')addWL()">
+    <button onclick="addWL()">+</button>
+  </div>
+  <div class="wl-cols"><span class="wl-sort" onclick="sortWL('sym')">Symbol<i id="wl-arrow-sym"></i></span><span class="wl-sort" onclick="sortWL('last')">Last<i id="wl-arrow-last"></i></span><span class="wl-sort" onclick="sortWL('chg')">Chg<i id="wl-arrow-chg"></i></span><span class="wl-sort" onclick="sortWL('chg_pct')">Chg%<i id="wl-arrow-chg_pct"></i></span></div>
+  <div class="wl-list" id="wl-items"></div>
+</div>
+
+</div><!-- /app -->
+
+<script>
+let chart,candleSeries,stUpSeries,stDownSeries,volumeSeries;
+let sma50Series,sma100Series,sma200Series,sma200wSeries,ema9Series,ema21Series;
+let lastData=null,btOpen=false;
+
+const now=new Date(),yearAgo=new Date(now);yearAgo.setFullYear(yearAgo.getFullYear()-1);
+document.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('bt-start').value=yearAgo.toISOString().split('T')[0];
+  document.getElementById('bt-end').value=now.toISOString().split('T')[0];
+});
+
+function initChart(){
+  const c=document.getElementById('chart-container');
+  chart=LightweightCharts.createChart(c,{
+    layout:{background:{color:'#08090d'},textColor:'#6a7090',fontFamily:'Inter,sans-serif'},
+    grid:{vertLines:{color:'#12141c'},horzLines:{color:'#12141c'}},
+    crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#5b7fff30',labelBackgroundColor:'#5b7fff'},horzLine:{color:'#5b7fff30',labelBackgroundColor:'#5b7fff'}},
+    rightPriceScale:{borderColor:'#1c1f30'},timeScale:{borderColor:'#1c1f30',timeVisible:false},
+  });
+  candleSeries=chart.addCandlestickSeries({upColor:'#00e68a',downColor:'#ff5274',borderUpColor:'#00e68a',borderDownColor:'#ff5274',wickUpColor:'#00e68a80',wickDownColor:'#ff527480'});
+  stUpSeries=chart.addLineSeries({color:'#00e68a',lineWidth:2,lastValueVisible:false,priceLineVisible:false});
+  stDownSeries=chart.addLineSeries({color:'#ff5274',lineWidth:2,lastValueVisible:false,priceLineVisible:false});
+  sma50Series=chart.addLineSeries({color:'#ffa040',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
+  sma100Series=chart.addLineSeries({color:'#b050ff',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
+  sma200Series=chart.addLineSeries({color:'#00d4ff',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
+  sma200wSeries=chart.addLineSeries({color:'#ffd644',lineWidth:2,lineStyle:2,lastValueVisible:false,priceLineVisible:false,visible:false});
+  ema9Series=chart.addLineSeries({color:'#ff9800',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
+  ema21Series=chart.addLineSeries({color:'#ff5722',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
+  volumeSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'volume'});
+  chart.priceScale('volume').applyOptions({scaleMargins:{top:.82,bottom:0}});
+  new ResizeObserver(()=>chart.applyOptions({width:c.clientWidth,height:c.clientHeight})).observe(c);
+}
+
+const sMap={st:()=>[stUpSeries,stDownSeries],sma50:()=>[sma50Series],sma100:()=>[sma100Series],sma200:()=>[sma200Series],sma200w:()=>[sma200wSeries],emaCross:()=>[ema9Series,ema21Series],macd:()=>[]};
+function toggleChip(el,n){el.classList.toggle('on');const on=el.classList.contains('on');(sMap[n]?.()||[]).forEach(s=>s.applyOptions({visible:on}))}
+
+function toggleBT(){
+  btOpen=!btOpen;
+  const p=document.getElementById('bt-panel-wrap'),b=document.getElementById('bt-btn');
+  p.classList.toggle('open',btOpen);
+  b.classList.toggle('active',btOpen);
+  if(!p.style.height) p.style.height='280px';
+  document.getElementById('bt-lbl').textContent=btOpen?'Hide Backtest':'Backtest';
+  if(btOpen&&lastData){switchStrategy(document.getElementById('strategy-select').value)}
+  else{candleSeries.setMarkers([])}
+  setTimeout(()=>chart.applyOptions({width:document.getElementById('chart-container').clientWidth,height:document.getElementById('chart-container').clientHeight}),50);
+}
+
+function applyBT(){
+  document.getElementById('start').value=document.getElementById('bt-start').value;
+  document.getElementById('end').value=document.getElementById('bt-end').value;
+  loadChart();
+}
+
+async function loadChart(){
+  const btn=document.getElementById('load-btn'),ld=document.getElementById('loading');
+  btn.disabled=true;ld.classList.add('on');
+  const ticker=document.getElementById('ticker').value.toUpperCase();
+  const interval=document.getElementById('interval').value;
+  const start=document.getElementById('start').value,end=document.getElementById('end').value;
+  const period=document.getElementById('period').value,mult=document.getElementById('multiplier').value;
+  document.getElementById('tk-sym').textContent=ticker;
+  document.getElementById('chart-tag').textContent=`${ticker} \u00b7 ${interval==='1wk'?'Weekly':'Daily'} \u00b7 ST ${period}/${mult}`;
+  try{
+    let url=`/api/chart?ticker=${ticker}&interval=${interval}&start=${start}&period=${period}&multiplier=${mult}`;
+    if(end)url+=`&end=${end}`;
+    const res=await fetch(url),data=await res.json();
+    if(data.error){alert(data.error);return}
+    candleSeries.setData(data.candles);
+    stUpSeries.setData(data.supertrend_up.filter(d=>d.value!==null&&!isNaN(d.value)));
+    stDownSeries.setData(data.supertrend_down.filter(d=>d.value!==null&&!isNaN(d.value)));
+    volumeSeries.setData(data.volumes);
+    sma50Series.setData(data.sma_50||[]);sma100Series.setData(data.sma_100||[]);
+    sma200Series.setData(data.sma_200||[]);sma200wSeries.setData(data.sma_200w||[]);
+    ema9Series.setData(data.ema9||[]);ema21Series.setData(data.ema21||[]);
+    lastData=data;
+    // Price display
+    if(data.candles.length){
+      const l=data.candles[data.candles.length-1],p=data.candles.length>1?data.candles[data.candles.length-2]:l;
+      const c=l.close-p.close,cp=c/p.close*100,up=c>=0;
+      document.getElementById('tk-price').textContent='$'+l.close.toFixed(2);
+      document.getElementById('tk-price').style.color=up?'var(--green)':'var(--red)';
+      const ce=document.getElementById('tk-chg');
+      ce.textContent=`${up?'+':''}${c.toFixed(2)} (${up?'+':''}${cp.toFixed(2)}%)`;
+      ce.className='tk-chg '+(up?'up':'dn');
+    }
+    chart.timeScale().fitContent();
+    switchStrategy(document.getElementById('strategy-select').value);
+    if(!btOpen)candleSeries.setMarkers([]);
+  }catch(e){alert('Error: '+e.message)}
+  finally{btn.disabled=false;ld.classList.remove('on')}
+}
+
+function switchStrategy(name){
+  if(!lastData?.strategies)return;
+  const s=lastData.strategies[name];if(!s)return;
+  if(btOpen){
+    const m=[];
+    s.trades.forEach(t=>{
+      m.push({time:Math.floor(new Date(t.entry_date).getTime()/1000),position:'belowBar',color:'#5b7fff',shape:'arrowUp',text:`BUY ${t.entry_price}`});
+      m.push({time:Math.floor(new Date(t.exit_date).getTime()/1000),position:'aboveBar',color:'#ff5274',shape:'arrowDown',text:`SELL ${t.exit_price} (${t.pnl>=0?'+':''}${t.pnl.toFixed(2)})`});
+    });
+    candleSeries.setMarkers(m);
+  }
+  renderStats(s.summary);renderTrades(s.trades);
+}
+
+function renderStats(s){
+  document.getElementById('stats').innerHTML=`
+    <div class="sc"><div class="sc-l">Total P&L</div><div class="sc-v ${s.total_pnl>=0?'vg':'vr'}">${s.total_pnl>=0?'+':''}$${s.total_pnl}</div></div>
+    <div class="sc"><div class="sc-l">Gross Profit</div><div class="sc-v vg">+$${s.gross_profit}</div></div>
+    <div class="sc"><div class="sc-l">Gross Loss</div><div class="sc-v vr">-$${s.gross_loss}</div></div>
+    <div class="sc"><div class="sc-l">Max Drawdown</div><div class="sc-v vr">$${s.max_drawdown}</div></div>
+    <div class="sc"><div class="sc-l">Profit Factor</div><div class="sc-v">${s.profit_factor}</div></div>
+    <div class="sc"><div class="sc-l">Total Trades</div><div class="sc-v">${s.total_trades}</div></div>
+    <div class="sc"><div class="sc-l">Win Rate</div><div class="sc-v">${s.win_rate}%</div></div>
+    <div class="sc"><div class="sc-l">Winners</div><div class="sc-v vg">${s.winners}</div></div>
+    <div class="sc"><div class="sc-l">Losers</div><div class="sc-v vr">${s.losers}</div></div>
+    <div class="sc"><div class="sc-l">Avg Winner</div><div class="sc-v vg">+$${s.avg_winner}</div></div>
+    <div class="sc"><div class="sc-l">Avg Loser</div><div class="sc-v vr">-$${s.avg_loser}</div></div>
+    <div class="sc"><div class="sc-l">Best Trade</div><div class="sc-v vg">+$${s.best_trade}</div></div>
+  `;
+}
+
+function renderTrades(trades){
+  document.getElementById('trades-body').innerHTML=trades.map((t,i)=>`<tr>
+    <td style="color:var(--text-4)">${i+1}</td><td><span class="badge-l">LONG</span></td>
+    <td>${t.entry_date}</td><td>$${t.entry_price}</td>
+    <td>${t.exit_date}${t.open?'<span style="color:var(--text-4)"> (open)</span>':''}</td><td>$${t.exit_price}</td>
+    <td style="color:${t.pnl>=0?'var(--green)':'var(--red)'}">${t.pnl>=0?'+':''}$${t.pnl}</td>
+    <td style="color:${t.pnl_pct>=0?'var(--green)':'var(--red)'}">${t.pnl_pct>=0?'+':''}${t.pnl_pct}%</td>
+  </tr>`).join('');
+}
+
+function showBTPanel(name,el){
+  document.querySelectorAll('.bt-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  document.querySelectorAll('.bt-panel').forEach(p=>p.classList.remove('vis'));
+  document.querySelector(`.bt-panel[data-bp="${name}"]`).classList.add('vis');
+}
+
+// === WATCHLIST ===
+let wlQuotes={};
+let wlSortKey=null; // 'sym','last','chg','chg_pct'
+let wlSortAsc=true;
+
+function sortWL(key){
+  if(wlSortKey===key){wlSortAsc=!wlSortAsc}else{wlSortKey=key;wlSortAsc=key==='sym'}
+  // Update arrows
+  ['sym','last','chg','chg_pct'].forEach(k=>{
+    const el=document.getElementById('wl-arrow-'+k);
+    if(el) el.textContent=k===wlSortKey?(wlSortAsc?' ▲':' ▼'):'';
+  });
+  // Re-render with current list
+  fetch('/api/watchlist').then(r=>r.json()).then(list=>renderWL(list));
+}
+
+async function loadWL(){
+  const r=await fetch('/api/watchlist'),list=await r.json();
+  document.getElementById('wl-count').textContent=list.length;
+  renderWL(list);
+  // Fetch quotes in background
+  fetchQuotes();
+}
+
+async function fetchQuotes(){
+  try{
+    const r=await fetch('/api/watchlist/quotes'),quotes=await r.json();
+    quotes.forEach(q=>{wlQuotes[q.ticker]=q});
+    const r2=await fetch('/api/watchlist'),list=await r2.json();
+    renderWL(list);
+  }catch(e){}
+}
+
+function renderWL(list){
+  if(wlSortKey){
+    list=[...list].sort((a,b)=>{
+      let va,vb;
+      if(wlSortKey==='sym'){va=a;vb=b}
+      else{const qa=wlQuotes[a]||{},qb=wlQuotes[b]||{};va=qa[wlSortKey]??-Infinity;vb=qb[wlSortKey]??-Infinity}
+      if(typeof va==='string') return wlSortAsc?va.localeCompare(vb):vb.localeCompare(va);
+      return wlSortAsc?va-vb:vb-va;
+    });
+  }
+  const cur=document.getElementById('ticker').value.toUpperCase();
+  document.getElementById('wl-items').innerHTML=list.map(t=>{
+    const q=wlQuotes[t]||{};
+    const up=q.chg>=0;
+    const cls=up?'up':'dn';
+    return `<div class="wl-row${t===cur?' active':''}" onclick="pickTicker('${t}')">
+      <div class="wl-tk"><span>${t}</span><button class="wl-rm" onclick="event.stopPropagation();rmWL('${t}')">&times;</button></div>
+      <div class="wl-v last">${q.last!=null?q.last.toLocaleString():'--'}</div>
+      <div class="wl-v ${q.chg!=null?cls:''}">${q.chg!=null?(up?'+':'')+q.chg:'--'}</div>
+      <div class="wl-v ${q.chg_pct!=null?cls:''}">${q.chg_pct!=null?(up?'+':'')+q.chg_pct+'%':'--'}</div>
+    </div>`;
+  }).join('');
+}
+
+async function addWL(){
+  const inp=document.getElementById('wl-input'),t=inp.value.trim().toUpperCase();
+  if(!t)return;
+  await fetch('/api/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t})});
+  inp.value='';loadWL();
+}
+async function rmWL(t){
+  await fetch('/api/watchlist',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t})});
+  loadWL();
+}
+function pickTicker(t){
+  document.getElementById('ticker').value=t;
+  renderWL(Object.keys(wlQuotes).length?Object.keys(wlQuotes):[]); // quick highlight update
+  loadWL();loadChart();
+}
+
+// === RESIZABLE WATCHLIST ===
+(function(){
+  const drag=document.getElementById('wl-drag'),panel=document.getElementById('wl-panel');
+  let startX,startW;
+  drag.addEventListener('mousedown',e=>{
+    startX=e.clientX;startW=panel.offsetWidth;
+    const move=ev=>{const dx=startX-ev.clientX;panel.style.width=Math.max(200,Math.min(500,startW+dx))+'px'};
+    const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up)};
+    document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
+    e.preventDefault();
+  });
+})();
+
+// === RESIZABLE BACKTEST OVERLAY ===
+(function(){
+  const h=document.getElementById('bt-resize-handle'),o=document.getElementById('bt-overlay');
+  let startY,startH;
+  h.addEventListener('mousedown',e=>{
+    startY=e.clientY;startH=o.offsetHeight;
+    const maxH=o.parentElement.offsetHeight*0.9;
+    const move=ev=>{const dy=startY-ev.clientY;o.style.maxHeight=Math.max(150,Math.min(maxH,startH+dy))+'px'};
+    const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up)};
+    document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
+    e.preventDefault();
+  });
+})();
+
+// Keyboard: Enter in ticker to load
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeElement.id==='ticker')loadChart()});
+
+initChart();loadWL();loadChart();
+</script>
+</body>
+</html>
