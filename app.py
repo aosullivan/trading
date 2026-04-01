@@ -665,6 +665,71 @@ def backtest_supertrend(df, direction, start_in_position=False):
     return backtest_direction(df, direction, start_in_position=start_in_position)
 
 
+def compute_support_resistance(df, window=5, cluster_pct=0.015, max_levels=8):
+    """Detect support/resistance levels from swing highs/lows.
+
+    Algorithm:
+    1. Find swing highs (local maxima) and swing lows (local minima) using a
+       rolling window.
+    2. Cluster nearby price levels together (within cluster_pct of each other).
+    3. Score each cluster by number of touches.
+    4. Return the top levels sorted by proximity to current price.
+    """
+    import numpy as np
+
+    highs = df["High"].values
+    lows = df["Low"].values
+    closes = df["Close"].values
+
+    pivots = []  # (price, type)
+
+    # Swing highs: High[i] is the highest in a window around i
+    for i in range(window, len(highs) - window):
+        if highs[i] == max(highs[i - window : i + window + 1]):
+            pivots.append(highs[i])
+        if lows[i] == min(lows[i - window : i + window + 1]):
+            pivots.append(lows[i])
+
+    if not pivots:
+        return []
+
+    # Also consider prominent round-number levels near price range
+    # (these often act as psychological S/R)
+
+    # Cluster nearby pivots
+    pivots.sort()
+    clusters = []  # list of lists
+    for p in pivots:
+        merged = False
+        for cluster in clusters:
+            center = sum(cluster) / len(cluster)
+            if abs(p - center) / center < cluster_pct:
+                cluster.append(p)
+                merged = True
+                break
+        if not merged:
+            clusters.append([p])
+
+    # Score clusters: more touches = stronger level
+    current_price = float(closes[-1])
+    levels = []
+    for cluster in clusters:
+        if len(cluster) < 2:
+            continue  # require at least 2 touches
+        avg_price = sum(cluster) / len(cluster)
+        levels.append(
+            {
+                "price": round(avg_price, 2),
+                "touches": len(cluster),
+                "type": "support" if avg_price < current_price else "resistance",
+            }
+        )
+
+    # Sort by proximity to current price and take the closest ones
+    levels.sort(key=lambda l: abs(l["price"] - current_price))
+    return levels[:max_levels]
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -854,6 +919,9 @@ def chart_data():
     except Exception:
         pass
 
+    # Support / Resistance levels
+    sr_levels = compute_support_resistance(df)
+
     volumes = []
     for i in range(len(df_view)):
         ts = int(df_view.index[i].timestamp())
@@ -979,6 +1047,7 @@ def chart_data():
             "macd_line": macd_line_data,
             "signal_line": signal_line_data,
             "macd_hist": macd_hist_data,
+            "sr_levels": sr_levels,
             "overlays": {
                 "donchian": {"upper": donch_upper_data, "lower": donch_lower_data},
                 "bb": {"upper": bb_upper_data, "mid": bb_mid_data, "lower": bb_lower_data},

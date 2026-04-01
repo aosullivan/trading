@@ -200,6 +200,7 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
   <div class="overlays">
 	    <div class="chip on" onclick="toggleChip(this,'st')"><span class="cd" style="background:var(--green)"></span>Supertrend</div>
 	    <div class="chip on" onclick="toggleChip(this,'vol')"><span class="cd" style="background:#5b7fff"></span>Volume</div>
+	    <div class="chip" onclick="toggleChip(this,'sr')"><span class="cd" style="background:#f5c842"></span>S/R Levels</div>
 	    <div class="chip-sep"></div>
 	    <div class="chip" onclick="toggleSignal(this,'supertrend')"><span class="cd" style="background:#5b7fff"></span>ST Signals</div>
 	    <div class="chip" onclick="toggleSignal(this,'ema_crossover')"><span class="cd" style="background:#ff9800"></span>EMA Signals</div>
@@ -314,6 +315,7 @@ let macdLineSeries,macdSignalSeries,macdHistSeries;
 let adxLineSeries,plusDiSeries,minusDiSeries;
 let cciLineSeries;
 const overlaySeries=[];
+let srPriceLines=[];  // support/resistance createPriceLine references
 let lastData=null,btOpen=false;
 let chartStart='',chartEnd='';
 
@@ -454,7 +456,42 @@ function ensureBTChart(){
 
 const sMap={st:()=>[stUpSeries,stDownSeries],vol:()=>[volumeSeries],sma50:()=>[sma50Series],sma100:()=>[sma100Series],sma200:()=>[sma200Series],sma50w:()=>[sma50wSeries],sma200w:()=>[sma200wSeries],emaCross:()=>[ema9Series,ema21Series]};
 const activeChips=new Set(['st','vol']); // track which legend chips are on
-function toggleChip(el,n){el.classList.toggle('on');const on=el.classList.contains('on');if(on)activeChips.add(n);else activeChips.delete(n);(sMap[n]?.()||[]).forEach(s=>s.applyOptions({visible:on}));pushURLParams()}
+function toggleChip(el,n){
+  el.classList.toggle('on');const on=el.classList.contains('on');
+  if(on)activeChips.add(n);else activeChips.delete(n);
+  if(n==='sr'){toggleSRLines(on)}
+  else{(sMap[n]?.()||[]).forEach(s=>s.applyOptions({visible:on}))}
+  pushURLParams();
+}
+
+function clearSRLines(){
+  srPriceLines.forEach(pl=>candleSeries.removePriceLine(pl));
+  srPriceLines=[];
+}
+
+function drawSRLines(){
+  clearSRLines();
+  if(!lastData?.sr_levels)return;
+  lastData.sr_levels.forEach(lv=>{
+    const isSupport=lv.type==='support';
+    const color=isSupport?'#00e68a80':'#ff527480';
+    const pl=candleSeries.createPriceLine({
+      price:lv.price,
+      color:color,
+      lineWidth:1,
+      lineStyle:LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible:true,
+      title:`${isSupport?'S':'R'} (${lv.touches})`,
+      axisLabelColor:isSupport?'#00e68a':'#ff5274',
+      axisLabelTextColor:'#fff',
+    });
+    srPriceLines.push(pl);
+  });
+}
+
+function toggleSRLines(on){
+  if(on)drawSRLines();else clearSRLines();
+}
 
 // === MA LEGEND (TradingView-style overlay) ===
 const maLegendItems=[
@@ -623,6 +660,8 @@ async function loadChart(){
     adxLineSeries.setData(ov.adx?.adx||[]);plusDiSeries.setData(ov.adx?.plus_di||[]);minusDiSeries.setData(ov.adx?.minus_di||[]);
     cciLineSeries.setData(ov.cci?.cci||[]);
     lastData=data;
+    // Redraw S/R lines if chip is active
+    if(activeChips.has('sr'))drawSRLines();else clearSRLines();
     updateMALegendValues(null);
     // Price display
     if(data.candles.length){
@@ -982,7 +1021,8 @@ function restoreURLState(){
       const shouldBeOn=_urlChips.includes(key);
       if(shouldBeOn){activeChips.add(key);el.classList.add('on')}
       else{el.classList.remove('on')}
-      (sMap[key]?.()||[]).forEach(s=>s.applyOptions({visible:shouldBeOn}));
+      if(key==='sr'){/* S/R lines drawn after data loads */}
+      else{(sMap[key]?.()||[]).forEach(s=>s.applyOptions({visible:shouldBeOn}));}
     });
   }
   // Restore signal chips from URL
