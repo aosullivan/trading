@@ -490,6 +490,57 @@ def compute_cci_trend(df, period=20, threshold=100):
     return cci, direction
 
 
+def compute_trend_ribbon(df, ema_period=21, atr_period=14, adx_period=14,
+                          min_width=0.5, max_width=3.0):
+    """Compute a trend-strength ribbon: EMA center with ATR-based width scaled by ADX.
+
+    Returns: center (EMA), upper, lower, strength (0-1), direction (1/-1)
+    - Width = ATR * lerp(min_width, max_width, adx_normalized)
+    - When ADX is high (strong trend), ribbon is wide
+    - When ADX is low (choppy), ribbon narrows
+    """
+    close = df["Close"]
+    high = df["High"]
+    low = df["Low"]
+
+    # Center line
+    center = close.ewm(span=ema_period, adjust=False).mean()
+
+    # ATR for base width
+    hl = high - low
+    hc = (high - close.shift(1)).abs()
+    lc = (low - close.shift(1)).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / atr_period, min_periods=atr_period, adjust=False).mean()
+
+    # ADX for strength scaling
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+    atr_adx = tr.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
+    plus_di = 100 * (plus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr_adx)
+    minus_di = 100 * (minus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr_adx)
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    adx = dx.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
+
+    # Normalize ADX to 0-1 range (0=no trend, 1=very strong)
+    strength = (adx / 60).clip(0, 1)
+
+    # Width = ATR * interpolated multiplier
+    width_mult = min_width + (max_width - min_width) * strength
+    half_width = atr * width_mult / 2
+    upper = center + half_width
+    lower = center - half_width
+
+    # Direction based on EMA slope
+    direction = pd.Series(0, index=df.index, dtype=int)
+    direction[center > center.shift(1)] = 1
+    direction[center < center.shift(1)] = -1
+
+    return center, upper, lower, strength, direction
+
+
 def _build_equity_curve(df, trades):
     equity_curve = []
     if df.empty:
@@ -828,6 +879,9 @@ def chart_data():
         df_view, rr_direction_view, start_in_position=_starts_long(rr_direction, df.index, df_view.index)
     )
 
+    # Trend ribbon
+    ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(df)
+
     candles = []
     for i in range(len(df_view)):
         ts = int(df_view.index[i].timestamp())
@@ -1016,6 +1070,57 @@ def chart_data():
     # CCI
     cci_data = _series_to_json(cci_val, df_view.index)
 
+    # Trend ribbon — upper/lower with color per bar
+    ribbon_upper_data = []
+    ribbon_lower_data = []
+    r_upper_view = ribbon_upper.loc[df_view.index]
+    r_lower_view = ribbon_lower.loc[df_view.index]
+    r_dir_view = ribbon_dir.loc[df_view.index]
+    r_strength_view = ribbon_strength.loc[df_view.index]
+    for i in range(len(df_view)):
+        ts = int(df_view.index[i].timestamp())
+        u, lo, d, s = r_upper_view.iloc[i], r_lower_view.iloc[i], r_dir_view.iloc[i], r_strength_view.iloc[i]
+        if pd.isna(u) or pd.isna(lo):
+            continue
+        alpha = max(0.15, min(0.6, float(s) * 0.7))
+        if d >= 0:
+            color = f"rgba(0,230,138,{alpha:.2f})"
+            line_color = "rgba(0,230,138,0.8)"
+        else:
+            color = f"rgba(255,82,116,{alpha:.2f})"
+            line_color = "rgba(255,82,116,0.8)"
+        ribbon_upper_data.append({"time": ts, "value": round(float(u), 2), "color": color, "lineColor": line_color})
+        ribbon_lower_data.append({"time": ts, "value": round(float(lo), 2), "color": color, "lineColor": line_color})
+
+    ribbon_center_data = _series_to_json(ribbon_center, df_view.index)
+
+    # Volume profile — aggregate volume by price bucket
+    vol_profile = []
+    if not df_view.empty:
+        prices = df_view["Close"]
+        vols = df_view["Volume"]
+        price_min, price_max = float(prices.min()), float(prices.max())
+        n_buckets = 40
+        bucket_size = (price_max - price_min) / n_buckets if price_max > price_min else 1
+        for b in range(n_buckets):
+            lo_price = price_min + b * bucket_size
+            hi_price = lo_price + bucket_size
+            mask = (prices >= lo_price) & (prices < hi_price)
+            if b == n_buckets - 1:
+                mask = mask | (prices == price_max)
+            bucket_vol = float(vols[mask].sum())
+            # Split buy/sell: up-close bars are "buy", down-close are "sell"
+            up_mask = mask & (df_view["Close"] >= df_view["Open"])
+            dn_mask = mask & (df_view["Close"] < df_view["Open"])
+            buy_vol = float(vols[up_mask].sum())
+            sell_vol = float(vols[dn_mask].sum())
+            vol_profile.append({
+                "price": round((lo_price + hi_price) / 2, 2),
+                "total": bucket_vol,
+                "buy": buy_vol,
+                "sell": sell_vol,
+            })
+
     return jsonify(
         {
             "candles": candles,
@@ -1055,7 +1160,9 @@ def chart_data():
                 "psar": {"bull": psar_bull_data, "bear": psar_bear_data},
                 "adx": {"adx": adx_data, "plus_di": plus_di_data, "minus_di": minus_di_data},
                 "cci": {"cci": cci_data},
+                "ribbon": {"upper": ribbon_upper_data, "lower": ribbon_lower_data, "center": ribbon_center_data},
             },
+            "vol_profile": vol_profile,
         }
     )
 

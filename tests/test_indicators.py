@@ -15,6 +15,7 @@ from app import (
     compute_keltner_breakout,
     compute_parabolic_sar,
     compute_cci_trend,
+    compute_trend_ribbon,
 )
 
 
@@ -167,3 +168,56 @@ class TestCCITrend:
         _, direction = compute_cci_trend(sample_df)
         unique = set(direction.unique())
         assert unique.issubset({-1, 0, 1})
+
+
+class TestTrendRibbon:
+    def test_returns_five_series(self, sample_df):
+        result = compute_trend_ribbon(sample_df)
+        assert len(result) == 5, "Should return (center, upper, lower, strength, direction)"
+
+    def test_correct_shape(self, sample_df):
+        center, upper, lower, strength, direction = compute_trend_ribbon(sample_df)
+        for s in (center, upper, lower, strength, direction):
+            assert len(s) == len(sample_df)
+
+    def test_band_ordering(self, sample_df):
+        center, upper, lower, _, _ = compute_trend_ribbon(sample_df)
+        valid = upper.dropna().index.intersection(lower.dropna().index).intersection(center.dropna().index)
+        assert (upper[valid] >= center[valid]).all(), "Upper should be >= center"
+        assert (center[valid] >= lower[valid]).all(), "Center should be >= lower"
+
+    def test_direction_values(self, sample_df):
+        _, _, _, _, direction = compute_trend_ribbon(sample_df)
+        unique = set(direction.dropna().unique())
+        assert unique.issubset({-1, 0, 1})
+
+    def test_strength_range(self, sample_df):
+        _, _, _, strength, _ = compute_trend_ribbon(sample_df)
+        valid = strength.dropna()
+        assert (valid >= 0).all(), "Strength should be >= 0"
+        assert (valid <= 1).all(), "Strength should be <= 1"
+
+    def test_width_varies_with_params(self, sample_df):
+        """Wider max_width should produce a wider band on average."""
+        _, upper_narrow, lower_narrow, _, _ = compute_trend_ribbon(
+            sample_df, max_width=1.0
+        )
+        _, upper_wide, lower_wide, _, _ = compute_trend_ribbon(
+            sample_df, max_width=5.0
+        )
+        valid = upper_narrow.dropna().index.intersection(upper_wide.dropna().index)
+        narrow_avg = (upper_narrow[valid] - lower_narrow[valid]).mean()
+        wide_avg = (upper_wide[valid] - lower_wide[valid]).mean()
+        assert wide_avg > narrow_avg, "Larger max_width should give wider band"
+
+    def test_center_is_ema(self, sample_df):
+        """Center line should be close to the EMA of close prices."""
+        center, _, _, _, _ = compute_trend_ribbon(sample_df, ema_period=21)
+        ema = sample_df["Close"].ewm(span=21, adjust=False).mean()
+        diff = (center - ema).abs()
+        assert diff.max() < 1e-10, "Center should match EMA exactly"
+
+    def test_nan_during_warmup(self, small_df):
+        """Should have NaN values at the start during warmup period."""
+        _, upper, lower, strength, _ = compute_trend_ribbon(small_df)
+        assert pd.isna(upper.iloc[0]) or pd.isna(strength.iloc[0])

@@ -133,6 +133,203 @@ class TestChartAPI:
             assert "summary" in strategies[key]
 
 
+class TestChartOverlays:
+    """Test that the chart API returns trend ribbon and volume profile data."""
+
+    @patch("app.yf.download")
+    def test_chart_returns_ribbon_overlay(self, mock_download, client):
+        n = 200
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n))
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.5,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get("/api/chart?ticker=TEST&start=2023-01-01&period=10&multiplier=3")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "overlays" in data
+        overlays = data["overlays"]
+        assert "ribbon" in overlays, "Overlays should include ribbon"
+        ribbon = overlays["ribbon"]
+        assert "upper" in ribbon
+        assert "lower" in ribbon
+        assert "center" in ribbon
+        assert len(ribbon["upper"]) > 0, "Ribbon upper should have data"
+        assert len(ribbon["lower"]) > 0, "Ribbon lower should have data"
+        assert len(ribbon["center"]) > 0, "Ribbon center should have data"
+
+    @patch("app.yf.download")
+    def test_ribbon_data_has_color_fields(self, mock_download, client):
+        n = 200
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n))
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.5,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get("/api/chart?ticker=TEST&start=2023-01-01")
+        data = resp.get_json()
+        ribbon = data["overlays"]["ribbon"]
+        # Each upper/lower point should have time, value, color, lineColor
+        sample = ribbon["upper"][0]
+        assert "time" in sample
+        assert "value" in sample
+        assert "color" in sample
+        assert "lineColor" in sample
+        assert sample["color"].startswith("rgba(")
+
+    @patch("app.yf.download")
+    def test_ribbon_band_ordering_in_response(self, mock_download, client):
+        n = 200
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n))
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.5,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get("/api/chart?ticker=TEST&start=2023-01-01")
+        data = resp.get_json()
+        ribbon = data["overlays"]["ribbon"]
+        # Upper should be >= lower for matching timestamps
+        upper_map = {d["time"]: d["value"] for d in ribbon["upper"]}
+        for pt in ribbon["lower"]:
+            if pt["time"] in upper_map:
+                assert upper_map[pt["time"]] >= pt["value"], \
+                    f"Upper ({upper_map[pt['time']]}) should be >= lower ({pt['value']}) at {pt['time']}"
+
+    @patch("app.yf.download")
+    def test_chart_returns_vol_profile(self, mock_download, client):
+        n = 200
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n))
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.5,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get("/api/chart?ticker=TEST&start=2023-01-01")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "vol_profile" in data, "Response should include vol_profile"
+        vp = data["vol_profile"]
+        assert isinstance(vp, list)
+        assert len(vp) == 40, "Should have 40 price buckets"
+
+    @patch("app.yf.download")
+    def test_vol_profile_structure(self, mock_download, client):
+        n = 200
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n))
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.5,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get("/api/chart?ticker=TEST&start=2023-01-01")
+        data = resp.get_json()
+        bucket = data["vol_profile"][0]
+        assert "price" in bucket
+        assert "total" in bucket
+        assert "buy" in bucket
+        assert "sell" in bucket
+
+    @patch("app.yf.download")
+    def test_vol_profile_buy_sell_sum(self, mock_download, client):
+        """Buy + sell volume should equal total for each bucket."""
+        n = 200
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n))
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.5,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get("/api/chart?ticker=TEST&start=2023-01-01")
+        data = resp.get_json()
+        for bucket in data["vol_profile"]:
+            assert abs(bucket["buy"] + bucket["sell"] - bucket["total"]) < 1, \
+                f"Buy ({bucket['buy']}) + Sell ({bucket['sell']}) should equal Total ({bucket['total']})"
+
+    @patch("app.yf.download")
+    def test_vol_profile_total_volume(self, mock_download, client):
+        """Sum of all bucket totals should approximate total volume in the data."""
+        n = 200
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n))
+        vol = np.full(n, 5_000_000)
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.5,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": vol,
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get("/api/chart?ticker=TEST&start=2023-01-01")
+        data = resp.get_json()
+        vp_total = sum(b["total"] for b in data["vol_profile"])
+        expected_total = float(vol.sum())
+        assert abs(vp_total - expected_total) < expected_total * 0.01, \
+            f"Volume profile total ({vp_total}) should be close to actual total ({expected_total})"
+
+
 class TestHelperFunctions:
     def test_parse_start_date(self):
         from app import _parse_start_date
