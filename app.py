@@ -77,6 +77,10 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
     if os.path.exists(csv_path):
         try:
             cached_df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+            # Deduplicate index to prevent "Reindexing only valid with
+            # uniquely valued Index objects" errors downstream.
+            if cached_df.index.duplicated().any():
+                cached_df = cached_df[~cached_df.index.duplicated(keep="last")]
         except Exception:
             cached_df = None
 
@@ -119,6 +123,10 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
     if isinstance(new_df.columns, pd.MultiIndex):
         new_df.columns = new_df.columns.get_level_values(0)
 
+    # Deduplicate index from yfinance download
+    if not new_df.empty and new_df.index.duplicated().any():
+        new_df = new_df[~new_df.index.duplicated(keep="last")]
+
     # Merge with cached data
     if cached_df is not None and not cached_df.empty and not new_df.empty:
         combined = pd.concat([cached_df, new_df])
@@ -152,6 +160,9 @@ def _slice_df(df: pd.DataFrame, start, end) -> pd.DataFrame:
     """Return the subset of df within [start, end]."""
     if df.empty:
         return df
+    # Safety: deduplicate index to avoid reindex errors in downstream .loc calls
+    if df.index.duplicated().any():
+        df = df[~df.index.duplicated(keep="last")]
     mask = pd.Series(True, index=df.index)
     if start:
         mask &= df.index >= pd.Timestamp(start)
@@ -716,68 +727,169 @@ def backtest_supertrend(df, direction, start_in_position=False):
     return backtest_direction(df, direction, start_in_position=start_in_position)
 
 
-def compute_support_resistance(df, window=5, cluster_pct=0.015, max_levels=8):
-    """Detect support/resistance levels from swing highs/lows.
+def compute_support_resistance(df, max_levels=8):
+    """Detect support/resistance levels using KDE on swing pivots with
+    confirmed-bounce validation and respect-ratio filtering.
 
     Algorithm:
-    1. Find swing highs (local maxima) and swing lows (local minima) using a
-       rolling window.
-    2. Cluster nearby price levels together (within cluster_pct of each other).
-    3. Score each cluster by number of touches.
-    4. Return the top levels sorted by proximity to current price.
+    1. Find swing highs/lows (fractal pivots) with adaptive window.
+    2. Use Kernel Density Estimation to find natural price clusters (peaks
+       in the density of pivot prices).
+    3. For each KDE peak, validate with confirmed bounces: bars where price
+       wicked into the zone and the NEXT bar reversed away.
+    4. Compute a respect ratio (bounces / (bounces + clean breaks)) to
+       filter out levels that price routinely slices through.
+    5. Score by confirmed bounces * recency * respect ratio.
     """
+    from scipy.signal import find_peaks
+    from scipy.stats import gaussian_kde
     import numpy as np
 
     highs = df["High"].values
     lows = df["Low"].values
     closes = df["Close"].values
-
-    pivots = []  # (price, type)
-
-    # Swing highs: High[i] is the highest in a window around i
-    for i in range(window, len(highs) - window):
-        if highs[i] == max(highs[i - window : i + window + 1]):
-            pivots.append(highs[i])
-        if lows[i] == min(lows[i - window : i + window + 1]):
-            pivots.append(lows[i])
-
-    if not pivots:
+    volumes = df["Volume"].values if "Volume" in df.columns else np.ones(len(df))
+    timestamps = [int(t.timestamp()) for t in df.index]
+    n = len(highs)
+    if n < 30:
         return []
 
-    # Also consider prominent round-number levels near price range
-    # (these often act as psychological S/R)
-
-    # Cluster nearby pivots
-    pivots.sort()
-    clusters = []  # list of lists
-    for p in pivots:
-        merged = False
-        for cluster in clusters:
-            center = sum(cluster) / len(cluster)
-            if abs(p - center) / center < cluster_pct:
-                cluster.append(p)
-                merged = True
-                break
-        if not merged:
-            clusters.append([p])
-
-    # Score clusters: more touches = stronger level
     current_price = float(closes[-1])
+
+    # Adaptive parameters
+    atr_series = (df["High"] - df["Low"]).rolling(14).mean()
+    atr = float(atr_series.iloc[-1]) if not pd.isna(atr_series.iloc[-1]) else 0
+    if atr == 0:
+        atr = current_price * 0.02
+    window = 3 if n < 400 else 5
+
+    # Step 1: Find swing pivots
+    pivots = []  # price values only, for KDE
+    pivot_details = []  # (price, bar_index) for later matching
+    for i in range(window, n - window):
+        if highs[i] == max(highs[i - window : i + window + 1]):
+            pivots.append(highs[i])
+            pivot_details.append((highs[i], i))
+        if lows[i] == min(lows[i - window : i + window + 1]):
+            pivots.append(lows[i])
+            pivot_details.append((lows[i], i))
+
+    if len(pivots) < 4:
+        return []
+
+    # Step 2: KDE to find natural price clusters
+    pivot_arr = np.array(pivots)
+    # Bandwidth 0.05 gives good granularity — enough to separate distinct
+    # zones while merging pivots within one zone.
+    kde = gaussian_kde(pivot_arr, bw_method=0.05)
+
+    # Evaluate KDE on a grid spanning the price range
+    price_min, price_max = pivot_arr.min() * 0.95, pivot_arr.max() * 1.05
+    grid = np.linspace(price_min, price_max, 500)
+    density = kde(grid)
+
+    # Find peaks in the density
+    peak_indices, peak_props = find_peaks(density, height=density.max() * 0.05)
+    if len(peak_indices) == 0:
+        return []
+
+    # The S/R levels are the prices at KDE peaks
+    sr_prices = grid[peak_indices]
+    sr_densities = density[peak_indices]
+
+    # Step 3: For each level, find confirmed bounces and clean breaks
+    zone_width = atr * 0.5  # half-ATR zone around each level
     levels = []
-    for cluster in clusters:
-        if len(cluster) < 2:
-            continue  # require at least 2 touches
-        avg_price = sum(cluster) / len(cluster)
+    avg_vol = float(np.mean(volumes)) if np.mean(volumes) > 0 else 1.0
+
+    for li, level_price in enumerate(sr_prices):
+        sup_bounces = []  # bar indices where level acted as support
+        res_bounces = []  # bar indices where level acted as resistance
+        breaks = 0  # count of clean breaks through the level
+
+        for i in range(1, n - 1):
+            in_zone_low = abs(lows[i] - level_price) < zone_width
+            in_zone_high = abs(highs[i] - level_price) < zone_width
+
+            if not (in_zone_low or in_zone_high):
+                continue
+
+            # Support bounce: low wicked into zone, close above, next bar
+            # confirms (close[i+1] > close[i] or low[i+1] > low[i])
+            if in_zone_low and closes[i] > level_price:
+                next_reversed = closes[i + 1] >= closes[i] or lows[i + 1] > lows[i]
+                if next_reversed:
+                    sup_bounces.append(i)
+                else:
+                    breaks += 1
+
+            # Resistance rejection: high wicked into zone, close below,
+            # next bar confirms (close[i+1] <= close[i] or high[i+1] < high[i])
+            elif in_zone_high and closes[i] < level_price:
+                next_reversed = closes[i + 1] <= closes[i] or highs[i + 1] < highs[i]
+                if next_reversed:
+                    res_bounces.append(i)
+                else:
+                    breaks += 1
+
+        # Classify by which behavior dominates at this level
+        all_bounces = sorted(sup_bounces + res_bounces)
+        n_bounces = len(all_bounces)
+        if n_bounces < 2:
+            continue
+
+        # Determine type based on actual price action, not just position
+        # relative to current price. If a level has more support bounces
+        # it's support; if more resistance rejections it's resistance.
+        if len(sup_bounces) > len(res_bounces):
+            level_type = "support"
+        elif len(res_bounces) > len(sup_bounces):
+            level_type = "resistance"
+        else:
+            # Tie: fall back to position relative to current price
+            level_type = "support" if level_price < current_price else "resistance"
+
+        # Respect ratio: how often the level held vs was broken
+        total_tests = n_bounces + breaks
+        respect = n_bounces / total_tests if total_tests > 0 else 0
+        if respect < 0.3:
+            continue  # level broken too often
+
+        # Recency: weight by how recent the bounces are
+        avg_recency = sum(b / n for b in all_bounces) / n_bounces
+
+        # Volume weight: average volume on bounce bars vs overall average
+        vol_weight = sum(volumes[b] for b in all_bounces) / (n_bounces * avg_vol)
+        vol_weight = min(vol_weight, 3.0)  # cap at 3x
+
+        # Score
+        score = n_bounces * (0.3 + avg_recency) * vol_weight * respect
+
+        # Find which original swing pivots are near this level (for solid segments)
+        pivot_bar_indices = sorted(
+            [idx for p, idx in pivot_details if abs(p - level_price) < zone_width]
+        )
+        pivot_times = [timestamps[i] for i in pivot_bar_indices]
+
+        # Bounce bar times (deduplicated)
+        bounce_times = sorted(set(timestamps[b] for b in all_bounces))
+
         levels.append(
             {
-                "price": round(avg_price, 2),
-                "touches": len(cluster),
-                "type": "support" if avg_price < current_price else "resistance",
+                "price": round(float(level_price), 2),
+                "touches": n_bounces,
+                "type": level_type,
+                "touch_times": bounce_times,
+                "pivot_times": pivot_times,
+                "respect": round(respect, 2),
+                "_score": score,
             }
         )
 
-    # Sort by proximity to current price and take the closest ones
-    levels.sort(key=lambda l: abs(l["price"] - current_price))
+    # Sort by proximity to current price, break ties by score
+    levels.sort(key=lambda l: (abs(l["price"] - current_price), -l["_score"]))
+    for lv in levels:
+        del lv["_score"]
     return levels[:max_levels]
 
 
@@ -808,6 +920,9 @@ def chart_data():
 
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
+
+    # Remove duplicate index entries (can occur from cache merges)
+    df = df[~df.index.duplicated(keep="last")]
 
     view_mask = _visible_mask(df.index, start, end)
     df_view = df.loc[view_mask].copy()
@@ -1100,7 +1215,7 @@ def chart_data():
         prices = df_view["Close"]
         vols = df_view["Volume"]
         price_min, price_max = float(prices.min()), float(prices.max())
-        n_buckets = 40
+        n_buckets = 200
         bucket_size = (price_max - price_min) / n_buckets if price_max > price_min else 1
         for b in range(n_buckets):
             lo_price = price_min + b * bucket_size
@@ -1426,4 +1541,8 @@ def report_data():
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5050)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-p", "--port", type=int, default=5050)
+    args = parser.parse_args()
+    app.run(debug=True, port=args.port)
