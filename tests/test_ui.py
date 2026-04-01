@@ -110,14 +110,14 @@ class TestOverlayChips:
         expect(st_chip).to_have_class(re.compile(r"on"))
 
     def test_toggle_chip(self, browser_page):
-        sma50_chip = browser_page.locator(".chip", has_text="SMA 50")
+        ema_chip = browser_page.locator(".chip", has_text="EMA Signals")
         # Should start off
-        expect(sma50_chip).not_to_have_class(re.compile(r"\bon\b"))
-        sma50_chip.click()
-        expect(sma50_chip).to_have_class(re.compile(r"on"))
+        expect(ema_chip).not_to_have_class(re.compile(r"\bon\b"))
+        ema_chip.click()
+        expect(ema_chip).to_have_class(re.compile(r"on"))
         # Toggle back off
-        sma50_chip.click()
-        expect(sma50_chip).not_to_have_class(re.compile(r"\bon\b"))
+        ema_chip.click()
+        expect(ema_chip).not_to_have_class(re.compile(r"\bon\b"))
 
 
 class TestBacktestPanel:
@@ -144,7 +144,7 @@ class TestBacktestPanel:
         btn.click()
         select = browser_page.locator("#strategy-select")
         options = select.locator("option")
-        assert options.count() == 10
+        assert options.count() == 11
         # Close panel
         browser_page.locator(".bt-close").click()
 
@@ -167,12 +167,6 @@ class TestToolbarControls:
         expect(select).to_be_visible()
         options = select.locator("option")
         assert options.count() == 2
-
-    def test_date_inputs(self, browser_page):
-        start = browser_page.locator("#start")
-        end = browser_page.locator("#end")
-        expect(start).to_be_visible()
-        expect(end).to_be_visible()
 
     def test_supertrend_param_inputs(self, browser_page):
         period = browser_page.locator("#period")

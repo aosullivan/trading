@@ -55,6 +55,16 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
 #chart-container{width:100%;height:100%}
 .chart-tag{position:absolute;top:10px;left:14px;z-index:5;font-size:11px;color:var(--text-4);font-weight:500;letter-spacing:.3px;pointer-events:none}
 
+/* === MA LEGEND OVERLAY === */
+.ma-legend{position:absolute;top:30px;left:14px;z-index:5;display:flex;flex-direction:column;gap:2px;pointer-events:auto}
+.ma-legend-row{display:flex;align-items:center;gap:5px;font-size:11px;font-weight:500;letter-spacing:.2px;opacity:.8;transition:opacity .15s;cursor:pointer;user-select:none;padding:1px 4px;border-radius:3px}
+.ma-legend-row:hover{opacity:1;background:var(--bg-3)}
+.ma-legend-row.hidden{opacity:.35}
+.ma-legend-row.hidden:hover{opacity:.55}
+.ma-legend-row .ma-color{width:10px;height:2px;border-radius:1px;flex-shrink:0}
+.ma-legend-row .ma-label{color:var(--text-3);white-space:nowrap}
+.ma-legend-row .ma-val{color:var(--text-2);font-variant-numeric:tabular-nums;min-width:60px}
+
 /* === BACKTEST PANEL (docked bottom) === */
 .bt-panel-wrap{display:none;flex-direction:column;background:var(--bg-2);border-top:1px solid var(--border-2);flex-shrink:0;min-height:0}
 .bt-panel-wrap.open{display:flex}
@@ -112,12 +122,23 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
 .bt-toggle.active .dot{background:var(--green);animation:pulse 1.5s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
+/* === WATCHLIST TOGGLE === */
+.wl-toggle{
+  position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:20;
+  width:20px;height:48px;background:var(--bg-2);border:1px solid var(--border);
+  border-right:none;border-radius:6px 0 0 6px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  color:var(--text-4);font-size:11px;transition:all .15s;
+}
+.wl-toggle:hover{background:var(--bg-4);color:var(--text-1);border-color:var(--accent)}
+
 /* === WATCHLIST (RIGHT) === */
 .watchlist{
   width:280px;min-width:200px;max-width:400px;background:var(--bg-1);
   border-left:1px solid var(--border);display:flex;flex-direction:column;height:100vh;
-  position:relative;flex-shrink:0;
+  position:relative;flex-shrink:0;transition:width .2s ease,min-width .2s ease,border .2s ease;
 }
+.watchlist.collapsed{width:0!important;min-width:0!important;max-width:0!important;overflow:hidden;border-left:none}
 .wl-drag{position:absolute;left:-3px;top:0;bottom:0;width:6px;cursor:col-resize;z-index:10}
 .wl-drag:hover::after,.wl-drag:active::after{content:'';position:absolute;left:2px;top:0;bottom:0;width:2px;background:var(--accent);opacity:.5}
 .wl-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
@@ -135,13 +156,14 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
 .wl-sort{cursor:pointer;user-select:none;transition:color .15s}.wl-sort:hover{color:var(--text-1)}
 .wl-sort i{font-style:normal;margin-left:2px;font-size:8px;opacity:.6}
 .wl-list{flex:1;overflow-y:auto}
-.wl-row{display:grid;grid-template-columns:1fr 70px 58px 58px;padding:8px 14px;cursor:pointer;align-items:center;transition:background .12s;border-bottom:1px solid var(--bg-2)}
+.wl-swipe-wrap{position:relative;overflow:hidden;border-bottom:1px solid var(--bg-2)}
+.wl-row{display:grid;grid-template-columns:1fr 70px 58px 58px;padding:8px 14px;cursor:pointer;align-items:center;transition:transform .25s ease,background .12s;position:relative;z-index:1;background:var(--bg-1)}
 .wl-row:hover{background:var(--bg-3)}
 .wl-row.active{background:var(--bg-4)}
 .wl-row.active .wl-tk{color:var(--accent)}
+.wl-row.swiping{transition:none}
+.wl-del-bg{position:absolute;right:0;top:0;bottom:0;width:80px;display:flex;align-items:center;justify-content:center;background:var(--red);color:#fff;font-size:12px;font-weight:600;letter-spacing:.5px;z-index:0;cursor:pointer}
 .wl-tk{font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;color:var(--text-1)}
-.wl-tk .wl-rm{opacity:0;color:var(--text-4);background:none;border:none;cursor:pointer;font-size:14px;line-height:1;transition:all .12s;padding:0}
-.wl-row:hover .wl-rm{opacity:1}.wl-rm:hover{color:var(--red)}
 .wl-v{text-align:right;font-size:11px;font-variant-numeric:tabular-nums;font-weight:500;color:var(--text-2)}
 .wl-v.up{color:var(--green)}.wl-v.dn{color:var(--red)}
 .wl-v.last{color:var(--text-1);font-weight:600}
@@ -161,13 +183,7 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
       <span class="tk-chg" id="tk-chg">--</span>
     </div>
     <div class="tb-grp">
-      <select id="interval" class="inp" style="cursor:pointer" onchange="loadChart()"><option value="1d" selected>1D</option><option value="1wk">1W</option></select>
-    </div>
-    <div class="tb-grp">
-      <span class="tb-lbl">From</span>
-      <input type="date" id="start" value="2023-01-01" class="inp inp-d">
-      <span class="tb-lbl">To</span>
-      <input type="date" id="end" value="" class="inp inp-d">
+      <select id="interval" class="inp" style="cursor:pointer" onchange="chartStart=defaultStart(this.value);loadChart()"><option value="1d" selected>1D</option><option value="1wk">1W</option></select>
     </div>
     <div class="tb-grp">
       <span class="tb-lbl">ST</span>
@@ -180,16 +196,10 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
     <div class="ld" id="loading"><div class="spin"></div>Loading...</div>
   </div>
 
-  <!-- OVERLAYS -->
+  <!-- STRATEGIES -->
   <div class="overlays">
 	    <div class="chip on" onclick="toggleChip(this,'st')"><span class="cd" style="background:var(--green)"></span>Supertrend</div>
-	    <div class="chip" onclick="toggleChip(this,'sma50')"><span class="cd" style="background:var(--orange)"></span>SMA 50</div>
-	    <div class="chip" onclick="toggleChip(this,'sma100')"><span class="cd" style="background:var(--purple)"></span>SMA 100</div>
-	    <div class="chip" onclick="toggleChip(this,'sma200')"><span class="cd" style="background:var(--cyan)"></span>SMA 200</div>
-	    <div class="chip" onclick="toggleChip(this,'sma50w')"><span class="cd" style="background:#e8b839"></span>50W MA</div>
-	    <div class="chip" onclick="toggleChip(this,'sma200w')"><span class="cd" style="background:var(--yellow)"></span>200W MA</div>
-	    <div class="chip-sep"></div>
-	    <div class="chip" onclick="toggleChip(this,'emaCross')"><span class="cd" style="background:#ff9800"></span>EMA 9/21</div>
+	    <div class="chip on" onclick="toggleChip(this,'vol')"><span class="cd" style="background:#5b7fff"></span>Volume</div>
 	    <div class="chip-sep"></div>
 	    <div class="chip" onclick="toggleSignal(this,'supertrend')"><span class="cd" style="background:#5b7fff"></span>ST Signals</div>
 	    <div class="chip" onclick="toggleSignal(this,'ema_crossover')"><span class="cd" style="background:#ff9800"></span>EMA Signals</div>
@@ -201,11 +211,14 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
 	    <div class="chip" onclick="toggleSignal(this,'keltner')"><span class="cd" style="background:#e040fb"></span>Keltner Signals</div>
 	    <div class="chip" onclick="toggleSignal(this,'parabolic_sar')"><span class="cd" style="background:#76ff03"></span>SAR Signals</div>
 	    <div class="chip" onclick="toggleSignal(this,'cci_trend')"><span class="cd" style="background:#ff6e40"></span>CCI Signals</div>
+	    <div class="chip" onclick="toggleSignal(this,'regime_router')"><span class="cd" style="background:#00fff7"></span>Regime Router</div>
 	  </div>
 
   <!-- CHART -->
   <div class="chart-area">
+    <button class="wl-toggle" id="wl-toggle" onclick="toggleWatchlist()" title="Toggle Watchlist">&#9654;</button>
     <div class="chart-tag" id="chart-tag"></div>
+    <div class="ma-legend" id="ma-legend"></div>
     <div id="chart-container"></div>
 
     <!-- Backtest toggle button -->
@@ -231,6 +244,7 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
         <option value="keltner">Keltner Breakout (20/10)</option>
         <option value="parabolic_sar">Parabolic SAR</option>
         <option value="cci_trend">CCI Trend (20/100)</option>
+        <option value="regime_router">Regime Router</option>
       </select>
       <button class="bt-close" onclick="toggleBT()">&times;</button>
     </div>
@@ -290,42 +304,74 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
 <script>
 let chart,candleSeries,stUpSeries,stDownSeries,volumeSeries,btEquityChart,btEquitySeries;
 let sma50Series,sma100Series,sma200Series,sma50wSeries,sma200wSeries,ema9Series,ema21Series;
+// Indicator overlay series — price overlays
+let donchUpperSeries,donchLowerSeries;
+let bbUpperSeries,bbMidSeries,bbLowerSeries;
+let keltUpperSeries,keltMidSeries,keltLowerSeries;
+let psarBullSeries,psarBearSeries;
+// Oscillator overlay series — separate scale
+let macdLineSeries,macdSignalSeries,macdHistSeries;
+let adxLineSeries,plusDiSeries,minusDiSeries;
+let cciLineSeries;
+const overlaySeries=[];
 let lastData=null,btOpen=false;
+let chartStart='',chartEnd='';
 
 const now=new Date(),yearAgo=new Date(now);yearAgo.setFullYear(yearAgo.getFullYear()-1);
 
+function defaultStart(interval){
+  const d=new Date();
+  // Load all available history — data is cached locally on disk so this is cheap
+  if(interval==='1wk'){d.setFullYear(d.getFullYear()-10);}
+  else{d.setFullYear(d.getFullYear()-5);}
+  return d.toISOString().split('T')[0];
+}
+function defaultVisibleStart(interval){
+  const d=new Date();
+  if(interval==='1wk'){d.setFullYear(d.getFullYear()-1);}
+  else{d.setMonth(d.getMonth()-3);} // 3 months for daily
+  return d.toISOString().split('T')[0];
+}
+
 // === URL PARAM SYNC ===
+let _urlSignals=[];  // signal chips to restore after chart loads
+let _urlChips=null;  // legend chips to restore after chart loads
 function readURLParams(){
   const p=new URLSearchParams(window.location.search);
   if(p.get('ticker'))document.getElementById('ticker').value=p.get('ticker').toUpperCase();
   if(p.get('interval'))document.getElementById('interval').value=p.get('interval');
-  if(p.get('start'))document.getElementById('start').value=p.get('start');
-  if(p.has('end'))document.getElementById('end').value=p.get('end');
+  const interval=document.getElementById('interval').value;
+  chartStart=p.get('start')||defaultStart(interval);
+  chartEnd=p.get('end')||'';
   if(p.get('period'))document.getElementById('period').value=p.get('period');
   if(p.get('multiplier'))document.getElementById('multiplier').value=p.get('multiplier');
+  if(p.get('signals'))_urlSignals=p.get('signals').split(',').filter(Boolean);
+  if(p.has('chips'))_urlChips=p.get('chips').split(',').filter(Boolean);
 }
 function pushURLParams(){
   const p=new URLSearchParams();
   const ticker=document.getElementById('ticker').value.toUpperCase();
   const interval=document.getElementById('interval').value;
-  const start=document.getElementById('start').value;
-  const end=document.getElementById('end').value;
   const period=document.getElementById('period').value;
   const mult=document.getElementById('multiplier').value;
   if(ticker&&ticker!=='TSLA')p.set('ticker',ticker);
   if(interval&&interval!=='1d')p.set('interval',interval);
-  if(start&&start!=='2023-01-01')p.set('start',start);
-  if(end)p.set('end',end);
   if(period&&period!=='10')p.set('period',period);
   if(mult&&mult!=='3')p.set('multiplier',mult);
+  if(activeSignals.size)p.set('signals',[...activeSignals].join(','));
+  // Legend chips (only write if non-default)
+  const defaultChips=['st','vol'];
+  const chipsArr=[...activeChips];
+  const isDefault=chipsArr.length===defaultChips.length&&defaultChips.every(c=>activeChips.has(c));
+  if(!isDefault)p.set('chips',chipsArr.join(','));
   const qs=p.toString();
   history.replaceState(null,'',qs?'?'+qs:window.location.pathname);
 }
 
 readURLParams();
 document.addEventListener('DOMContentLoaded',()=>{
-  document.getElementById('bt-start').value=document.getElementById('start').value||yearAgo.toISOString().split('T')[0];
-  document.getElementById('bt-end').value=document.getElementById('end').value||now.toISOString().split('T')[0];
+  document.getElementById('bt-start').value=chartStart||yearAgo.toISOString().split('T')[0];
+  document.getElementById('bt-end').value=chartEnd||now.toISOString().split('T')[0];
   setBTRangeLabel();
 });
 
@@ -347,9 +393,40 @@ function initChart(){
   sma200wSeries=chart.addLineSeries({color:'#ffd644',lineWidth:2,lineStyle:2,lastValueVisible:false,priceLineVisible:false,visible:false});
   ema9Series=chart.addLineSeries({color:'#ff9800',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
   ema21Series=chart.addLineSeries({color:'#ff5722',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
+  // Donchian channels (blue)
+  donchUpperSeries=chart.addLineSeries({color:'#42a5f5',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,lastValueVisible:false,priceLineVisible:false,visible:false});
+  donchLowerSeries=chart.addLineSeries({color:'#42a5f5',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,lastValueVisible:false,priceLineVisible:false,visible:false});
+  // Bollinger Bands (purple)
+  bbUpperSeries=chart.addLineSeries({color:'#ab47bc',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
+  bbMidSeries=chart.addLineSeries({color:'#ab47bc',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,lastValueVisible:false,priceLineVisible:false,visible:false});
+  bbLowerSeries=chart.addLineSeries({color:'#ab47bc',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
+  // Keltner Channels (teal)
+  keltUpperSeries=chart.addLineSeries({color:'#26a69a',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
+  keltMidSeries=chart.addLineSeries({color:'#26a69a',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,lastValueVisible:false,priceLineVisible:false,visible:false});
+  keltLowerSeries=chart.addLineSeries({color:'#26a69a',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
+  // Parabolic SAR dots
+  psarBullSeries=chart.addLineSeries({color:'#00e68a',lineWidth:0,lastValueVisible:false,priceLineVisible:false,visible:false,pointMarkersVisible:true,pointMarkersRadius:2});
+  psarBearSeries=chart.addLineSeries({color:'#ff5274',lineWidth:0,lastValueVisible:false,priceLineVisible:false,visible:false,pointMarkersVisible:true,pointMarkersRadius:2});
+  // MACD oscillator (own scale, bottom panel)
+  const oscOpts={priceScaleId:'osc',lastValueVisible:false,priceLineVisible:false,visible:false};
+  macdLineSeries=chart.addLineSeries({...oscOpts,color:'#42a5f5',lineWidth:1});
+  macdSignalSeries=chart.addLineSeries({...oscOpts,color:'#ef5350',lineWidth:1});
+  macdHistSeries=chart.addHistogramSeries({...oscOpts,priceFormat:{type:'price',precision:2}});
+  // ADX oscillator
+  adxLineSeries=chart.addLineSeries({...oscOpts,color:'#ffd644',lineWidth:2});
+  plusDiSeries=chart.addLineSeries({...oscOpts,color:'#00e68a',lineWidth:1});
+  minusDiSeries=chart.addLineSeries({...oscOpts,color:'#ff5274',lineWidth:1});
+  // CCI oscillator
+  cciLineSeries=chart.addLineSeries({...oscOpts,color:'#ff6e40',lineWidth:1});
+  chart.priceScale('osc').applyOptions({scaleMargins:{top:0.75,bottom:0},borderVisible:false,drawTicks:false});
+  overlaySeries.push(donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,macdLineSeries,macdSignalSeries,macdHistSeries,adxLineSeries,plusDiSeries,minusDiSeries,cciLineSeries);
 	volumeSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'volume'});
 	chart.priceScale('volume').applyOptions({scaleMargins:{top:.82,bottom:0}});
 	new ResizeObserver(()=>chart.applyOptions({width:c.clientWidth,height:c.clientHeight})).observe(c);
+
+  // Crosshair move -> update MA legend values
+  chart.subscribeCrosshairMove(param=>updateMALegendValues(param));
+
 }
 
 function ensureBTChart(){
@@ -375,28 +452,83 @@ function ensureBTChart(){
   }).observe(c);
 }
 
-const sMap={st:()=>[stUpSeries,stDownSeries],sma50:()=>[sma50Series],sma100:()=>[sma100Series],sma200:()=>[sma200Series],sma50w:()=>[sma50wSeries],sma200w:()=>[sma200wSeries],emaCross:()=>[ema9Series,ema21Series]};
-function toggleChip(el,n){el.classList.toggle('on');const on=el.classList.contains('on');(sMap[n]?.()||[]).forEach(s=>s.applyOptions({visible:on}))}
+const sMap={st:()=>[stUpSeries,stDownSeries],vol:()=>[volumeSeries],sma50:()=>[sma50Series],sma100:()=>[sma100Series],sma200:()=>[sma200Series],sma50w:()=>[sma50wSeries],sma200w:()=>[sma200wSeries],emaCross:()=>[ema9Series,ema21Series]};
+const activeChips=new Set(['st','vol']); // track which legend chips are on
+function toggleChip(el,n){el.classList.toggle('on');const on=el.classList.contains('on');if(on)activeChips.add(n);else activeChips.delete(n);(sMap[n]?.()||[]).forEach(s=>s.applyOptions({visible:on}));pushURLParams()}
+
+// === MA LEGEND (TradingView-style overlay) ===
+const maLegendItems=[
+  {key:'sma50',label:'SMA 50',color:'#ffa040',series:()=>[sma50Series],visible:false,dataKey:'sma_50'},
+  {key:'sma100',label:'SMA 100',color:'#b050ff',series:()=>[sma100Series],visible:false,dataKey:'sma_100'},
+  {key:'sma200',label:'SMA 200',color:'#00d4ff',series:()=>[sma200Series],visible:false,dataKey:'sma_200'},
+  {key:'sma50w',label:'50W MA',color:'#e8b839',series:()=>[sma50wSeries],visible:false,dataKey:'sma_50w'},
+  {key:'sma200w',label:'200W MA',color:'#ffd644',series:()=>[sma200wSeries],visible:false,dataKey:'sma_200w'},
+  {key:'emaCross',label:'EMA 9/21',color:'#ff9800',series:()=>[ema9Series,ema21Series],visible:false,dataKey:'ema9'},
+];
+
+function buildMALegend(){
+  const container=document.getElementById('ma-legend');
+  container.innerHTML=maLegendItems.map((item,i)=>`
+    <div class="ma-legend-row${item.visible?'':' hidden'}" data-idx="${i}" onclick="toggleMALegend(${i})">
+      <span class="ma-color" style="background:${item.color}"></span>
+      <span class="ma-label">${item.label}</span>
+      <span class="ma-val" id="ma-val-${i}">--</span>
+    </div>
+  `).join('');
+}
+
+function toggleMALegend(idx){
+  const item=maLegendItems[idx];
+  item.visible=!item.visible;
+  const row=document.querySelector(`.ma-legend-row[data-idx="${idx}"]`);
+  row.classList.toggle('hidden',!item.visible);
+  (item.series()||[]).forEach(s=>s.applyOptions({visible:item.visible}));
+}
+
+function updateMALegendValues(param){
+  if(!lastData)return;
+  maLegendItems.forEach((item,i)=>{
+    const el=document.getElementById('ma-val-'+i);
+    if(!el)return;
+    if(!item.dataKey){el.textContent='';return;}
+    const dataArr=lastData[item.dataKey];
+    if(!dataArr||!dataArr.length){el.textContent='--';return;}
+    // Find the value at or before the crosshair time
+    let val='--';
+    if(param&&param.time){
+      const t=typeof param.time==='object'?new Date(param.time.year,param.time.month-1,param.time.day).getTime()/1000:param.time;
+      for(let j=dataArr.length-1;j>=0;j--){
+        if(dataArr[j].time<=t){val=dataArr[j].value.toFixed(2);break;}
+      }
+    }else{
+      // Use last value
+      val=dataArr[dataArr.length-1].value.toFixed(2);
+    }
+    el.textContent=val;
+  });
+}
 
 // === SIGNAL TOGGLES ===
 const signalColors={
   supertrend:'#5b7fff',ema_crossover:'#ff9800',macd:'#b050ff',
   ma_confirm:'#00d4ff',donchian:'#ffd644',adx_trend:'#00e68a',bb_breakout:'#ff5274',
-  keltner:'#e040fb',parabolic_sar:'#76ff03',cci_trend:'#ff6e40'
+  keltner:'#e040fb',parabolic_sar:'#76ff03',cci_trend:'#ff6e40',regime_router:'#00fff7'
 };
 const activeSignals=new Set();
 function toggleSignal(el,name){
   el.classList.toggle('on');
   if(el.classList.contains('on'))activeSignals.add(name);else activeSignals.delete(name);
   updateMarkers();
+  updateOverlaysFromSignals();
+  pushURLParams();
 }
 let activeBacktestStrat=null;
 function updateMarkers(){
   if(!lastData?.strategies){candleSeries.setMarkers([]);return}
   const all=[];
   const shown=new Set(activeSignals);
-  // Always include the backtest panel's selected strategy
-  if(activeBacktestStrat) shown.add(activeBacktestStrat);
+  // Only include the backtest panel's selected strategy when panel is open
+  if(btOpen&&activeBacktestStrat) shown.add(activeBacktestStrat);
   shown.forEach(name=>{
     const s=lastData.strategies[name];if(!s)return;
     const c=signalColors[name]||'#5b7fff';
@@ -452,8 +584,8 @@ function toggleBT(){
 }
 
 function applyBT(){
-  document.getElementById('start').value=document.getElementById('bt-start').value;
-  document.getElementById('end').value=document.getElementById('bt-end').value;
+  chartStart=document.getElementById('bt-start').value;
+  chartEnd=document.getElementById('bt-end').value;
   setBTRangeLabel();
   loadChart();
 }
@@ -463,7 +595,7 @@ async function loadChart(){
   btn.disabled=true;ld.classList.add('on');
   const ticker=document.getElementById('ticker').value.toUpperCase();
   const interval=document.getElementById('interval').value;
-  const start=document.getElementById('start').value,end=document.getElementById('end').value;
+  const start=chartStart,end=chartEnd;
 	const period=document.getElementById('period').value,mult=document.getElementById('multiplier').value;
 	document.getElementById('tk-sym').textContent=ticker;
 	document.getElementById('chart-tag').textContent=`${ticker} \u00b7 ${interval==='1wk'?'Weekly':'Daily'} \u00b7 ST ${period}/${mult}`;
@@ -480,7 +612,18 @@ async function loadChart(){
     sma50Series.setData(data.sma_50||[]);sma100Series.setData(data.sma_100||[]);
     sma200Series.setData(data.sma_200||[]);sma50wSeries.setData(data.sma_50w||[]);sma200wSeries.setData(data.sma_200w||[]);
     ema9Series.setData(data.ema9||[]);ema21Series.setData(data.ema21||[]);
+    // Indicator overlays
+    const ov=data.overlays||{};
+    donchUpperSeries.setData(ov.donchian?.upper||[]);donchLowerSeries.setData(ov.donchian?.lower||[]);
+    bbUpperSeries.setData(ov.bb?.upper||[]);bbMidSeries.setData(ov.bb?.mid||[]);bbLowerSeries.setData(ov.bb?.lower||[]);
+    keltUpperSeries.setData(ov.keltner?.upper||[]);keltMidSeries.setData(ov.keltner?.mid||[]);keltLowerSeries.setData(ov.keltner?.lower||[]);
+    psarBullSeries.setData(ov.psar?.bull||[]);psarBearSeries.setData(ov.psar?.bear||[]);
+    // Oscillators
+    macdLineSeries.setData(data.macd_line||[]);macdSignalSeries.setData(data.signal_line||[]);macdHistSeries.setData(data.macd_hist||[]);
+    adxLineSeries.setData(ov.adx?.adx||[]);plusDiSeries.setData(ov.adx?.plus_di||[]);minusDiSeries.setData(ov.adx?.minus_di||[]);
+    cciLineSeries.setData(ov.cci?.cci||[]);
     lastData=data;
+    updateMALegendValues(null);
     // Price display
     if(data.candles.length){
       const l=data.candles[data.candles.length-1],p=data.candles.length>1?data.candles[data.candles.length-2]:l;
@@ -491,7 +634,17 @@ async function loadChart(){
       ce.textContent=`${up?'+':''}${c.toFixed(2)} (${up?'+':''}${cp.toFixed(2)}%)`;
       ce.className='tk-chg '+(up?'up':'dn');
     }
-    chart.timeScale().fitContent();
+    // Show last 1yr (daily) or 2yr (weekly) by default; all history is loaded so user can scroll left freely
+    if(data.candles.length){
+      const visStart=defaultVisibleStart(interval);
+      const visStartTs=Math.floor(new Date(visStart).getTime()/1000);
+      const firstCandle=data.candles[0].time;
+      const from=Math.max(visStartTs,firstCandle);
+      const to=data.candles[data.candles.length-1].time;
+      chart.timeScale().setVisibleRange({from,to});
+    }else{
+      chart.timeScale().fitContent();
+    }
     switchStrategy(document.getElementById('strategy-select').value);
     updateMarkers();
   }catch(e){alert('Error: '+e.message)}
@@ -503,12 +656,45 @@ function switchStrategy(name){
   const s=lastData.strategies[name];if(!s)return;
   activeBacktestStrat=name;
   updateMarkers();
+  showOverlaysForStrategy(name);
   if(btOpen){
     ensureBTChart();
   }
   renderEquityCurve(s.equity_curve||[]);
   renderStats(s.summary);
   renderTrades(s.trades);
+}
+
+// Map strategy names to their overlay series
+const overlayMap={
+  ema_crossover:[()=>ema9Series,()=>ema21Series],
+  macd:[()=>macdLineSeries,()=>macdSignalSeries,()=>macdHistSeries],
+  ma_confirm:[()=>sma200Series],
+  donchian:[()=>donchUpperSeries,()=>donchLowerSeries],
+  adx_trend:[()=>adxLineSeries,()=>plusDiSeries,()=>minusDiSeries],
+  bb_breakout:[()=>bbUpperSeries,()=>bbMidSeries,()=>bbLowerSeries],
+  keltner:[()=>keltUpperSeries,()=>keltMidSeries,()=>keltLowerSeries],
+  parabolic_sar:[()=>psarBullSeries,()=>psarBearSeries],
+  cci_trend:[()=>cciLineSeries],
+};
+
+function updateOverlaysFromSignals(){
+  // Combine active signal chips + backtest panel strategy
+  const active=new Set(activeSignals);
+  if(btOpen&&activeBacktestStrat) active.add(activeBacktestStrat);
+  // Collect series that legend chips are keeping visible
+  const chipProtected=new Set();
+  activeChips.forEach(n=>{(sMap[n]?.()||[]).forEach(s=>chipProtected.add(s))});
+  // Hide overlay series (unless protected by a legend chip), then show active ones
+  overlaySeries.forEach(s=>{if(!chipProtected.has(s))s.applyOptions({visible:false})});
+  active.forEach(name=>{
+    const fns=overlayMap[name];
+    if(fns) fns.forEach(fn=>fn().applyOptions({visible:true}));
+  });
+}
+
+function showOverlaysForStrategy(name){
+  updateOverlaysFromSignals();
 }
 
 function renderEquityCurve(points){
@@ -597,6 +783,18 @@ function showBTPanel(name,el){
 }
 
 // === WATCHLIST ===
+function toggleWatchlist(){
+  const panel=document.getElementById('wl-panel');
+  const btn=document.getElementById('wl-toggle');
+  const collapsed=!panel.classList.contains('collapsed');
+  panel.classList.toggle('collapsed',collapsed);
+  btn.innerHTML=collapsed?'&#9664;':'&#9654;';
+  btn.title=collapsed?'Show Watchlist':'Hide Watchlist';
+  setTimeout(()=>{
+    chart.applyOptions({width:document.getElementById('chart-container').clientWidth,height:document.getElementById('chart-container').clientHeight});
+  },250);
+}
+
 let wlQuotes={};
 let wlList=[];
 let wlSortKey=null; // 'sym','last','chg','chg_pct'
@@ -625,12 +823,13 @@ async function loadWL(){
 }
 
 function fetchQuotes(){
-  wlList.forEach(t=>{
-    fetch(`/api/watchlist/quote/${encodeURIComponent(t)}`)
-      .then(r=>r.json())
-      .then(q=>{wlQuotes[q.ticker]=q;renderWL(wlList)})
-      .catch(()=>{});
-  });
+  fetch('/api/watchlist/quotes')
+    .then(r=>r.json())
+    .then(quotes=>{
+      quotes.forEach(q=>{wlQuotes[q.ticker]=q});
+      renderWL(wlList);
+    })
+    .catch(()=>{});
 }
 
 function renderWL(list){
@@ -648,13 +847,73 @@ function renderWL(list){
     const q=wlQuotes[t]||{};
     const up=q.chg>=0;
     const cls=up?'up':'dn';
-    return `<div class="wl-row${t===cur?' active':''}" onclick="pickTicker('${t}')">
-      <div class="wl-tk"><span>${t}</span><button class="wl-rm" onclick="event.stopPropagation();rmWL('${t}')">&times;</button></div>
-      <div class="wl-v last">${q.last!=null?q.last.toLocaleString():'--'}</div>
-      <div class="wl-v ${q.chg!=null?cls:''}">${q.chg!=null?(up?'+':'')+q.chg:'--'}</div>
-      <div class="wl-v ${q.chg_pct!=null?cls:''}">${q.chg_pct!=null?(up?'+':'')+q.chg_pct+'%':'--'}</div>
+    return `<div class="wl-swipe-wrap" data-ticker="${t}">
+      <div class="wl-del-bg" onclick="event.stopPropagation();rmWL('${t}')">DELETE</div>
+      <div class="wl-row${t===cur?' active':''}" onclick="pickTicker('${t}')">
+        <div class="wl-tk"><span>${t}</span></div>
+        <div class="wl-v last">${q.last!=null?q.last.toLocaleString():'--'}</div>
+        <div class="wl-v ${q.chg!=null?cls:''}">${q.chg!=null?(up?'+':'')+q.chg:'--'}</div>
+        <div class="wl-v ${q.chg_pct!=null?cls:''}">${q.chg_pct!=null?(up?'+':'')+q.chg_pct+'%':'--'}</div>
+      </div>
     </div>`;
   }).join('');
+  initSwipeHandlers();
+}
+
+function initSwipeHandlers(){
+  document.querySelectorAll('.wl-swipe-wrap').forEach(wrap=>{
+    const row=wrap.querySelector('.wl-row');
+    let startX=0,currentX=0,dragging=false;
+    const THRESHOLD=60;
+
+    let didSwipe=false;
+    function onStart(x){startX=x;currentX=x;dragging=true;didSwipe=false;row.classList.add('swiping')}
+    function onMove(x){
+      if(!dragging)return;
+      currentX=x;
+      const dx=Math.min(0,currentX-startX); // only allow left swipe
+      if(Math.abs(currentX-startX)>5) didSwipe=true;
+      row.style.transform=`translateX(${dx}px)`;
+    }
+    function onEnd(){
+      if(!dragging)return;
+      dragging=false;
+      row.classList.remove('swiping');
+      const dx=currentX-startX;
+      if(dx<-THRESHOLD){
+        row.style.transform='translateX(-80px)';
+        // Close other open rows
+        document.querySelectorAll('.wl-swipe-wrap').forEach(other=>{
+          if(other!==wrap){
+            const r=other.querySelector('.wl-row');
+            r.style.transform='';
+          }
+        });
+      }else{
+        row.style.transform='';
+      }
+    }
+
+    // Suppress click if user swiped
+    row.addEventListener('click',e=>{if(didSwipe){e.stopImmediatePropagation();e.preventDefault()}},true);
+
+    // Mouse events
+    row.addEventListener('mousedown',e=>{onStart(e.clientX)});
+    row.addEventListener('mousemove',e=>{if(dragging){e.preventDefault();onMove(e.clientX)}});
+    row.addEventListener('mouseup',onEnd);
+    row.addEventListener('mouseleave',onEnd);
+
+    // Touch events
+    row.addEventListener('touchstart',e=>{onStart(e.touches[0].clientX)},{passive:true});
+    row.addEventListener('touchmove',e=>{onMove(e.touches[0].clientX)},{passive:true});
+    row.addEventListener('touchend',onEnd);
+  });
+  // Close all swipes when clicking elsewhere
+  document.addEventListener('click',e=>{
+    if(!e.target.closest('.wl-swipe-wrap')){
+      document.querySelectorAll('.wl-row').forEach(r=>r.style.transform='');
+    }
+  });
 }
 
 async function addWL(){
@@ -709,7 +968,36 @@ function pickTicker(t){
 // Keyboard: Enter in ticker to load
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeElement.id==='ticker')loadChart()});
 
-initChart();loadWL();loadChart();
+initChart();buildMALegend();restoreURLState();loadWL();loadChart();
+
+function restoreURLState(){
+  // Restore legend chips from URL
+  if(_urlChips!==null){
+    // Turn off defaults, then turn on URL chips
+    activeChips.clear();
+    document.querySelectorAll('.overlays .chip[onclick^="toggleChip"]').forEach(el=>{
+      const m=el.getAttribute('onclick').match(/toggleChip\(this,'(\w+)'\)/);
+      if(!m)return;
+      const key=m[1];
+      const shouldBeOn=_urlChips.includes(key);
+      if(shouldBeOn){activeChips.add(key);el.classList.add('on')}
+      else{el.classList.remove('on')}
+      (sMap[key]?.()||[]).forEach(s=>s.applyOptions({visible:shouldBeOn}));
+    });
+  }
+  // Restore signal chips from URL
+  if(_urlSignals.length){
+    document.querySelectorAll('.overlays .chip[onclick^="toggleSignal"]').forEach(el=>{
+      const m=el.getAttribute('onclick').match(/toggleSignal\(this,'([\w]+)'\)/);
+      if(!m)return;
+      const name=m[1];
+      if(_urlSignals.includes(name)){
+        el.classList.add('on');
+        activeSignals.add(name);
+      }
+    });
+  }
+}
 </script>
 </body>
 </html>

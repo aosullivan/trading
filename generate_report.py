@@ -9,12 +9,13 @@ Usage:
 import argparse
 import json
 import sys
+import time
 from datetime import date
 
 import pandas as pd
 import yfinance as yf
 
-from app import STRATEGIES, backtest_direction, load_watchlist
+from app import STRATEGIES, backtest_direction, cached_download, load_watchlist
 
 
 def build_periods(years=None, start=None, end=None):
@@ -57,8 +58,10 @@ def generate(periods):
     for idx, ticker in enumerate(tickers, 1):
         sys.stderr.write(f"\r[{idx}/{total}] {ticker:<10}")
         sys.stderr.flush()
+        if idx > 1:
+            time.sleep(2)  # avoid Yahoo Finance rate limits
         try:
-            df = yf.download(ticker, start=warmup_start, end=today, interval="1d", progress=False)
+            df = cached_download(ticker, start=warmup_start, end=today, interval="1d", progress=False)
             if df.empty:
                 continue
             if isinstance(df.columns, pd.MultiIndex):

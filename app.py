@@ -1,10 +1,164 @@
 import json
 import os
-from datetime import timedelta
+import time as _time
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify
 import yfinance as yf
 import pandas as pd
 import numpy as np
+
+# ---------------------------------------------------------------------------
+# In-memory TTL cache (for quotes and short-lived data)
+# ---------------------------------------------------------------------------
+_cache: dict[str, tuple[float, object]] = {}
+_CACHE_TTL = 300  # seconds (5 minutes)
+
+
+def _cache_get(key: str):
+    """Return cached value if still fresh, else None."""
+    entry = _cache.get(key)
+    if entry and (_time.time() - entry[0]) < _CACHE_TTL:
+        return entry[1]
+    return None
+
+
+def _cache_set(key: str, value):
+    _cache[key] = (_time.time(), value)
+
+
+# ---------------------------------------------------------------------------
+# Persistent local file cache for historical OHLCV data
+# ---------------------------------------------------------------------------
+_DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), "data_cache")
+os.makedirs(_DATA_CACHE_DIR, exist_ok=True)
+
+# Minimum seconds before re-fetching fresh data for a ticker+interval
+_DISK_CACHE_FRESHNESS = 300  # 5 minutes
+
+
+def _disk_cache_path(ticker: str, interval: str) -> str:
+    """Return path to the cached CSV for a ticker+interval."""
+    safe = f"{ticker}_{interval}".replace("/", "_")
+    return os.path.join(_DATA_CACHE_DIR, f"{safe}.csv")
+
+
+def _meta_path(ticker: str, interval: str) -> str:
+    safe = f"{ticker}_{interval}".replace("/", "_")
+    return os.path.join(_DATA_CACHE_DIR, f"{safe}.meta.json")
+
+
+def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
+    """Download OHLCV data with persistent local file cache.
+
+    On first call: fetches full history and saves to CSV.
+    On subsequent calls: loads cached data, fetches only new rows since the
+    last cached date, appends, and re-saves. Skips re-fetch if data was
+    refreshed less than _DISK_CACHE_FRESHNESS seconds ago.
+    """
+    interval = kwargs.get("interval", "1d")
+    start = kwargs.get("start")
+    end = kwargs.get("end")
+
+    # For non-standard calls (period-based, etc.), fall back to in-memory cache
+    if start is None or "period" in kwargs:
+        key = f"dl:{ticker}:{json.dumps(kwargs, sort_keys=True, default=str)}"
+        cached = _cache_get(key)
+        if cached is not None:
+            return cached
+        df = yf.download(ticker, **kwargs)
+        _cache_set(key, df)
+        return df
+
+    csv_path = _disk_cache_path(ticker, interval)
+    meta_path = _meta_path(ticker, interval)
+    cached_df = None
+
+    # Load existing cached data
+    if os.path.exists(csv_path):
+        try:
+            cached_df = pd.read_csv(csv_path, index_col=0, parse_dates=True)
+        except Exception:
+            cached_df = None
+
+    # Check if we fetched recently enough to skip the network call
+    now = _time.time()
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+            if (now - meta.get("last_fetch", 0)) < _DISK_CACHE_FRESHNESS and cached_df is not None:
+                # Return slice matching the requested range
+                return _slice_df(cached_df, start, end)
+        except Exception:
+            pass
+
+    # Determine what to fetch
+    if cached_df is not None and not cached_df.empty:
+        # Only fetch from day after last cached row
+        last_cached = cached_df.index.max()
+        fetch_start = (last_cached + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        # If fetch_start is in the future, nothing new to get
+        if pd.Timestamp(fetch_start) > pd.Timestamp.now():
+            _write_meta(meta_path, now)
+            return _slice_df(cached_df, start, end)
+    else:
+        fetch_start = start
+
+    # Fetch new data
+    fetch_kwargs = {k: v for k, v in kwargs.items() if k not in ("start", "end")}
+    fetch_kwargs["start"] = fetch_start
+    fetch_kwargs["progress"] = False
+    try:
+        new_df = yf.download(ticker, **fetch_kwargs)
+    except Exception:
+        # Network error — return whatever we have cached
+        if cached_df is not None:
+            return _slice_df(cached_df, start, end)
+        return pd.DataFrame()
+
+    if isinstance(new_df.columns, pd.MultiIndex):
+        new_df.columns = new_df.columns.get_level_values(0)
+
+    # Merge with cached data
+    if cached_df is not None and not cached_df.empty and not new_df.empty:
+        combined = pd.concat([cached_df, new_df])
+        combined = combined[~combined.index.duplicated(keep="last")]
+        combined.sort_index(inplace=True)
+    elif not new_df.empty:
+        combined = new_df
+    else:
+        combined = cached_df if cached_df is not None else pd.DataFrame()
+
+    # Persist to disk
+    if not combined.empty:
+        try:
+            combined.to_csv(csv_path)
+        except Exception:
+            pass
+
+    _write_meta(meta_path, now)
+    return _slice_df(combined, start, end)
+
+
+def _write_meta(meta_path: str, now: float):
+    try:
+        with open(meta_path, "w") as f:
+            json.dump({"last_fetch": now}, f)
+    except Exception:
+        pass
+
+
+def _slice_df(df: pd.DataFrame, start, end) -> pd.DataFrame:
+    """Return the subset of df within [start, end]."""
+    if df.empty:
+        return df
+    mask = pd.Series(True, index=df.index)
+    if start:
+        mask &= df.index >= pd.Timestamp(start)
+    if end:
+        mask &= df.index <= pd.Timestamp(end)
+    return df.loc[mask]
+
 
 app = Flask(__name__)
 
@@ -529,7 +683,7 @@ def chart_data():
         kwargs = {"start": _warmup_start(start, interval), "interval": interval, "progress": False}
         if end:
             kwargs["end"] = end
-        df = yf.download(ticker, **kwargs)
+        df = cached_download(ticker, **kwargs)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
@@ -567,40 +721,46 @@ def chart_data():
         df_view, macd_direction_view, start_in_position=_starts_long(macd_direction, df.index, df_view.index)
     )
 
-    _donch_upper, _donch_lower, donch_direction = compute_donchian_breakout(df, 20)
+    donch_upper, donch_lower, donch_direction = compute_donchian_breakout(df, 20)
     donch_direction_view = donch_direction.loc[df_view.index]
     donch_trades, donch_summary, donch_equity_curve = backtest_direction(
         df_view, donch_direction_view, start_in_position=_starts_long(donch_direction, df.index, df_view.index)
     )
 
-    _adx, _plus_di, _minus_di, adx_direction = compute_adx_trend(df, 14, 25)
+    adx_val, plus_di, minus_di, adx_direction = compute_adx_trend(df, 14, 25)
     adx_direction_view = adx_direction.loc[df_view.index]
     adx_trades, adx_summary, adx_equity_curve = backtest_direction(
         df_view, adx_direction_view, start_in_position=_starts_long(adx_direction, df.index, df_view.index)
     )
 
-    _bb_upper, _bb_mid, _bb_lower, bb_direction = compute_bollinger_breakout(df, 20, 2)
+    bb_upper, bb_mid, bb_lower, bb_direction = compute_bollinger_breakout(df, 20, 2)
     bb_direction_view = bb_direction.loc[df_view.index]
     bb_trades, bb_summary, bb_equity_curve = backtest_direction(
         df_view, bb_direction_view, start_in_position=_starts_long(bb_direction, df.index, df_view.index)
     )
 
-    _kelt_upper, _kelt_mid, _kelt_lower, kelt_direction = compute_keltner_breakout(df)
+    kelt_upper, kelt_mid, kelt_lower, kelt_direction = compute_keltner_breakout(df)
     kelt_direction_view = kelt_direction.loc[df_view.index]
     kelt_trades, kelt_summary, kelt_equity_curve = backtest_direction(
         df_view, kelt_direction_view, start_in_position=_starts_long(kelt_direction, df.index, df_view.index)
     )
 
-    _psar, psar_direction = compute_parabolic_sar(df)
+    psar_line, psar_direction = compute_parabolic_sar(df)
     psar_direction_view = psar_direction.loc[df_view.index]
     psar_trades, psar_summary, psar_equity_curve = backtest_direction(
         df_view, psar_direction_view, start_in_position=_starts_long(psar_direction, df.index, df_view.index)
     )
 
-    _cci, cci_direction = compute_cci_trend(df)
+    cci_val, cci_direction = compute_cci_trend(df)
     cci_direction_view = cci_direction.loc[df_view.index]
     cci_trades, cci_summary, cci_equity_curve = backtest_direction(
         df_view, cci_direction_view, start_in_position=_starts_long(cci_direction, df.index, df_view.index)
+    )
+
+    _regime, rr_direction = compute_regime_router(df)
+    rr_direction_view = rr_direction.loc[df_view.index]
+    rr_trades, rr_summary, rr_equity_curve = backtest_direction(
+        df_view, rr_direction_view, start_in_position=_starts_long(rr_direction, df.index, df_view.index)
     )
 
     candles = []
@@ -676,7 +836,7 @@ def chart_data():
         kwargs_w = {"start": _warmup_start(start, "1wk"), "interval": "1wk", "progress": False}
         if end:
             kwargs_w["end"] = end
-        df_w = yf.download(ticker, **kwargs_w)
+        df_w = cached_download(ticker, **kwargs_w)
         if not df_w.empty:
             if isinstance(df_w.columns, pd.MultiIndex):
                 df_w.columns = df_w.columns.get_level_values(0)
@@ -739,6 +899,55 @@ def chart_data():
                 }
             )
 
+    # --- Serialize indicator overlay data ---
+    def _series_to_json(series, view_index, decimals=2):
+        """Convert a pandas Series to [{time, value}, ...] for the view range."""
+        view = series.loc[view_index]
+        out = []
+        for i in range(len(view)):
+            v = view.iloc[i]
+            if pd.isna(v):
+                continue
+            out.append({"time": int(view_index[i].timestamp()), "value": round(float(v), decimals)})
+        return out
+
+    # Donchian channels
+    donch_upper_data = _series_to_json(donch_upper, df_view.index)
+    donch_lower_data = _series_to_json(donch_lower, df_view.index)
+
+    # Bollinger Bands
+    bb_upper_data = _series_to_json(bb_upper, df_view.index)
+    bb_mid_data = _series_to_json(bb_mid, df_view.index)
+    bb_lower_data = _series_to_json(bb_lower, df_view.index)
+
+    # Keltner Channels
+    kelt_upper_data = _series_to_json(kelt_upper, df_view.index)
+    kelt_mid_data = _series_to_json(kelt_mid, df_view.index)
+    kelt_lower_data = _series_to_json(kelt_lower, df_view.index)
+
+    # Parabolic SAR dots (split into bull/bear for color)
+    psar_bull_data = []
+    psar_bear_data = []
+    psar_view = psar_line.loc[df_view.index]
+    psar_dir_view = psar_direction.loc[df_view.index]
+    for i in range(len(df_view)):
+        v = psar_view.iloc[i]
+        if pd.isna(v):
+            continue
+        pt = {"time": int(df_view.index[i].timestamp()), "value": round(float(v), 2)}
+        if psar_dir_view.iloc[i] == 1:
+            psar_bull_data.append(pt)
+        else:
+            psar_bear_data.append(pt)
+
+    # ADX / +DI / -DI
+    adx_data = _series_to_json(adx_val, df_view.index)
+    plus_di_data = _series_to_json(plus_di, df_view.index)
+    minus_di_data = _series_to_json(minus_di, df_view.index)
+
+    # CCI
+    cci_data = _series_to_json(cci_val, df_view.index)
+
     return jsonify(
         {
             "candles": candles,
@@ -763,12 +972,21 @@ def chart_data():
                 "keltner": {"trades": kelt_trades, "summary": kelt_summary, "equity_curve": kelt_equity_curve},
                 "parabolic_sar": {"trades": psar_trades, "summary": psar_summary, "equity_curve": psar_equity_curve},
                 "cci_trend": {"trades": cci_trades, "summary": cci_summary, "equity_curve": cci_equity_curve},
+                "regime_router": {"trades": rr_trades, "summary": rr_summary, "equity_curve": rr_equity_curve},
             },
             "ema9": ema9_data,
             "ema21": ema21_data,
             "macd_line": macd_line_data,
             "signal_line": signal_line_data,
             "macd_hist": macd_hist_data,
+            "overlays": {
+                "donchian": {"upper": donch_upper_data, "lower": donch_lower_data},
+                "bb": {"upper": bb_upper_data, "mid": bb_mid_data, "lower": bb_lower_data},
+                "keltner": {"upper": kelt_upper_data, "mid": kelt_mid_data, "lower": kelt_lower_data},
+                "psar": {"bull": psar_bull_data, "bear": psar_bear_data},
+                "adx": {"adx": adx_data, "plus_di": plus_di_data, "minus_di": minus_di_data},
+                "cci": {"cci": cci_data},
+            },
         }
     )
 
@@ -801,100 +1019,150 @@ def remove_from_watchlist():
 
 @app.route("/api/watchlist/quotes")
 def watchlist_quotes():
-    """Get latest price, change, and change% for all watchlist tickers."""
+    """Get latest price, change, and change% for all watchlist tickers.
+
+    Uses a single bulk yf.download() call instead of N individual Ticker
+    requests to reduce Yahoo Finance API hits.
+    """
     tickers = load_watchlist()
     if not tickers:
         return jsonify([])
 
+    cache_key = f"quotes:{'|'.join(tickers)}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
     results = []
-    for ticker in tickers:
-        try:
-            tk = yf.Ticker(ticker)
-            info = tk.fast_info
-            last = round(float(info.last_price), 2)
-            prev = round(float(info.previous_close), 2)
-            chg = round(last - prev, 2)
-            chg_pct = round((chg / prev) * 100, 2) if prev else 0
-            results.append({
-                "ticker": ticker,
-                "last": last,
-                "chg": chg,
-                "chg_pct": chg_pct,
-            })
-        except Exception:
-            results.append({
-                "ticker": ticker,
-                "last": None,
-                "chg": None,
-                "chg_pct": None,
-            })
+    try:
+        # Bulk download last 5 trading days — enough to get prev close
+        df = yf.download(tickers, period="5d", interval="1d", progress=False, group_by="ticker")
+        for ticker in tickers:
+            try:
+                if len(tickers) == 1:
+                    tdf = df
+                else:
+                    tdf = df[ticker]
+                if isinstance(tdf.columns, pd.MultiIndex):
+                    tdf.columns = tdf.columns.get_level_values(0)
+                tdf = tdf.dropna(subset=["Close"])
+                if len(tdf) < 2:
+                    raise ValueError("not enough data")
+                last = round(float(tdf["Close"].iloc[-1]), 2)
+                prev = round(float(tdf["Close"].iloc[-2]), 2)
+                chg = round(last - prev, 2)
+                chg_pct = round((chg / prev) * 100, 2) if prev else 0
+                results.append({"ticker": ticker, "last": last, "chg": chg, "chg_pct": chg_pct})
+            except Exception:
+                results.append({"ticker": ticker, "last": None, "chg": None, "chg_pct": None})
+    except Exception:
+        # Fallback: return empty quotes rather than error
+        results = [{"ticker": t, "last": None, "chg": None, "chg_pct": None} for t in tickers]
+
+    # Only cache if all quotes succeeded
+    if all(r["last"] is not None for r in results):
+        _cache_set(cache_key, results)
     return jsonify(results)
 
 
 @app.route("/api/watchlist/quote/<ticker>")
 def watchlist_quote(ticker):
     """Get latest price for a single ticker."""
+    cache_key = f"quote:{ticker}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
     try:
-        tk = yf.Ticker(ticker)
-        info = tk.fast_info
-        last = round(float(info.last_price), 2)
-        prev = round(float(info.previous_close), 2)
+        df = yf.download(ticker, period="5d", interval="1d", progress=False)
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df = df.dropna(subset=["Close"])
+        if len(df) < 2:
+            raise ValueError("not enough data")
+        last = round(float(df["Close"].iloc[-1]), 2)
+        prev = round(float(df["Close"].iloc[-2]), 2)
         chg = round(last - prev, 2)
         chg_pct = round((chg / prev) * 100, 2) if prev else 0
-        return jsonify({"ticker": ticker, "last": last, "chg": chg, "chg_pct": chg_pct})
+        result = {"ticker": ticker, "last": last, "chg": chg, "chg_pct": chg_pct}
     except Exception:
-        return jsonify({"ticker": ticker, "last": None, "chg": None, "chg_pct": None})
+        result = {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
+
+    # Only cache successful results
+    if result["last"] is not None:
+        _cache_set(cache_key, result)
+    return jsonify(result)
 
 
-def detect_regime(df, adx_period=14, bb_period=20, lookback=5):
-    """Classify market regime on each bar using ADX level + Bollinger Band width.
+def detect_regime(df, ema_period=21, atr_period=10, adx_period=14, confirm_bars=3):
+    """Classify market regime using fast leading indicators.
+
+    Uses EMA slope + ATR expansion as leading signals (detect trends early),
+    with ADX as a lagging confirmation (upgrade to strong trend).
 
     Returns a Series with values:
-        'strong_trend' - ADX > 30 and rising
-        'trending'     - ADX 20-30
-        'choppy'       - ADX < 20, normal volatility
-        'range_bound'  - ADX < 20, Bollinger width contracting
+        'strong_trend' - EMA slope strong AND ADX confirms (>25) OR ATR expanding fast
+        'trending'     - EMA slope meaningful, ATR not contracting
+        'choppy'       - EMA flat, normal volatility
+        'range_bound'  - EMA flat AND ATR contracting (squeeze)
     """
     high = df["High"]
     low = df["Low"]
     close = df["Close"]
 
-    # --- ADX ---
+    # --- EMA slope (fast leading indicator) ---
+    ema = close.ewm(span=ema_period, adjust=False).mean()
+    # Normalize slope as % change over lookback bars
+    ema_slope = (ema - ema.shift(confirm_bars)) / ema.shift(confirm_bars) * 100
+
+    # --- ATR expansion/contraction (leading indicator of breakouts) ---
+    hl = high - low
+    hc = (high - close.shift(1)).abs()
+    lc = (low - close.shift(1)).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+    atr = tr.rolling(window=atr_period).mean()
+    atr_ma = atr.rolling(window=atr_period * 4).mean()
+    # ATR ratio: >1 means volatility expanding, <1 means contracting
+    atr_ratio = atr / atr_ma
+
+    # --- ADX (lagging confirmation) ---
     plus_dm = high.diff()
     minus_dm = -low.diff()
     plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
     minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
 
-    hl = high - low
-    hc = (high - close.shift(1)).abs()
-    lc = (low - close.shift(1)).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-
-    atr = tr.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-    plus_di = 100 * (plus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr)
-    minus_di = 100 * (minus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr)
+    atr_adx = tr.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
+    plus_di = 100 * (plus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr_adx)
+    minus_di = 100 * (minus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr_adx)
     dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
     adx = dx.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
 
-    adx_rising = adx > adx.shift(lookback)
-
-    # --- Bollinger Band width (normalized) ---
-    bb_ma = close.rolling(window=bb_period).mean()
-    bb_std = close.rolling(window=bb_period).std()
-    bb_width = (2 * bb_std) / bb_ma
-    bb_width_contracting = bb_width < bb_width.rolling(window=lookback * 4).mean()
-
     # --- Classify ---
     regime = pd.Series("choppy", index=df.index)
-    warmup = max(adx_period * 2, bb_period + lookback * 4)
+    warmup = max(adx_period * 2, ema_period + confirm_bars, atr_period * 4)
+
+    # Thresholds
+    slope_strong = 1.5    # EMA moved >1.5% in confirm_bars — strong directional move
+    slope_trending = 0.4  # EMA moved >0.4% — mild trend
+    atr_expanding = 1.2   # ATR 20% above its average — volatility breakout
+    atr_contracting = 0.8 # ATR 20% below its average — squeeze
 
     for i in range(warmup, len(df)):
-        adx_val = adx.iloc[i]
-        if adx_val > 30 and adx_rising.iloc[i]:
+        slope = abs(ema_slope.iloc[i]) if not pd.isna(ema_slope.iloc[i]) else 0
+        atr_r = atr_ratio.iloc[i] if not pd.isna(atr_ratio.iloc[i]) else 1
+        adx_val = adx.iloc[i] if not pd.isna(adx.iloc[i]) else 0
+
+        if slope > slope_strong and atr_r > atr_expanding:
+            # Fast detection: big EMA move + volatility expanding = trend starting
             regime.iloc[i] = "strong_trend"
-        elif adx_val > 20:
+        elif slope > slope_trending and adx_val > 25:
+            # Confirmed trend: moderate slope + ADX agrees
+            regime.iloc[i] = "strong_trend"
+        elif slope > slope_trending:
+            # Mild trend: slope says yes, ADX hasn't confirmed yet
             regime.iloc[i] = "trending"
-        elif bb_width_contracting.iloc[i]:
+        elif atr_r < atr_contracting:
+            # Squeeze: flat slope + volatility drying up
             regime.iloc[i] = "range_bound"
         else:
             regime.iloc[i] = "choppy"
@@ -905,46 +1173,46 @@ def detect_regime(df, adx_period=14, bb_period=20, lookback=5):
 # Pre-compute strategy directions keyed by name
 _STRATEGY_FNS = {
     "Parabolic SAR": lambda df: compute_parabolic_sar(df)[1],
-    "ADX Trend (14/25)": lambda df: compute_adx_trend(df)[3],
     "Supertrend": lambda df: compute_supertrend(df)[1],
 }
 
 
 def compute_regime_router(df):
-    """Regime-based strategy router.
+    """Regime-based strategy router v2.
 
-    Routes to the historically best strategy per regime:
-        strong_trend -> Parabolic SAR  (+96% avg in backtest)
-        trending     -> ADX Trend      (+5.9% avg in backtest)
-        choppy       -> Supertrend     (+2.1% avg, best of bad options)
-        range_bound  -> flat (0)       (no trend strategy works here)
+    Supertrend is the always-on base strategy. When a strong trend is
+    detected (via EMA slope + ATR expansion), upgrades to Parabolic SAR
+    which captures more of the move. In range-bound squeezes, goes flat
+    to avoid whipsaw losses.
 
-    Returns (regime, direction) where direction is a composite Series
-    that switches between strategies based on the detected regime.
+    Routing:
+        strong_trend -> Parabolic SAR  (aggressive, captures big moves)
+        trending     -> Parabolic SAR  (early upgrade, ride the trend)
+        choppy       -> Supertrend     (conservative base, filters noise)
+        range_bound  -> Supertrend     (stays in but Supertrend is sticky)
+
+    Returns (regime, direction).
     """
     regime, adx = detect_regime(df)
 
-    # Pre-compute all sub-strategy directions
+    # Pre-compute sub-strategy directions
     sub_directions = {}
     for name, fn in _STRATEGY_FNS.items():
         sub_directions[name] = fn(df)
 
-    # Route: pick direction from the strategy assigned to current regime
+    # Route: Supertrend base, upgrade to Parabolic SAR in trends
     regime_to_strategy = {
         "strong_trend": "Parabolic SAR",
-        "trending": "ADX Trend (14/25)",
+        "trending": "Parabolic SAR",
         "choppy": "Supertrend",
-        "range_bound": None,  # stay flat
+        "range_bound": "Supertrend",
     }
 
     direction = pd.Series(0, index=df.index)
     for i in range(len(df)):
         r = regime.iloc[i]
-        strat_name = regime_to_strategy.get(r)
-        if strat_name is None:
-            direction.iloc[i] = 0
-        else:
-            direction.iloc[i] = sub_directions[strat_name].iloc[i]
+        strat_name = regime_to_strategy[r]
+        direction.iloc[i] = sub_directions[strat_name].iloc[i]
 
     return regime, direction
 
