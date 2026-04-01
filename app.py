@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import timedelta
 from flask import Flask, render_template, request, jsonify
 import yfinance as yf
 import pandas as pd
@@ -8,6 +9,9 @@ import numpy as np
 app = Flask(__name__)
 
 WATCHLIST_FILE = os.path.join(os.path.dirname(__file__), "watchlist.json")
+INITIAL_CAPITAL = 10000.0
+DAILY_WARMUP_DAYS = 500
+WEEKLY_WARMUP_DAYS = 200 * 7 + 180
 
 
 def load_watchlist():
@@ -20,6 +24,39 @@ def load_watchlist():
 def save_watchlist(tickers):
     with open(WATCHLIST_FILE, "w") as f:
         json.dump(sorted(set(t.upper() for t in tickers)), f)
+
+
+def _parse_start_date(start):
+    return pd.Timestamp(start).normalize()
+
+
+def _parse_end_date(end):
+    if not end:
+        return None
+    return pd.Timestamp(end).normalize()
+
+
+def _warmup_start(start, interval):
+    lookback_days = WEEKLY_WARMUP_DAYS if interval == "1wk" else DAILY_WARMUP_DAYS
+    return (_parse_start_date(start) - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+
+
+def _visible_mask(index, start, end):
+    start_ts = _parse_start_date(start)
+    mask = index >= start_ts
+    if end:
+        end_ts = _parse_end_date(end) + timedelta(days=1) - timedelta(seconds=1)
+        mask &= index <= end_ts
+    return mask
+
+
+def _starts_long(direction, full_index, view_index):
+    if len(view_index) == 0:
+        return False
+    first_visible_loc = full_index.get_loc(view_index[0])
+    if first_visible_loc == 0:
+        return False
+    return direction.iloc[first_visible_loc - 1] == 1
 
 
 def compute_supertrend(df, period=10, multiplier=3):
@@ -127,77 +164,253 @@ def compute_macd_crossover(df, fast=12, slow=26, signal=9):
     return macd_line, signal_line, histogram, direction
 
 
-def backtest_direction(df, direction):
-    """Generic backtest: long when direction=1, flat when direction=-1."""
-    trades = []
-    position = None
+def compute_donchian_breakout(df, period=20):
+    """Compute Donchian Channel breakout direction: long when close breaks above
+    the highest high of the last N periods, exit when close breaks below the
+    lowest low of the last N periods."""
+    high = df["High"]
+    low = df["Low"]
     close = df["Close"]
-    dates = df.index
-
-    for i in range(1, len(df)):
-        prev_dir = direction.iloc[i - 1]
-        curr_dir = direction.iloc[i]
-
-        if prev_dir != 1 and curr_dir == 1 and position is None:
-            position = {
-                "entry_date": str(dates[i].date()),
-                "entry_price": round(float(close.iloc[i]), 2),
-                "type": "long",
-            }
-        elif prev_dir == 1 and curr_dir != 1 and position is not None:
-            pnl = float(close.iloc[i]) - position["entry_price"]
-            pnl_pct = (pnl / position["entry_price"]) * 100
-            trades.append({
-                **position,
-                "exit_date": str(dates[i].date()),
-                "exit_price": round(float(close.iloc[i]), 2),
-                "pnl": round(pnl, 2),
-                "pnl_pct": round(pnl_pct, 2),
-            })
-            position = None
-
-    if position is not None:
-        pnl = float(close.iloc[-1]) - position["entry_price"]
-        pnl_pct = (pnl / position["entry_price"]) * 100
-        trades.append({
-            **position,
-            "exit_date": str(dates[-1].date()),
-            "exit_price": round(float(close.iloc[-1]), 2),
-            "pnl": round(pnl, 2),
-            "pnl_pct": round(pnl_pct, 2),
-            "open": True,
-        })
-
-    summary = _compute_summary(trades)
-    return trades, summary
+    upper = high.rolling(window=period).max()
+    lower = low.rolling(window=period).min()
+    direction = pd.Series(0, index=df.index)
+    for i in range(period, len(df)):
+        if close.iloc[i] > upper.iloc[i - 1]:
+            direction.iloc[i] = 1
+        elif close.iloc[i] < lower.iloc[i - 1]:
+            direction.iloc[i] = -1
+        else:
+            direction.iloc[i] = direction.iloc[i - 1]
+    return upper, lower, direction
 
 
-def _compute_summary(trades):
+def compute_adx_trend(df, period=14, adx_threshold=25):
+    """Compute ADX-based trend direction: long when +DI > -DI and ADX > threshold,
+    short when -DI > +DI and ADX > threshold, flat otherwise."""
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+
+    hl = high - low
+    hc = (high - close.shift(1)).abs()
+    lc = (low - close.shift(1)).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+
+    atr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    plus_di = 100 * (plus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() / atr)
+    minus_di = 100 * (minus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() / atr)
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    adx = dx.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+
+    direction = pd.Series(0, index=df.index)
+    start = period * 2
+    for i in range(start, len(df)):
+        if adx.iloc[i] > adx_threshold:
+            direction.iloc[i] = 1 if plus_di.iloc[i] > minus_di.iloc[i] else -1
+        else:
+            direction.iloc[i] = direction.iloc[i - 1]
+    return adx, plus_di, minus_di, direction
+
+
+def compute_bollinger_breakout(df, period=20, std_dev=2):
+    """Compute Bollinger Band breakout direction: long when close breaks above
+    the upper band, exit when close falls below the middle band."""
+    close = df["Close"]
+    middle = close.rolling(window=period).mean()
+    std = close.rolling(window=period).std()
+    upper = middle + std_dev * std
+    lower = middle - std_dev * std
+    direction = pd.Series(0, index=df.index)
+    for i in range(period, len(df)):
+        if close.iloc[i] > upper.iloc[i]:
+            direction.iloc[i] = 1
+        elif close.iloc[i] < middle.iloc[i]:
+            direction.iloc[i] = -1
+        else:
+            direction.iloc[i] = direction.iloc[i - 1]
+    return upper, middle, lower, direction
+
+
+def compute_keltner_breakout(df, ema_period=20, atr_period=10, multiplier=1.5):
+    """Compute Keltner Channel breakout: long when close breaks above upper channel,
+    exit when close falls below middle line."""
+    close = df["Close"]
+    high = df["High"]
+    low = df["Low"]
+
+    middle = close.ewm(span=ema_period, adjust=False).mean()
+    hl = high - low
+    hc = (high - close.shift(1)).abs()
+    lc = (low - close.shift(1)).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+    atr = tr.rolling(window=atr_period).mean()
+    upper = middle + multiplier * atr
+    lower = middle - multiplier * atr
+
+    direction = pd.Series(0, index=df.index)
+    start = max(ema_period, atr_period)
+    for i in range(start, len(df)):
+        if close.iloc[i] > upper.iloc[i]:
+            direction.iloc[i] = 1
+        elif close.iloc[i] < middle.iloc[i]:
+            direction.iloc[i] = -1
+        else:
+            direction.iloc[i] = direction.iloc[i - 1]
+    return upper, middle, lower, direction
+
+
+def compute_parabolic_sar(df, af_start=0.02, af_increment=0.02, af_max=0.2):
+    """Compute Parabolic SAR trend direction."""
+    high = df["High"]
+    low = df["Low"]
+    n = len(df)
+    sar = pd.Series(np.nan, index=df.index)
+    direction = pd.Series(0, index=df.index)
+
+    # Initialize
+    bull = True
+    af = af_start
+    ep = float(high.iloc[0])
+    sar.iloc[0] = float(low.iloc[0])
+
+    for i in range(1, n):
+        prev_sar = float(sar.iloc[i - 1])
+        if bull:
+            sar_val = prev_sar + af * (ep - prev_sar)
+            sar_val = min(sar_val, float(low.iloc[i - 1]))
+            if i >= 2:
+                sar_val = min(sar_val, float(low.iloc[i - 2]))
+            if float(low.iloc[i]) < sar_val:
+                bull = False
+                sar_val = ep
+                ep = float(low.iloc[i])
+                af = af_start
+            else:
+                if float(high.iloc[i]) > ep:
+                    ep = float(high.iloc[i])
+                    af = min(af + af_increment, af_max)
+        else:
+            sar_val = prev_sar + af * (ep - prev_sar)
+            sar_val = max(sar_val, float(high.iloc[i - 1]))
+            if i >= 2:
+                sar_val = max(sar_val, float(high.iloc[i - 2]))
+            if float(high.iloc[i]) > sar_val:
+                bull = True
+                sar_val = ep
+                ep = float(high.iloc[i])
+                af = af_start
+            else:
+                if float(low.iloc[i]) < ep:
+                    ep = float(low.iloc[i])
+                    af = min(af + af_increment, af_max)
+
+        sar.iloc[i] = sar_val
+        direction.iloc[i] = 1 if bull else -1
+
+    return sar, direction
+
+
+def compute_cci_trend(df, period=20, threshold=100):
+    """Compute CCI trend direction: long when CCI > threshold, short when CCI < -threshold."""
+    close = df["Close"]
+    high = df["High"]
+    low = df["Low"]
+    tp = (high + low + close) / 3
+    sma = tp.rolling(window=period).mean()
+    mad = tp.rolling(window=period).apply(lambda x: np.abs(x - x.mean()).mean(), raw=True)
+    cci = (tp - sma) / (0.015 * mad)
+
+    direction = pd.Series(0, index=df.index)
+    for i in range(period, len(df)):
+        if cci.iloc[i] > threshold:
+            direction.iloc[i] = 1
+        elif cci.iloc[i] < -threshold:
+            direction.iloc[i] = -1
+        else:
+            direction.iloc[i] = direction.iloc[i - 1]
+    return cci, direction
+
+
+def _build_equity_curve(df, trades):
+    equity_curve = []
+    if df.empty:
+        return equity_curve
+
+    entry_map = {t["entry_date"]: t for t in trades}
+    exit_map = {t["exit_date"]: t for t in trades if not t.get("open")}
+
+    cash = INITIAL_CAPITAL
+    shares = 0.0
+    active_trade = None
+
+    for date, row in df.iterrows():
+        day = str(date.date())
+
+        if shares == 0 and day in entry_map:
+            active_trade = entry_map[day]
+            shares = active_trade["quantity"]
+            cash = 0.0
+
+        if shares > 0 and day in exit_map and active_trade is exit_map[day]:
+            cash = round(shares * exit_map[day]["exit_price"], 2)
+            shares = 0.0
+            active_trade = None
+
+        equity = cash if shares == 0 else shares * float(row["Close"])
+        equity_curve.append({"time": int(date.timestamp()), "value": round(equity, 2)})
+
+    return equity_curve
+
+
+def _compute_summary(trades, equity_curve):
     """Compute enhanced summary stats for a list of trades."""
+    empty_summary = {
+        "total_trades": 0,
+        "winners": 0,
+        "losers": 0,
+        "win_rate": 0,
+        "total_pnl": 0,
+        "net_profit_pct": 0,
+        "avg_pnl": 0,
+        "best_trade": 0,
+        "worst_trade": 0,
+        "gross_profit": 0,
+        "gross_loss": 0,
+        "profit_factor": None,
+        "max_drawdown": 0,
+        "max_drawdown_pct": 0,
+        "avg_winner": 0,
+        "avg_loser": 0,
+        "ending_equity": INITIAL_CAPITAL,
+        "initial_capital": INITIAL_CAPITAL,
+    }
     if not trades:
-        return {
-            "total_trades": 0, "winners": 0, "losers": 0, "win_rate": 0,
-            "total_pnl": 0, "avg_pnl": 0, "best_trade": 0, "worst_trade": 0,
-            "gross_profit": 0, "gross_loss": 0, "profit_factor": 0,
-            "max_drawdown": 0, "max_drawdown_pct": 0, "avg_winner": 0, "avg_loser": 0,
-        }
+        return empty_summary
+
     total_pnl = sum(t["pnl"] for t in trades)
     winners = [t for t in trades if t["pnl"] > 0]
     losers = [t for t in trades if t["pnl"] <= 0]
     gross_profit = sum(t["pnl"] for t in winners)
     gross_loss = abs(sum(t["pnl"] for t in losers))
 
-    # Max drawdown from cumulative P&L
-    cum = 0
-    peak = 0
+    peak = INITIAL_CAPITAL
     max_dd = 0
-    for t in trades:
-        cum += t["pnl"]
-        if cum > peak:
-            peak = cum
-        dd = peak - cum
-        if dd > max_dd:
-            max_dd = dd
+    max_dd_pct = 0
+    ending_equity = INITIAL_CAPITAL
+    for point in equity_curve:
+        equity = point["value"]
+        peak = max(peak, equity)
+        ending_equity = equity
+        drawdown = peak - equity
+        drawdown_pct = (drawdown / peak) * 100 if peak else 0
+        if drawdown > max_dd:
+            max_dd = drawdown
+            max_dd_pct = drawdown_pct
 
     return {
         "total_trades": len(trades),
@@ -205,70 +418,97 @@ def _compute_summary(trades):
         "losers": len(losers),
         "win_rate": round(len(winners) / len(trades) * 100, 1),
         "total_pnl": round(total_pnl, 2),
+        "net_profit_pct": round(((ending_equity / INITIAL_CAPITAL) - 1) * 100, 2),
         "avg_pnl": round(total_pnl / len(trades), 2),
         "best_trade": round(max((t["pnl"] for t in trades), default=0), 2),
         "worst_trade": round(min((t["pnl"] for t in trades), default=0), 2),
         "gross_profit": round(gross_profit, 2),
         "gross_loss": round(gross_loss, 2),
-        "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss > 0 else 999,
+        "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss > 0 else None,
         "max_drawdown": round(max_dd, 2),
+        "max_drawdown_pct": round(max_dd_pct, 2),
         "avg_winner": round(gross_profit / len(winners), 2) if winners else 0,
         "avg_loser": round(gross_loss / len(losers), 2) if losers else 0,
+        "ending_equity": round(ending_equity, 2),
+        "initial_capital": INITIAL_CAPITAL,
     }
 
 
-def backtest_supertrend(df, direction):
-    """Backtest a Supertrend strategy: long when bullish, flat when bearish."""
+def backtest_direction(df, direction, start_in_position=False):
+    """Generic backtest: long when direction=1, flat otherwise, filled next bar open."""
     trades = []
-    position = None  # None = flat, dict = open trade
-
+    position = None
+    open_prices = df["Open"]
     close = df["Close"]
     dates = df.index
+    cash = INITIAL_CAPITAL
 
-    for i in range(1, len(df)):
+    if start_in_position and len(df) > 0:
+        entry_price = round(float(open_prices.iloc[0]), 2)
+        quantity = cash / entry_price if entry_price else 0
+        position = {
+            "entry_date": str(dates[0].date()),
+            "entry_price": entry_price,
+            "type": "long",
+            "quantity": round(quantity, 8),
+        }
+        cash = 0.0
+
+    for i in range(1, len(df) - 1):
         prev_dir = direction.iloc[i - 1]
         curr_dir = direction.iloc[i]
+        execution_idx = i + 1
+        execution_price = round(float(open_prices.iloc[execution_idx]), 2)
+        execution_date = str(dates[execution_idx].date())
 
-        # Direction changed from bearish to bullish -> buy
-        if prev_dir == -1 and curr_dir == 1 and position is None:
+        if prev_dir != 1 and curr_dir == 1 and position is None:
+            quantity = cash / execution_price if execution_price else 0
             position = {
-                "entry_date": str(dates[i].date()),
-                "entry_price": round(float(close.iloc[i]), 2),
+                "entry_date": execution_date,
+                "entry_price": execution_price,
                 "type": "long",
+                "quantity": round(quantity, 8),
             }
+            cash = 0.0
 
-        # Direction changed from bullish to bearish -> sell
-        elif prev_dir == 1 and curr_dir == -1 and position is not None:
-            pnl = float(close.iloc[i]) - position["entry_price"]
-            pnl_pct = (pnl / position["entry_price"]) * 100
+        elif prev_dir == 1 and curr_dir != 1 and position is not None:
+            pnl = (execution_price - position["entry_price"]) * position["quantity"]
+            pnl_pct = ((execution_price / position["entry_price"]) - 1) * 100 if position["entry_price"] else 0
+            cash = execution_price * position["quantity"]
             trades.append(
                 {
                     **position,
-                    "exit_date": str(dates[i].date()),
-                    "exit_price": round(float(close.iloc[i]), 2),
+                    "exit_date": execution_date,
+                    "exit_price": execution_price,
                     "pnl": round(pnl, 2),
                     "pnl_pct": round(pnl_pct, 2),
                 }
             )
             position = None
 
-    # Close any open position at last bar
     if position is not None:
-        pnl = float(close.iloc[-1]) - position["entry_price"]
-        pnl_pct = (pnl / position["entry_price"]) * 100
+        last_close = round(float(close.iloc[-1]), 2)
+        pnl = (last_close - position["entry_price"]) * position["quantity"]
+        pnl_pct = ((last_close / position["entry_price"]) - 1) * 100 if position["entry_price"] else 0
         trades.append(
             {
                 **position,
                 "exit_date": str(dates[-1].date()),
-                "exit_price": round(float(close.iloc[-1]), 2),
+                "exit_price": last_close,
                 "pnl": round(pnl, 2),
                 "pnl_pct": round(pnl_pct, 2),
                 "open": True,
             }
         )
 
-    summary = _compute_summary(trades)
-    return trades, summary
+    equity_curve = _build_equity_curve(df, trades)
+    summary = _compute_summary(trades, equity_curve)
+    return trades, summary, equity_curve
+
+
+def backtest_supertrend(df, direction, start_in_position=False):
+    """Backtest a Supertrend strategy: long when bullish, flat when bearish."""
+    return backtest_direction(df, direction, start_in_position=start_in_position)
 
 
 @app.route("/")
@@ -286,7 +526,7 @@ def chart_data():
     multiplier_val = float(request.args.get("multiplier", 3))
 
     try:
-        kwargs = {"start": start, "interval": interval, "progress": False}
+        kwargs = {"start": _warmup_start(start, interval), "interval": interval, "progress": False}
         if end:
             kwargs["end"] = end
         df = yf.download(ticker, **kwargs)
@@ -296,53 +536,101 @@ def chart_data():
     if df.empty:
         return jsonify({"error": f"No data for {ticker}"}), 400
 
-    # Flatten MultiIndex columns if present
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
+    view_mask = _visible_mask(df.index, start, end)
+    df_view = df.loc[view_mask].copy()
+    if df_view.empty:
+        return jsonify({"error": f"No data for {ticker} in selected range"}), 400
+
     supertrend, direction = compute_supertrend(df, period_val, multiplier_val)
+    direction_view = direction.loc[df_view.index]
+    supertrend_view = supertrend.loc[df_view.index]
+    supertrend_start_long = _starts_long(direction, df.index, df_view.index)
 
-    # EMA Crossover strategy
     ema_fast, ema_slow, ema_direction = compute_ema_crossover(df, 9, 21)
-    ema_trades, ema_summary = backtest_direction(df, ema_direction)
+    ema_direction_view = ema_direction.loc[df_view.index]
+    ema_trades, ema_summary, ema_equity_curve = backtest_direction(
+        df_view, ema_direction_view, start_in_position=_starts_long(ema_direction, df.index, df_view.index)
+    )
 
-    # MA Confirmation strategy (close above 200 SMA for 3 consecutive candles)
     _ma_conf, ma_conf_direction = compute_ma_confirmation(df, 200, 3)
-    ma_conf_trades, ma_conf_summary = backtest_direction(df, ma_conf_direction)
+    ma_conf_direction_view = ma_conf_direction.loc[df_view.index]
+    ma_conf_trades, ma_conf_summary, ma_conf_equity_curve = backtest_direction(
+        df_view, ma_conf_direction_view, start_in_position=_starts_long(ma_conf_direction, df.index, df_view.index)
+    )
 
-    # MACD strategy
     macd_line, signal_line, macd_hist, macd_direction = compute_macd_crossover(df)
-    macd_trades, macd_summary = backtest_direction(df, macd_direction)
+    macd_direction_view = macd_direction.loc[df_view.index]
+    macd_trades, macd_summary, macd_equity_curve = backtest_direction(
+        df_view, macd_direction_view, start_in_position=_starts_long(macd_direction, df.index, df_view.index)
+    )
 
-    # Build candle data
+    _donch_upper, _donch_lower, donch_direction = compute_donchian_breakout(df, 20)
+    donch_direction_view = donch_direction.loc[df_view.index]
+    donch_trades, donch_summary, donch_equity_curve = backtest_direction(
+        df_view, donch_direction_view, start_in_position=_starts_long(donch_direction, df.index, df_view.index)
+    )
+
+    _adx, _plus_di, _minus_di, adx_direction = compute_adx_trend(df, 14, 25)
+    adx_direction_view = adx_direction.loc[df_view.index]
+    adx_trades, adx_summary, adx_equity_curve = backtest_direction(
+        df_view, adx_direction_view, start_in_position=_starts_long(adx_direction, df.index, df_view.index)
+    )
+
+    _bb_upper, _bb_mid, _bb_lower, bb_direction = compute_bollinger_breakout(df, 20, 2)
+    bb_direction_view = bb_direction.loc[df_view.index]
+    bb_trades, bb_summary, bb_equity_curve = backtest_direction(
+        df_view, bb_direction_view, start_in_position=_starts_long(bb_direction, df.index, df_view.index)
+    )
+
+    _kelt_upper, _kelt_mid, _kelt_lower, kelt_direction = compute_keltner_breakout(df)
+    kelt_direction_view = kelt_direction.loc[df_view.index]
+    kelt_trades, kelt_summary, kelt_equity_curve = backtest_direction(
+        df_view, kelt_direction_view, start_in_position=_starts_long(kelt_direction, df.index, df_view.index)
+    )
+
+    _psar, psar_direction = compute_parabolic_sar(df)
+    psar_direction_view = psar_direction.loc[df_view.index]
+    psar_trades, psar_summary, psar_equity_curve = backtest_direction(
+        df_view, psar_direction_view, start_in_position=_starts_long(psar_direction, df.index, df_view.index)
+    )
+
+    _cci, cci_direction = compute_cci_trend(df)
+    cci_direction_view = cci_direction.loc[df_view.index]
+    cci_trades, cci_summary, cci_equity_curve = backtest_direction(
+        df_view, cci_direction_view, start_in_position=_starts_long(cci_direction, df.index, df_view.index)
+    )
+
     candles = []
-    for i in range(len(df)):
-        ts = int(df.index[i].timestamp())
+    for i in range(len(df_view)):
+        ts = int(df_view.index[i].timestamp())
         candles.append(
             {
                 "time": ts,
-                "open": round(float(df["Open"].iloc[i]), 2),
-                "high": round(float(df["High"].iloc[i]), 2),
-                "low": round(float(df["Low"].iloc[i]), 2),
-                "close": round(float(df["Close"].iloc[i]), 2),
+                "open": round(float(df_view["Open"].iloc[i]), 2),
+                "high": round(float(df_view["High"].iloc[i]), 2),
+                "low": round(float(df_view["Low"].iloc[i]), 2),
+                "close": round(float(df_view["Close"].iloc[i]), 2),
             }
         )
 
-    # Supertrend line data (split into green/red segments)
     st_up = []
     st_down = []
-    for i in range(len(df)):
-        if pd.isna(supertrend.iloc[i]):
+    for i in range(len(df_view)):
+        if pd.isna(supertrend_view.iloc[i]):
             continue
-        ts = int(df.index[i].timestamp())
-        val = round(float(supertrend.iloc[i]), 2)
-        if direction.iloc[i] == 1:
+        ts = int(df_view.index[i].timestamp())
+        val = round(float(supertrend_view.iloc[i]), 2)
+        if direction_view.iloc[i] == 1:
             st_up.append({"time": ts, "value": val})
         else:
             st_down.append({"time": ts, "value": val})
 
-    # Markers for trade entries/exits
-    trades, summary = backtest_supertrend(df, direction)
+    trades, summary, equity_curve = backtest_supertrend(
+        df_view, direction_view, start_in_position=supertrend_start_long
+    )
     markers = []
     for t in trades:
         entry_ts = int(pd.Timestamp(t["entry_date"]).timestamp())
@@ -366,83 +654,90 @@ def chart_data():
             }
         )
 
-    # SMA calculations
     smas = {}
     for sma_period in [50, 100, 200]:
         sma = df["Close"].rolling(window=sma_period).mean()
+        sma_view = sma.loc[df_view.index]
         sma_data = []
-        for i in range(len(df)):
-            if pd.isna(sma.iloc[i]):
+        for i in range(len(df_view)):
+            if pd.isna(sma_view.iloc[i]):
                 continue
-            sma_data.append({
-                "time": int(df.index[i].timestamp()),
-                "value": round(float(sma.iloc[i]), 2),
-            })
+            sma_data.append(
+                {
+                    "time": int(df_view.index[i].timestamp()),
+                    "value": round(float(sma_view.iloc[i]), 2),
+                }
+            )
         smas[f"sma_{sma_period}"] = sma_data
 
-    # 200-week SMA: fetch weekly data separately
+    sma_50w = []
     sma_200w = []
     try:
-        kwargs_w = {"start": start, "interval": "1wk", "progress": False}
+        kwargs_w = {"start": _warmup_start(start, "1wk"), "interval": "1wk", "progress": False}
         if end:
             kwargs_w["end"] = end
         df_w = yf.download(ticker, **kwargs_w)
         if not df_w.empty:
             if isinstance(df_w.columns, pd.MultiIndex):
                 df_w.columns = df_w.columns.get_level_values(0)
-            sma_w = df_w["Close"].rolling(window=200).mean()
-            for i in range(len(df_w)):
-                if pd.isna(sma_w.iloc[i]):
-                    continue
-                sma_200w.append({
-                    "time": int(df_w.index[i].timestamp()),
-                    "value": round(float(sma_w.iloc[i]), 2),
-                })
+            df_w_view = df_w.loc[_visible_mask(df_w.index, start, end)]
+            sma_w50 = df_w["Close"].rolling(window=50).mean()
+            sma_w200 = df_w["Close"].rolling(window=200).mean()
+            sma_w50_view = sma_w50.loc[df_w_view.index]
+            sma_w200_view = sma_w200.loc[df_w_view.index]
+            for i in range(len(df_w_view)):
+                ts = int(df_w_view.index[i].timestamp())
+                if not pd.isna(sma_w50_view.iloc[i]):
+                    sma_50w.append({"time": ts, "value": round(float(sma_w50_view.iloc[i]), 2)})
+                if not pd.isna(sma_w200_view.iloc[i]):
+                    sma_200w.append({"time": ts, "value": round(float(sma_w200_view.iloc[i]), 2)})
     except Exception:
         pass
 
-    # Volume data
     volumes = []
-    for i in range(len(df)):
-        ts = int(df.index[i].timestamp())
-        c = df["Close"].iloc[i]
-        o = df["Open"].iloc[i]
+    for i in range(len(df_view)):
+        ts = int(df_view.index[i].timestamp())
+        c = df_view["Close"].iloc[i]
+        o = df_view["Open"].iloc[i]
         volumes.append(
             {
                 "time": ts,
-                "value": int(df["Volume"].iloc[i]),
-                "color": "rgba(38,166,154,0.5)"
-                if c >= o
-                else "rgba(239,83,80,0.5)",
+                "value": int(df_view["Volume"].iloc[i]),
+                "color": "rgba(38,166,154,0.5)" if c >= o else "rgba(239,83,80,0.5)",
             }
         )
 
-    # EMA crossover line data
     ema9_data = []
     ema21_data = []
-    for i in range(len(df)):
-        ts = int(df.index[i].timestamp())
-        if not pd.isna(ema_fast.iloc[i]):
-            ema9_data.append({"time": ts, "value": round(float(ema_fast.iloc[i]), 2)})
-        if not pd.isna(ema_slow.iloc[i]):
-            ema21_data.append({"time": ts, "value": round(float(ema_slow.iloc[i]), 2)})
+    ema_fast_view = ema_fast.loc[df_view.index]
+    ema_slow_view = ema_slow.loc[df_view.index]
+    for i in range(len(df_view)):
+        ts = int(df_view.index[i].timestamp())
+        if not pd.isna(ema_fast_view.iloc[i]):
+            ema9_data.append({"time": ts, "value": round(float(ema_fast_view.iloc[i]), 2)})
+        if not pd.isna(ema_slow_view.iloc[i]):
+            ema21_data.append({"time": ts, "value": round(float(ema_slow_view.iloc[i]), 2)})
 
-    # MACD line data
     macd_line_data = []
     signal_line_data = []
     macd_hist_data = []
-    for i in range(len(df)):
-        ts = int(df.index[i].timestamp())
-        if not pd.isna(macd_line.iloc[i]):
-            macd_line_data.append({"time": ts, "value": round(float(macd_line.iloc[i]), 2)})
-        if not pd.isna(signal_line.iloc[i]):
-            signal_line_data.append({"time": ts, "value": round(float(signal_line.iloc[i]), 2)})
-        if not pd.isna(macd_hist.iloc[i]):
-            macd_hist_data.append({
-                "time": ts,
-                "value": round(float(macd_hist.iloc[i]), 2),
-                "color": "rgba(38,166,154,0.7)" if macd_hist.iloc[i] >= 0 else "rgba(239,83,80,0.7)",
-            })
+    macd_line_view = macd_line.loc[df_view.index]
+    signal_line_view = signal_line.loc[df_view.index]
+    macd_hist_view = macd_hist.loc[df_view.index]
+    for i in range(len(df_view)):
+        ts = int(df_view.index[i].timestamp())
+        if not pd.isna(macd_line_view.iloc[i]):
+            macd_line_data.append({"time": ts, "value": round(float(macd_line_view.iloc[i]), 2)})
+        if not pd.isna(signal_line_view.iloc[i]):
+            signal_line_data.append({"time": ts, "value": round(float(signal_line_view.iloc[i]), 2)})
+        if not pd.isna(macd_hist_view.iloc[i]):
+            macd_hist_data.append(
+                {
+                    "time": ts,
+                    "value": round(float(macd_hist_view.iloc[i]), 2),
+                    "color": "rgba(38,166,154,0.7)" if macd_hist_view.iloc[i] >= 0 else "rgba(239,83,80,0.7)",
+                }
+            )
 
     return jsonify(
         {
@@ -453,13 +748,21 @@ def chart_data():
             "markers": markers,
             "trades": trades,
             "summary": summary,
+            "equity_curve": equity_curve,
             **smas,
+            "sma_50w": sma_50w,
             "sma_200w": sma_200w,
             "strategies": {
-                "supertrend": {"trades": trades, "summary": summary},
-                "ema_crossover": {"trades": ema_trades, "summary": ema_summary},
-                "macd": {"trades": macd_trades, "summary": macd_summary},
-                "ma_confirm": {"trades": ma_conf_trades, "summary": ma_conf_summary},
+                "supertrend": {"trades": trades, "summary": summary, "equity_curve": equity_curve},
+                "ema_crossover": {"trades": ema_trades, "summary": ema_summary, "equity_curve": ema_equity_curve},
+                "macd": {"trades": macd_trades, "summary": macd_summary, "equity_curve": macd_equity_curve},
+                "ma_confirm": {"trades": ma_conf_trades, "summary": ma_conf_summary, "equity_curve": ma_conf_equity_curve},
+                "donchian": {"trades": donch_trades, "summary": donch_summary, "equity_curve": donch_equity_curve},
+                "adx_trend": {"trades": adx_trades, "summary": adx_summary, "equity_curve": adx_equity_curve},
+                "bb_breakout": {"trades": bb_trades, "summary": bb_summary, "equity_curve": bb_equity_curve},
+                "keltner": {"trades": kelt_trades, "summary": kelt_summary, "equity_curve": kelt_equity_curve},
+                "parabolic_sar": {"trades": psar_trades, "summary": psar_summary, "equity_curve": psar_equity_curve},
+                "cci_trend": {"trades": cci_trades, "summary": cci_summary, "equity_curve": cci_equity_curve},
             },
             "ema9": ema9_data,
             "ema21": ema21_data,
@@ -526,6 +829,156 @@ def watchlist_quotes():
                 "chg_pct": None,
             })
     return jsonify(results)
+
+
+@app.route("/api/watchlist/quote/<ticker>")
+def watchlist_quote(ticker):
+    """Get latest price for a single ticker."""
+    try:
+        tk = yf.Ticker(ticker)
+        info = tk.fast_info
+        last = round(float(info.last_price), 2)
+        prev = round(float(info.previous_close), 2)
+        chg = round(last - prev, 2)
+        chg_pct = round((chg / prev) * 100, 2) if prev else 0
+        return jsonify({"ticker": ticker, "last": last, "chg": chg, "chg_pct": chg_pct})
+    except Exception:
+        return jsonify({"ticker": ticker, "last": None, "chg": None, "chg_pct": None})
+
+
+def detect_regime(df, adx_period=14, bb_period=20, lookback=5):
+    """Classify market regime on each bar using ADX level + Bollinger Band width.
+
+    Returns a Series with values:
+        'strong_trend' - ADX > 30 and rising
+        'trending'     - ADX 20-30
+        'choppy'       - ADX < 20, normal volatility
+        'range_bound'  - ADX < 20, Bollinger width contracting
+    """
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+
+    # --- ADX ---
+    plus_dm = high.diff()
+    minus_dm = -low.diff()
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+
+    hl = high - low
+    hc = (high - close.shift(1)).abs()
+    lc = (low - close.shift(1)).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+
+    atr = tr.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
+    plus_di = 100 * (plus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr)
+    minus_di = 100 * (minus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr)
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
+    adx = dx.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
+
+    adx_rising = adx > adx.shift(lookback)
+
+    # --- Bollinger Band width (normalized) ---
+    bb_ma = close.rolling(window=bb_period).mean()
+    bb_std = close.rolling(window=bb_period).std()
+    bb_width = (2 * bb_std) / bb_ma
+    bb_width_contracting = bb_width < bb_width.rolling(window=lookback * 4).mean()
+
+    # --- Classify ---
+    regime = pd.Series("choppy", index=df.index)
+    warmup = max(adx_period * 2, bb_period + lookback * 4)
+
+    for i in range(warmup, len(df)):
+        adx_val = adx.iloc[i]
+        if adx_val > 30 and adx_rising.iloc[i]:
+            regime.iloc[i] = "strong_trend"
+        elif adx_val > 20:
+            regime.iloc[i] = "trending"
+        elif bb_width_contracting.iloc[i]:
+            regime.iloc[i] = "range_bound"
+        else:
+            regime.iloc[i] = "choppy"
+
+    return regime, adx
+
+
+# Pre-compute strategy directions keyed by name
+_STRATEGY_FNS = {
+    "Parabolic SAR": lambda df: compute_parabolic_sar(df)[1],
+    "ADX Trend (14/25)": lambda df: compute_adx_trend(df)[3],
+    "Supertrend": lambda df: compute_supertrend(df)[1],
+}
+
+
+def compute_regime_router(df):
+    """Regime-based strategy router.
+
+    Routes to the historically best strategy per regime:
+        strong_trend -> Parabolic SAR  (+96% avg in backtest)
+        trending     -> ADX Trend      (+5.9% avg in backtest)
+        choppy       -> Supertrend     (+2.1% avg, best of bad options)
+        range_bound  -> flat (0)       (no trend strategy works here)
+
+    Returns (regime, direction) where direction is a composite Series
+    that switches between strategies based on the detected regime.
+    """
+    regime, adx = detect_regime(df)
+
+    # Pre-compute all sub-strategy directions
+    sub_directions = {}
+    for name, fn in _STRATEGY_FNS.items():
+        sub_directions[name] = fn(df)
+
+    # Route: pick direction from the strategy assigned to current regime
+    regime_to_strategy = {
+        "strong_trend": "Parabolic SAR",
+        "trending": "ADX Trend (14/25)",
+        "choppy": "Supertrend",
+        "range_bound": None,  # stay flat
+    }
+
+    direction = pd.Series(0, index=df.index)
+    for i in range(len(df)):
+        r = regime.iloc[i]
+        strat_name = regime_to_strategy.get(r)
+        if strat_name is None:
+            direction.iloc[i] = 0
+        else:
+            direction.iloc[i] = sub_directions[strat_name].iloc[i]
+
+    return regime, direction
+
+
+STRATEGIES = {
+    "Supertrend": lambda df: compute_supertrend(df)[1],
+    "EMA 9/21 Cross": lambda df: compute_ema_crossover(df)[2],
+    "MACD Signal": lambda df: compute_macd_crossover(df)[3],
+    "MA Confirm (200/3)": lambda df: compute_ma_confirmation(df)[1],
+    "Donchian (20)": lambda df: compute_donchian_breakout(df)[2],
+    "ADX Trend (14/25)": lambda df: compute_adx_trend(df)[3],
+    "Bollinger Breakout": lambda df: compute_bollinger_breakout(df)[3],
+    "Keltner Breakout": lambda df: compute_keltner_breakout(df)[3],
+    "Parabolic SAR": lambda df: compute_parabolic_sar(df)[1],
+    "CCI Trend (20/100)": lambda df: compute_cci_trend(df)[1],
+    "Regime Router": lambda df: compute_regime_router(df)[1],
+}
+
+
+@app.route("/report")
+def report():
+    return render_template("report.html")
+
+
+REPORT_FILE = os.path.join(os.path.dirname(__file__), "report_data.json")
+
+
+@app.route("/api/report")
+def report_data():
+    """Serve pre-generated report data."""
+    if not os.path.exists(REPORT_FILE):
+        return jsonify({"error": "No report data found. Generate it first."}), 404
+    with open(REPORT_FILE) as f:
+        return app.response_class(f.read(), mimetype="application/json")
 
 
 if __name__ == "__main__":
