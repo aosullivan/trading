@@ -1262,20 +1262,22 @@ function daysSinceHtml(f){
 }
 function flipToneMeta(bullish,bearish){
   const total=bullish+bearish;
-  if(!total)return{label:'No data',tone:'mixed',bullPct:null,score:0};
+  if(!total)return{label:'No data',tone:'mixed',consensusPct:null,score:0};
   const bullPct=Math.round(bullish/total*100);
+  const consensusPct=Math.round(Math.max(bullish,bearish)/total*100);
   const score=Math.round(((bullish-bearish)/total)*100);
-  if(bullPct>=70)return{label:'Strong Bullish',tone:'bullish',bullPct,score};
-  if(bullPct>=55)return{label:'Bullish Tilt',tone:'bullish',bullPct,score};
-  if(bullPct<=30)return{label:'Strong Bearish',tone:'bearish',bullPct,score};
-  if(bullPct<=45)return{label:'Bearish Tilt',tone:'bearish',bullPct,score};
-  return{label:'Mixed',tone:'mixed',bullPct,score};
+  if(bullPct>=70)return{label:'Strong Bullish',tone:'bullish',consensusPct,score};
+  if(bullPct>=55)return{label:'Bullish Tilt',tone:'bullish',consensusPct,score};
+  if(bullPct<=30)return{label:'Strong Bearish',tone:'bearish',consensusPct,score};
+  if(bullPct<=45)return{label:'Bearish Tilt',tone:'bearish',consensusPct,score};
+  return{label:'Mixed',tone:'mixed',consensusPct,score};
 }
 function frameSummary(frameFlips,keys){
   const valid=keys.map(k=>frameFlips?.[k]).filter(f=>f?.dir);
   const bullish=valid.filter(f=>f.dir==='bullish').length;
   const bearish=valid.filter(f=>f.dir==='bearish').length;
-  const ages=valid.map(daysSinceNumber).filter(d=>d!=null);
+  const consensusDir=bullish>=bearish?'bullish':'bearish';
+  const ages=valid.filter(f=>f.dir===consensusDir).map(daysSinceNumber).filter(d=>d!=null);
   return{
     bullish,
     bearish,
@@ -1312,7 +1314,7 @@ function flipCellHtml(f){
 }
 function frameCardHtml(title,summary){
   const scoreCls=summary.meta.tone==='bullish'?'bull':summary.meta.tone==='bearish'?'bear':'';
-  const bullPct=summary.meta.bullPct==null?'--':`${summary.meta.bullPct}%`;
+  const bullPct=summary.meta.consensusPct==null?'--':`${summary.meta.consensusPct}%`;
   const score=summary.total?`${summary.meta.score>0?'+':''}${summary.meta.score}`:'--';
   const pillCls=summary.meta.tone==='bullish'?'tf-pill-bull':summary.meta.tone==='bearish'?'tf-pill-bear':'tf-pill-mixed';
   return`<div class="tf-agg-card">
@@ -2014,7 +2016,7 @@ async function rmWL(t){
 function pickTicker(t){
   document.getElementById('ticker').value=t;
   renderWL(wlList);
-  loadWL();loadChart();
+  loadChart();
 }
 
 // === RESIZABLE WATCHLIST ===

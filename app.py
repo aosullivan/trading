@@ -2,6 +2,7 @@ import json
 import os
 import time as _time
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from flask import Flask, render_template, request, jsonify
 import yfinance as yf
@@ -44,6 +45,7 @@ from technical_indicators import (
 
 _APP_DIR = os.path.dirname(__file__)
 _PROJECT_CACHE_ROOT = os.path.join(_APP_DIR, "data_cache")
+_TICKER_INFO_CACHE_DIR = os.path.join(_PROJECT_CACHE_ROOT, "ticker_info")
 _YF_CACHE_DIR = os.path.join(_PROJECT_CACHE_ROOT, "yfinance")
 
 
@@ -62,12 +64,19 @@ _configure_yfinance_cache()
 # ---------------------------------------------------------------------------
 _cache: dict[str, tuple[float, object]] = {}
 _CACHE_TTL = 300  # seconds (5 minutes)
+_CHART_CACHE_TTL = 300  # seconds (5 minutes)
 _TICKER_INFO_CACHE_TTL = 3600  # seconds (1 hour)
+_TICKER_INFO_DISK_CACHE_TTL = 86400  # seconds (24 hours)
 _FINANCIALS_CACHE_TTL = 3600  # seconds (1 hour)
 _FRED_CACHE_TTL = 900  # seconds (15 minutes)
+_WATCHLIST_QUOTES_REFRESH_TTL = 300  # seconds (5 minutes)
+_WATCHLIST_QUOTES_STALE_TTL = 1800  # seconds (30 minutes)
 _yf_lock = threading.Lock()  # serialize yfinance calls to prevent cross-ticker contamination
 _yf_last_call = 0.0  # timestamp of last yfinance API call
 _YF_RATE_DELAY = 1.5  # seconds between yfinance calls to avoid rate limiting
+_watchlist_quotes_cache: dict[str, dict[str, object]] = {}
+_watchlist_quotes_lock = threading.Lock()
+_watchlist_quote_refreshing: set[str] = set()
 
 
 def _cache_get(key: str):
@@ -82,6 +91,35 @@ def _cache_get(key: str):
 
 def _cache_set(key: str, value, ttl: int = _CACHE_TTL):
     _cache[key] = (_time.time() + ttl, value)
+
+
+def _ticker_info_cache_path(ticker: str) -> str:
+    safe = ticker.replace("/", "_").replace("^", "caret_")
+    return os.path.join(_TICKER_INFO_CACHE_DIR, f"{safe}.json")
+
+
+def _read_disk_ticker_info(ticker: str) -> dict | None:
+    path = _ticker_info_cache_path(ticker)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            payload = json.load(f)
+        if (_time.time() - payload.get("last_fetch", 0)) > _TICKER_INFO_DISK_CACHE_TTL:
+            return None
+        info = payload.get("info")
+        return info if isinstance(info, dict) else None
+    except Exception:
+        return None
+
+
+def _write_disk_ticker_info(ticker: str, info: dict):
+    try:
+        os.makedirs(_TICKER_INFO_CACHE_DIR, exist_ok=True)
+        with open(_ticker_info_cache_path(ticker), "w") as f:
+            json.dump({"last_fetch": _time.time(), "info": info}, f)
+    except Exception:
+        pass
 
 
 def _yf_rate_limited_download(tickers, **kwargs):
@@ -114,8 +152,13 @@ def _get_cached_ticker_info(ticker: str) -> dict:
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
+    disk_cached = _read_disk_ticker_info(ticker)
+    if disk_cached is not None:
+        _cache_set(cache_key, disk_cached, ttl=_TICKER_INFO_CACHE_TTL)
+        return disk_cached
     info = _yf_rate_limited_info(ticker)
     _cache_set(cache_key, info, ttl=_TICKER_INFO_CACHE_TTL)
+    _write_disk_ticker_info(ticker, info)
     return info
 
 
@@ -738,6 +781,12 @@ def chart_data():
     end = request.args.get("end", "")
     period_val = int(request.args.get("period", 10))
     multiplier_val = float(request.args.get("multiplier", 3))
+    chart_cache_key = (
+        f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}"
+    )
+    cached_chart = _cache_get(chart_cache_key)
+    if cached_chart is not None:
+        return jsonify(cached_chart)
 
     # Fetch full name for display
     ticker_name = ""
@@ -1130,52 +1179,52 @@ def chart_data():
     ribbon_center_data = series_to_json(ribbon_center, df_view.index)
     vol_profile = build_volume_profile(df_view)
 
-    return jsonify(
-        {
-            "ticker_name": ticker_name,
-            "candles": candles,
-            "supertrend_up": st_up,
-            "supertrend_down": st_down,
-            "volumes": volumes,
-            "markers": markers,
-            "trades": trades,
-            "summary": summary,
-            "equity_curve": equity_curve,
-            **smas,
-            "sma_50w": sma_50w,
-            "sma_200w": sma_200w,
-            "strategies": {
-                "supertrend": {"trades": trades, "summary": summary, "equity_curve": equity_curve},
-                "ema_crossover": {"trades": ema_trades, "summary": ema_summary, "equity_curve": ema_equity_curve},
-                "macd": {"trades": macd_trades, "summary": macd_summary, "equity_curve": macd_equity_curve},
-                "ma_confirm": {"trades": ma_conf_trades, "summary": ma_conf_summary, "equity_curve": ma_conf_equity_curve},
-                "donchian": {"trades": donch_trades, "summary": donch_summary, "equity_curve": donch_equity_curve},
-                "adx_trend": {"trades": adx_trades, "summary": adx_summary, "equity_curve": adx_equity_curve},
-                "bb_breakout": {"trades": bb_trades, "summary": bb_summary, "equity_curve": bb_equity_curve},
-                "keltner": {"trades": kelt_trades, "summary": kelt_summary, "equity_curve": kelt_equity_curve},
-                "parabolic_sar": {"trades": psar_trades, "summary": psar_summary, "equity_curve": psar_equity_curve},
-                "cci_trend": {"trades": cci_trades, "summary": cci_summary, "equity_curve": cci_equity_curve},
-                "regime_router": {"trades": rr_trades, "summary": rr_summary, "equity_curve": rr_equity_curve},
-            },
-            "ema9": ema9_data,
-            "ema21": ema21_data,
-            "macd_line": macd_line_data,
-            "signal_line": signal_line_data,
-            "macd_hist": macd_hist_data,
-            "sr_levels": sr_levels,
-            "overlays": {
-                "donchian": {"upper": donch_upper_data, "lower": donch_lower_data},
-                "bb": {"upper": bb_upper_data, "mid": bb_mid_data, "lower": bb_lower_data},
-                "keltner": {"upper": kelt_upper_data, "mid": kelt_mid_data, "lower": kelt_lower_data},
-                "psar": {"bull": psar_bull_data, "bear": psar_bear_data},
-                "adx": {"adx": adx_data, "plus_di": plus_di_data, "minus_di": minus_di_data},
-                "cci": {"cci": cci_data},
-                "ribbon": {"upper": ribbon_upper_data, "lower": ribbon_lower_data, "center": ribbon_center_data},
-            },
-            "vol_profile": vol_profile,
-            "trend_flips": {"daily": daily_flips, "weekly": weekly_flips},
-        }
-    )
+    payload = {
+        "ticker_name": ticker_name,
+        "candles": candles,
+        "supertrend_up": st_up,
+        "supertrend_down": st_down,
+        "volumes": volumes,
+        "markers": markers,
+        "trades": trades,
+        "summary": summary,
+        "equity_curve": equity_curve,
+        **smas,
+        "sma_50w": sma_50w,
+        "sma_200w": sma_200w,
+        "strategies": {
+            "supertrend": {"trades": trades, "summary": summary, "equity_curve": equity_curve},
+            "ema_crossover": {"trades": ema_trades, "summary": ema_summary, "equity_curve": ema_equity_curve},
+            "macd": {"trades": macd_trades, "summary": macd_summary, "equity_curve": macd_equity_curve},
+            "ma_confirm": {"trades": ma_conf_trades, "summary": ma_conf_summary, "equity_curve": ma_conf_equity_curve},
+            "donchian": {"trades": donch_trades, "summary": donch_summary, "equity_curve": donch_equity_curve},
+            "adx_trend": {"trades": adx_trades, "summary": adx_summary, "equity_curve": adx_equity_curve},
+            "bb_breakout": {"trades": bb_trades, "summary": bb_summary, "equity_curve": bb_equity_curve},
+            "keltner": {"trades": kelt_trades, "summary": kelt_summary, "equity_curve": kelt_equity_curve},
+            "parabolic_sar": {"trades": psar_trades, "summary": psar_summary, "equity_curve": psar_equity_curve},
+            "cci_trend": {"trades": cci_trades, "summary": cci_summary, "equity_curve": cci_equity_curve},
+            "regime_router": {"trades": rr_trades, "summary": rr_summary, "equity_curve": rr_equity_curve},
+        },
+        "ema9": ema9_data,
+        "ema21": ema21_data,
+        "macd_line": macd_line_data,
+        "signal_line": signal_line_data,
+        "macd_hist": macd_hist_data,
+        "sr_levels": sr_levels,
+        "overlays": {
+            "donchian": {"upper": donch_upper_data, "lower": donch_lower_data},
+            "bb": {"upper": bb_upper_data, "mid": bb_mid_data, "lower": bb_lower_data},
+            "keltner": {"upper": kelt_upper_data, "mid": kelt_mid_data, "lower": kelt_lower_data},
+            "psar": {"bull": psar_bull_data, "bear": psar_bear_data},
+            "adx": {"adx": adx_data, "plus_di": plus_di_data, "minus_di": minus_di_data},
+            "cci": {"cci": cci_data},
+            "ribbon": {"upper": ribbon_upper_data, "lower": ribbon_lower_data, "center": ribbon_center_data},
+        },
+        "vol_profile": vol_profile,
+        "trend_flips": {"daily": daily_flips, "weekly": weekly_flips},
+    }
+    _cache_set(chart_cache_key, payload, ttl=_CHART_CACHE_TTL)
+    return jsonify(payload)
 
 
 @app.route("/api/watchlist")
@@ -1204,27 +1253,30 @@ def remove_from_watchlist():
     return jsonify(load_watchlist())
 
 
-@app.route("/api/watchlist/quotes")
-def watchlist_quotes():
-    """Get latest price, change, and change% for all watchlist tickers.
+def _get_watchlist_quotes_cache(cache_key: str) -> tuple[list[dict], float] | None:
+    with _watchlist_quotes_lock:
+        entry = _watchlist_quotes_cache.get(cache_key)
+        if not entry:
+            return None
+        fetched_at = float(entry.get("fetched_at", 0))
+        if (_time.time() - fetched_at) > _WATCHLIST_QUOTES_STALE_TTL:
+            _watchlist_quotes_cache.pop(cache_key, None)
+            return None
+        return entry.get("quotes", []), fetched_at
 
-    Uses a single bulk yf.download() call instead of N individual Ticker
-    requests to reduce Yahoo Finance API hits.
-    """
-    tickers = load_watchlist()
-    if not tickers:
-        return jsonify([])
 
-    cache_key = f"quotes:{'|'.join(tickers)}"
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return jsonify(cached)
+def _set_watchlist_quotes_cache(cache_key: str, quotes: list[dict]):
+    with _watchlist_quotes_lock:
+        _watchlist_quotes_cache[cache_key] = {
+            "quotes": quotes,
+            "fetched_at": _time.time(),
+        }
 
+
+def _build_watchlist_quotes(tickers: list[str]) -> list[dict]:
     treasury_tickers = [t for t in tickers if is_treasury_yield_ticker(t)]
     market_tickers = [t for t in tickers if not is_treasury_yield_ticker(t)]
     results_by_ticker = {}
-
-    from concurrent.futures import ThreadPoolExecutor
 
     def _fetch_treasury_quote(ticker):
         try:
@@ -1243,13 +1295,13 @@ def watchlist_quotes():
         try:
             # Bulk download last 5 trading days — enough to get prev close
             df = _yf_rate_limited_download(
-                    yf_tickers,
-                    period="5d",
-                    interval="1d",
-                    progress=False,
-                    group_by="ticker",
-                    threads=False,
-                )
+                yf_tickers,
+                period="5d",
+                interval="1d",
+                progress=False,
+                group_by="ticker",
+                threads=False,
+            )
             for yf_ticker, display_ticker in zip(yf_tickers, market_tickers):
                 try:
                     if len(yf_tickers) == 1:
@@ -1282,11 +1334,61 @@ def watchlist_quotes():
                         "chg_pct": None,
                     }
 
-    results = [results_by_ticker.get(t, {"ticker": t, "last": None, "chg": None, "chg_pct": None}) for t in tickers]
+    return [
+        results_by_ticker.get(
+            ticker,
+            {"ticker": ticker, "last": None, "chg": None, "chg_pct": None},
+        )
+        for ticker in tickers
+    ]
+
+
+def _refresh_watchlist_quotes_cache(cache_key: str, tickers: list[str]):
+    try:
+        quotes = _build_watchlist_quotes(tickers)
+        if quotes and all(q["last"] is not None for q in quotes):
+            _set_watchlist_quotes_cache(cache_key, quotes)
+    finally:
+        with _watchlist_quotes_lock:
+            _watchlist_quote_refreshing.discard(cache_key)
+
+
+def _schedule_watchlist_quotes_refresh(cache_key: str, tickers: list[str]):
+    with _watchlist_quotes_lock:
+        if cache_key in _watchlist_quote_refreshing:
+            return
+        _watchlist_quote_refreshing.add(cache_key)
+    threading.Thread(
+        target=_refresh_watchlist_quotes_cache,
+        args=(cache_key, list(tickers)),
+        daemon=True,
+    ).start()
+
+
+@app.route("/api/watchlist/quotes")
+def watchlist_quotes():
+    """Get latest price, change, and change% for all watchlist tickers.
+
+    Uses a single bulk yf.download() call instead of N individual Ticker
+    requests to reduce Yahoo Finance API hits.
+    """
+    tickers = load_watchlist()
+    if not tickers:
+        return jsonify([])
+
+    cache_key = f"quotes:{'|'.join(tickers)}"
+    cached = _get_watchlist_quotes_cache(cache_key)
+    if cached is not None:
+        quotes, fetched_at = cached
+        if (_time.time() - fetched_at) >= _WATCHLIST_QUOTES_REFRESH_TTL:
+            _schedule_watchlist_quotes_refresh(cache_key, tickers)
+        return jsonify(quotes)
+
+    results = _build_watchlist_quotes(tickers)
 
     # Only cache if all quotes succeeded
     if all(r["last"] is not None for r in results):
-        _cache_set(cache_key, results)
+        _set_watchlist_quotes_cache(cache_key, results)
     return jsonify(results)
 
 
