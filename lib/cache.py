@@ -39,6 +39,8 @@ _YF_RATE_DELAY = 1.5
 _watchlist_quotes_cache: dict[str, dict[str, object]] = {}
 _watchlist_quotes_lock = threading.Lock()
 _watchlist_quote_refreshing: set[str] = set()
+_ticker_info_lock = threading.Lock()
+_ticker_info_refreshing: set[str] = set()
 
 
 def _cache_get(key: str):
@@ -122,6 +124,39 @@ def _get_cached_ticker_info(ticker: str) -> dict:
     _cache_set(cache_key, info, ttl=_TICKER_INFO_CACHE_TTL)
     _write_disk_ticker_info(ticker, info)
     return info
+
+
+def _get_cached_ticker_info_if_fresh(ticker: str) -> dict | None:
+    """Return ticker info from memory/disk cache only, without blocking on Yahoo."""
+    cache_key = f"info:{ticker}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    disk_cached = _read_disk_ticker_info(ticker)
+    if disk_cached is not None:
+        _cache_set(cache_key, disk_cached, ttl=_TICKER_INFO_CACHE_TTL)
+    return disk_cached
+
+
+def _warm_ticker_info_cache_async(ticker: str):
+    """Refresh ticker info in the background so chart loads don't wait on metadata."""
+    if _get_cached_ticker_info_if_fresh(ticker) is not None:
+        return
+    with _ticker_info_lock:
+        if ticker in _ticker_info_refreshing:
+            return
+        _ticker_info_refreshing.add(ticker)
+
+    def _refresh():
+        try:
+            _get_cached_ticker_info(ticker)
+        except Exception:
+            pass
+        finally:
+            with _ticker_info_lock:
+                _ticker_info_refreshing.discard(ticker)
+
+    threading.Thread(target=_refresh, daemon=True).start()
 
 
 def _get_watchlist_quotes_cache(cache_key: str) -> tuple[list[dict], float] | None:

@@ -1,13 +1,15 @@
+import time
 from datetime import timedelta
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, current_app, request, jsonify
 import pandas as pd
 
 from lib.settings import DAILY_WARMUP_DAYS, WEEKLY_WARMUP_DAYS
 from lib.cache import (
     _cache_get,
     _cache_set,
-    _get_cached_ticker_info,
+    _get_cached_ticker_info_if_fresh,
+    _warm_ticker_info_cache_async,
     _CHART_CACHE_TTL,
 )
 from lib.data_fetching import (
@@ -41,6 +43,10 @@ from lib.chart_serialization import (
 from lib.support_resistance import compute_support_resistance
 
 bp = Blueprint("chart", __name__)
+
+
+def _elapsed_ms(started_at: float) -> int:
+    return int(round((time.perf_counter() - started_at) * 1000))
 
 
 # ---------------------------------------------------------------------------
@@ -123,6 +129,15 @@ def _starts_long(direction, full_index, view_index):
 
 @bp.route("/api/chart")
 def chart_data():
+    request_started_at = time.perf_counter()
+    phase_started_at = request_started_at
+    timings_ms = {}
+
+    def mark_phase(name: str):
+        nonlocal phase_started_at
+        timings_ms[name] = _elapsed_ms(phase_started_at)
+        phase_started_at = time.perf_counter()
+
     ticker = normalize_ticker(request.args.get("ticker", "TSLA"))
     interval = request.args.get("interval", "1d")
     source_interval = _source_interval(interval)
@@ -135,6 +150,14 @@ def chart_data():
     )
     cached_chart = _cache_get(chart_cache_key)
     if cached_chart is not None:
+        current_app.logger.info(
+            "chart_data cache_hit ticker=%s interval=%s range=%s..%s total_ms=%s",
+            ticker,
+            interval,
+            start,
+            end or "latest",
+            _elapsed_ms(request_started_at),
+        )
         return jsonify(cached_chart)
 
     # Fetch full name for display
@@ -142,11 +165,12 @@ def chart_data():
     if is_treasury_yield_ticker(ticker):
         ticker_name = _TREASURY_YIELD_SERIES[ticker]["name"]
     else:
-        try:
-            info = _get_cached_ticker_info(ticker)
+        info = _get_cached_ticker_info_if_fresh(ticker)
+        if info:
             ticker_name = info.get("shortName") or info.get("longName") or ""
-        except Exception:
-            pass
+        else:
+            _warm_ticker_info_cache_async(ticker)
+    mark_phase("metadata_ms")
 
     try:
         warmup_start = _warmup_start(start, interval)
@@ -162,9 +186,31 @@ def chart_data():
                 kwargs["end"] = end
             source_df = cached_download(ticker, **kwargs)
     except Exception as e:
+        current_app.logger.info(
+            "chart_data fetch_error ticker=%s interval=%s range=%s..%s metadata_ms=%s fetch_ms=%s total_ms=%s error=%s",
+            ticker,
+            interval,
+            start,
+            end or "latest",
+            timings_ms.get("metadata_ms", 0),
+            _elapsed_ms(phase_started_at),
+            _elapsed_ms(request_started_at),
+            str(e),
+        )
         return jsonify({"error": str(e)}), 400
+    mark_phase("fetch_ms")
 
     if source_df.empty:
+        current_app.logger.info(
+            "chart_data empty_source ticker=%s interval=%s range=%s..%s metadata_ms=%s fetch_ms=%s total_ms=%s",
+            ticker,
+            interval,
+            start,
+            end or "latest",
+            timings_ms.get("metadata_ms", 0),
+            timings_ms.get("fetch_ms", 0),
+            _elapsed_ms(request_started_at),
+        )
         return jsonify({"error": f"No data for {ticker}"}), 400
 
     if isinstance(source_df.columns, pd.MultiIndex):
@@ -181,7 +227,19 @@ def chart_data():
     if df_view.index.duplicated().any():
         df_view = df_view[~df_view.index.duplicated(keep="last")]
     if df_view.empty:
+        current_app.logger.info(
+            "chart_data empty_view ticker=%s interval=%s range=%s..%s metadata_ms=%s fetch_ms=%s frame_ms=%s total_ms=%s",
+            ticker,
+            interval,
+            start,
+            end or "latest",
+            timings_ms.get("metadata_ms", 0),
+            timings_ms.get("fetch_ms", 0),
+            _elapsed_ms(phase_started_at),
+            _elapsed_ms(request_started_at),
+        )
         return jsonify({"error": f"No data for {ticker} in selected range"}), 400
+    mark_phase("frame_ms")
 
     # --- Compute all indicators ---
     supertrend, direction = compute_supertrend(df, period_val, multiplier_val)
@@ -250,6 +308,7 @@ def chart_data():
     )
 
     ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(df)
+    mark_phase("indicators_ms")
 
     # --- Daily flips ---
     if interval == "1d":
@@ -287,6 +346,7 @@ def chart_data():
             )
         except Exception:
             daily_flips = {}
+    mark_phase("daily_flips_ms")
 
     # --- Candles ---
     candles = []
@@ -366,21 +426,11 @@ def chart_data():
     weekly_flips = {}
     try:
         if is_treasury_yield_ticker(ticker):
-            df_w = _derive_treasury_chart_frame(
-                _fetch_treasury_yield_history(
-                    ticker,
-                    start=_warmup_start(start, "1wk"),
-                    end=end or None,
-                ),
-                "1wk",
-            )
+            df_w = _derive_treasury_chart_frame(source_df, "1wk")
         elif source_interval == "1wk":
             df_w = source_df.copy()
         else:
-            kwargs_w = {"start": _warmup_start(start, "1wk"), "interval": "1wk", "progress": False}
-            if end:
-                kwargs_w["end"] = end
-            df_w = cached_download(ticker, **kwargs_w)
+            df_w = _resample_ohlcv(source_df, "W-FRI")
         if not df_w.empty:
             if isinstance(df_w.columns, pd.MultiIndex):
                 df_w.columns = df_w.columns.get_level_values(0)
@@ -415,9 +465,11 @@ def chart_data():
                 )
     except Exception:
         pass
+    mark_phase("weekly_ms")
 
     # --- Support / Resistance levels ---
     sr_levels = compute_support_resistance(df, max_levels=20)
+    mark_phase("support_resistance_ms")
 
     # --- Volumes ---
     volumes = []
@@ -568,5 +620,24 @@ def chart_data():
         "vol_profile": vol_profile,
         "trend_flips": {"daily": daily_flips, "weekly": weekly_flips},
     }
+    mark_phase("payload_ms")
     _cache_set(chart_cache_key, payload, ttl=_CHART_CACHE_TTL)
+    current_app.logger.info(
+        "chart_data timings ticker=%s interval=%s range=%s..%s rows=%s view_rows=%s metadata_ms=%s fetch_ms=%s frame_ms=%s indicators_ms=%s daily_flips_ms=%s weekly_ms=%s support_resistance_ms=%s payload_ms=%s total_ms=%s",
+        ticker,
+        interval,
+        start,
+        end or "latest",
+        len(df),
+        len(df_view),
+        timings_ms.get("metadata_ms", 0),
+        timings_ms.get("fetch_ms", 0),
+        timings_ms.get("frame_ms", 0),
+        timings_ms.get("indicators_ms", 0),
+        timings_ms.get("daily_flips_ms", 0),
+        timings_ms.get("weekly_ms", 0),
+        timings_ms.get("support_resistance_ms", 0),
+        timings_ms.get("payload_ms", 0),
+        _elapsed_ms(request_started_at),
+    )
     return jsonify(payload)
