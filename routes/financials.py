@@ -8,8 +8,8 @@ from lib.cache import (
 )
 from lib.data_fetching import (
     normalize_ticker,
-    is_treasury_yield_ticker,
-    _TREASURY_YIELD_SERIES,
+    is_treasury_price_ticker,
+    _TREASURY_PRICE_PROXIES,
 )
 from lib.financials import _build_financials_payload
 
@@ -22,18 +22,18 @@ def financials_data():
     if not ticker:
         return jsonify({"error": "No ticker provided"}), 400
 
-    if is_treasury_yield_ticker(ticker):
-        meta = _TREASURY_YIELD_SERIES[ticker]
+    if is_treasury_price_ticker(ticker):
+        meta = _TREASURY_PRICE_PROXIES[ticker]
         return jsonify(
             {
                 "available": False,
-                "message": "Detailed company financials are not available for Treasury yield series.",
+                "message": "Detailed company financials are not available for Treasury price proxies.",
                 "overview": {
                     "ticker": ticker,
-                    "yf_ticker": ticker,
+                    "yf_ticker": meta["yf_ticker"],
                     "ticker_name": meta["name"],
                     "currency": None,
-                    "quote_type": "treasury_yield",
+                    "quote_type": "treasury_price_proxy",
                     "company_line": None,
                     "website": None,
                     "summary": None,

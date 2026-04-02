@@ -1,5 +1,18 @@
   <!-- SIGNAL CHIPS -->
   <div class="overlays">
+	    <div class="chip" onclick="toggleSignal(this,'ribbon')"><span class="cd" style="background:#7f98ff"></span>Trend Ribbon<div class="chip-tip" onclick="event.stopPropagation()">
+	      <h4>Trend Ribbon</h4>
+	      <div class="tip-sub">Adaptive Trend Overlay</div>
+	      <p>Trend Ribbon plots a <strong>smoothed center line</strong> with an adaptive band that widens as trend conviction strengthens and narrows before potential reversals. Green shading marks bullish structure; red shading marks bearish structure.</p>
+	      <div class="tip-section">How To Read It</div>
+	      <ul>
+	        <li>Price holding above a green ribbon suggests trend continuation</li>
+	        <li>Compression toward the center line suggests momentum is fading</li>
+	        <li>A color flip marks a potential trend regime change</li>
+	      </ul>
+	      <div class="tip-section">Example</div>
+	      <div class="tip-example">NVDA's ribbon stays wide and green during an uptrend, then compresses as price loses momentum. A later flip to red warns that trend support has failed and a bearish regime may be starting.</div>
+	    </div></div>
 	    <div class="chip" onclick="toggleSignal(this,'supertrend')"><span class="cd" style="background:#5b7fff"></span>Supertrend<div class="chip-tip" onclick="event.stopPropagation()">
 	      <h4>Supertrend</h4>
 	      <div class="tip-sub">Trend-Following Overlay</div>

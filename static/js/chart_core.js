@@ -1,5 +1,6 @@
-let chart,candleSeries,stUpSeries,stDownSeries,stUpFill,stDownFill,stUpMid,stDownMid,volumeSeries,btEquityChart,btEquitySeries;
-let sma50Series,sma100Series,sma200Series,sma50wSeries,sma200wSeries,ema9Series,ema21Series;
+let chart,candleSeries,stUpFill,stDownFill,stUpMid,stDownMid,volumeSeries,btEquityChart,btEquitySeries;
+let stUpSeries=[],stDownSeries=[];
+let sma50Series,sma100Series,sma200Series,sma50wSeries,sma100wSeries,sma200wSeries,ema9Series,ema21Series;
 // Indicator overlay series — price overlays
 let donchUpperSeries,donchLowerSeries;
 let bbUpperSeries,bbMidSeries,bbLowerSeries;
@@ -15,7 +16,7 @@ const overlaySeries=[];
 // srPriceLines removed — S/R now uses srLineSeries (line series approach)
 let lastData=null,btOpen=false;
 let chartStart='',chartEnd='';
-const TREASURY_TICKERS=new Set(['UST1Y','UST2Y','UST3Y','UST5Y','UST7Y','UST10Y','UST20Y','UST30Y']);
+const TREASURY_TICKERS=new Set(['UST1Y','UST2Y','UST3Y','UST5Y','UST10Y','UST20Y','UST30Y']);
 const financialsClientCache=new Map();
 
 const now=new Date(),yearAgo=new Date(now);yearAgo.setFullYear(yearAgo.getFullYear()-1);
@@ -48,12 +49,12 @@ function fmtDisplayNumber(value){
 
 function formatLastDisplay(ticker,value){
   if(value==null||Number.isNaN(Number(value)))return'--';
-  return isTreasuryTicker(ticker)?`${Number(value).toFixed(2)}%`:fmtDisplayNumber(value);
+  return fmtDisplayNumber(value);
 }
 
 function formatPriceDisplay(ticker,value){
   if(value==null||Number.isNaN(Number(value)))return'--';
-  return isTreasuryTicker(ticker)?`${Number(value).toFixed(2)}%`:`$${Number(value).toFixed(2)}`;
+  return `$${Number(value).toFixed(2)}`;
 }
 
 function formatChangeDisplay(value){
@@ -86,12 +87,11 @@ function initChart(){
 	stUpMid=chart.addLineSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false,visible:false,color:'transparent',crosshairMarkerVisible:false});
 	stDownMid=chart.addLineSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false,visible:false,color:'transparent',crosshairMarkerVisible:false});
 	candleSeries=chart.addCandlestickSeries({upColor:'#00e68a',downColor:'#ff5274',borderUpColor:'#00e68a',borderDownColor:'#ff5274',wickUpColor:'#00e68a80',wickDownColor:'#ff527480'});
-	stUpSeries=chart.addLineSeries({color:'#00e68a',lineWidth:2,lineStyle:LightweightCharts.LineStyle.Solid,lastValueVisible:false,priceLineVisible:false,visible:false});
-	stDownSeries=chart.addLineSeries({color:'#ff5274',lineWidth:2,lineStyle:LightweightCharts.LineStyle.Solid,lastValueVisible:false,priceLineVisible:false,visible:false});
   sma50Series=chart.addLineSeries({color:'#ffa040',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
   sma100Series=chart.addLineSeries({color:'#b050ff',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
   sma200Series=chart.addLineSeries({color:'#00d4ff',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
   sma50wSeries=chart.addLineSeries({color:'#e8b839',lineWidth:1,lineStyle:2,lastValueVisible:false,priceLineVisible:false,visible:false});
+  sma100wSeries=chart.addLineSeries({color:'#f59f00',lineWidth:1,lineStyle:2,lastValueVisible:false,priceLineVisible:false,visible:false});
   sma200wSeries=chart.addLineSeries({color:'#ffd644',lineWidth:2,lineStyle:2,lastValueVisible:false,priceLineVisible:false,visible:false});
   ema9Series=chart.addLineSeries({color:'#ff9800',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
   ema21Series=chart.addLineSeries({color:'#ff5722',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
@@ -121,9 +121,9 @@ function initChart(){
   // CCI oscillator
   cciLineSeries=chart.addLineSeries({...oscOpts,color:'#ff6e40',lineWidth:1});
   chart.priceScale('osc').applyOptions({scaleMargins:{top:0.75,bottom:0},borderVisible:false,drawTicks:false});
-  overlaySeries.push(stUpSeries,stDownSeries,stUpFill,stDownFill,stUpMid,stDownMid,sma50Series,sma100Series,sma200Series,sma50wSeries,sma200wSeries,ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,macdLineSeries,macdSignalSeries,macdHistSeries,adxLineSeries,plusDiSeries,minusDiSeries,cciLineSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries);
+  overlaySeries.push(stUpFill,stDownFill,stUpMid,stDownMid,sma50Series,sma100Series,sma200Series,sma50wSeries,sma100wSeries,sma200wSeries,ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,macdLineSeries,macdSignalSeries,macdHistSeries,adxLineSeries,plusDiSeries,minusDiSeries,cciLineSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries);
   // Prevent overlay series on the main price scale from influencing vertical auto-scale
-  [stUpSeries,stDownSeries,stUpFill,stDownFill,stUpMid,stDownMid,sma50Series,sma100Series,sma200Series,sma50wSeries,sma200wSeries,ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries].forEach(s=>s.applyOptions({autoscaleInfoProvider:()=>null}));
+  [stUpFill,stDownFill,stUpMid,stDownMid,sma50Series,sma100Series,sma200Series,sma50wSeries,sma100wSeries,sma200wSeries,ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries].forEach(s=>s.applyOptions({autoscaleInfoProvider:()=>null}));
 	volumeSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'volume'});
 	chart.priceScale('volume').applyOptions({scaleMargins:{top:.82,bottom:0}});
 	new ResizeObserver(()=>chart.applyOptions({width:c.clientWidth,height:c.clientHeight})).observe(c);
@@ -139,6 +139,43 @@ function initChart(){
       lbl.textContent=bars+' bars';
     }
     scheduleSRRedraw();
+  });
+}
+
+function clearSupertrendSegments(){
+  stUpSeries.forEach(s=>chart.removeSeries(s));
+  stDownSeries.forEach(s=>chart.removeSeries(s));
+  stUpSeries=[];
+  stDownSeries=[];
+}
+
+function buildSupertrendSegments(points,color){
+  const segments=[];
+  let segment=[];
+  points.forEach(pt=>{
+    if(pt.value==null||Number.isNaN(Number(pt.value))){
+      if(segment.length){
+        segments.push(segment);
+        segment=[];
+      }
+      return;
+    }
+    segment.push({time:pt.time,value:pt.value});
+  });
+  if(segment.length)segments.push(segment);
+  return segments.map(data=>{
+    const series=chart.addLineSeries({
+      color,
+      lineWidth:2,
+      lineStyle:LightweightCharts.LineStyle.Solid,
+      lastValueVisible:false,
+      priceLineVisible:false,
+      visible:false,
+      crosshairMarkerVisible:false,
+    });
+    series.applyOptions({autoscaleInfoProvider:()=>null});
+    series.setData(data);
+    return series;
   });
 }
 

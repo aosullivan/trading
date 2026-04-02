@@ -216,6 +216,16 @@ _TREASURY_YIELD_SERIES = {
     "UST30Y": {"fred_id": "DGS30", "name": "30-Year Treasury Yield"},
 }
 
+_TREASURY_PRICE_PROXIES = {
+    "UST1Y": {"yf_ticker": "SHY", "name": "1-Year Treasury Price Proxy (SHY)"},
+    "UST2Y": {"yf_ticker": "SHY", "name": "2-Year Treasury Price Proxy (SHY)"},
+    "UST3Y": {"yf_ticker": "IEI", "name": "3-Year Treasury Price Proxy (IEI)"},
+    "UST5Y": {"yf_ticker": "IEI", "name": "5-Year Treasury Price Proxy (IEI)"},
+    "UST10Y": {"yf_ticker": "IEF", "name": "10-Year Treasury Price Proxy (IEF)"},
+    "UST20Y": {"yf_ticker": "TLH", "name": "20-Year Treasury Price Proxy (TLH)"},
+    "UST30Y": {"yf_ticker": "TLT", "name": "30-Year Treasury Price Proxy (TLT)"},
+}
+
 _FRED_DATE_COLUMNS = ("DATE", "observation_date")
 
 
@@ -233,6 +243,15 @@ def normalize_ticker(ticker: str) -> str:
 
 def is_treasury_yield_ticker(ticker: str) -> bool:
     return ticker.upper() in _TREASURY_YIELD_SERIES
+
+
+def is_treasury_price_ticker(ticker: str) -> bool:
+    return ticker.upper() in _TREASURY_PRICE_PROXIES
+
+
+def resolve_treasury_price_proxy_ticker(ticker: str) -> str:
+    proxy = _TREASURY_PRICE_PROXIES.get(ticker.upper())
+    return proxy["yf_ticker"] if proxy else ticker
 
 
 def _fetch_treasury_yield_history(ticker: str, start=None, end=None) -> pd.DataFrame:

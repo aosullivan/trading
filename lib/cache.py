@@ -33,12 +33,17 @@ _FINANCIALS_CACHE_TTL = 3600  # seconds (1 hour)
 _FRED_CACHE_TTL = 900  # seconds (15 minutes)
 _WATCHLIST_QUOTES_REFRESH_TTL = 300  # seconds (5 minutes)
 _WATCHLIST_QUOTES_STALE_TTL = 1800  # seconds (30 minutes)
+_WATCHLIST_TRENDS_REFRESH_TTL = 300  # seconds (5 minutes)
+_WATCHLIST_TRENDS_STALE_TTL = 3600  # seconds (1 hour)
 _yf_lock = threading.Lock()
 _yf_last_call = 0.0
 _YF_RATE_DELAY = 1.5
 _watchlist_quotes_cache: dict[str, dict[str, object]] = {}
 _watchlist_quotes_lock = threading.Lock()
 _watchlist_quote_refreshing: set[str] = set()
+_watchlist_trends_cache: dict[str, dict[str, object]] = {}
+_watchlist_trends_lock = threading.Lock()
+_watchlist_trend_refreshing: set[str] = set()
 _ticker_info_lock = threading.Lock()
 _ticker_info_refreshing: set[str] = set()
 
@@ -175,5 +180,25 @@ def _set_watchlist_quotes_cache(cache_key: str, quotes: list[dict]):
     with _watchlist_quotes_lock:
         _watchlist_quotes_cache[cache_key] = {
             "quotes": quotes,
+            "fetched_at": _time.time(),
+        }
+
+
+def _get_watchlist_trends_cache(cache_key: str) -> tuple[list[dict], float] | None:
+    with _watchlist_trends_lock:
+        entry = _watchlist_trends_cache.get(cache_key)
+        if not entry:
+            return None
+        fetched_at = float(entry.get("fetched_at", 0))
+        if (_time.time() - fetched_at) > _WATCHLIST_TRENDS_STALE_TTL:
+            _watchlist_trends_cache.pop(cache_key, None)
+            return None
+        return entry.get("items", []), fetched_at
+
+
+def _set_watchlist_trends_cache(cache_key: str, items: list[dict]):
+    with _watchlist_trends_lock:
+        _watchlist_trends_cache[cache_key] = {
+            "items": items,
             "fetched_at": _time.time(),
         }

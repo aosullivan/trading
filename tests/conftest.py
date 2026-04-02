@@ -20,13 +20,20 @@ def app(tmp_path):
     import lib.data_fetching as data_fetching_module
     import lib.cache as cache_module
     original_wl = watchlist_module.WATCHLIST_FILE
+    original_trends_cache_dir = watchlist_module._TRENDS_CACHE_DIR
     original_cache_dir = data_fetching_module._DATA_CACHE_DIR
     watchlist_module.WATCHLIST_FILE = str(wl_file)
+    watchlist_module._TRENDS_CACHE_DIR = str(tmp_path / "watchlist_trends")
     data_fetching_module._DATA_CACHE_DIR = str(tmp_path / "data_cache")
     os.makedirs(data_fetching_module._DATA_CACHE_DIR, exist_ok=True)
     cache_module._cache.clear()
+    cache_module._watchlist_quotes_cache.clear()
+    cache_module._watchlist_quote_refreshing.clear()
+    cache_module._watchlist_trends_cache.clear()
+    cache_module._watchlist_trend_refreshing.clear()
     yield flask_app
     watchlist_module.WATCHLIST_FILE = original_wl
+    watchlist_module._TRENDS_CACHE_DIR = original_trends_cache_dir
     data_fetching_module._DATA_CACHE_DIR = original_cache_dir
 
 

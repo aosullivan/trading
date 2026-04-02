@@ -1,6 +1,7 @@
 """Tests for Flask API routes."""
 
 import json
+import time
 from unittest.mock import patch, MagicMock
 
 import pandas as pd
@@ -63,22 +64,22 @@ class TestWatchlistAPI:
         resp = client.delete("/api/watchlist", json={"ticker": "ZZZZ"})
         assert resp.status_code == 200
 
-    @patch("routes.watchlist._fetch_treasury_yield_history")
-    def test_watchlist_quotes_support_treasury_yields(self, mock_history, client):
+    @patch("lib.cache.yf.download")
+    def test_watchlist_quotes_support_treasury_price_proxies(self, mock_download, client):
         import routes.watchlist as watchlist_module
 
         with open(watchlist_module.WATCHLIST_FILE, "w") as f:
             json.dump(["UST10Y"], f)
 
         dates = pd.bdate_range("2024-01-01", periods=5)
-        values = np.array([4.1, 4.15, 4.08, 4.12, 4.2])
-        mock_history.return_value = pd.DataFrame(
+        values = np.array([92.1, 92.3, 92.2, 92.4, 92.8])
+        mock_download.return_value = pd.DataFrame(
             {
-                "Open": values,
-                "High": values,
-                "Low": values,
+                "Open": values - 0.1,
+                "High": values + 0.2,
+                "Low": values - 0.2,
                 "Close": values,
-                "Volume": np.zeros(len(values)),
+                "Volume": np.full(len(values), 1_000_000),
             },
             index=dates,
         )
@@ -86,7 +87,9 @@ class TestWatchlistAPI:
         resp = client.get("/api/watchlist/quotes")
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data == [{"ticker": "UST10Y", "last": 4.2, "chg": 0.08, "chg_pct": 1.94}]
+        mock_download.assert_called_once()
+        assert mock_download.call_args.args[0] == ["IEF"]
+        assert data == [{"ticker": "UST10Y", "last": 92.8, "chg": 0.4, "chg_pct": 0.43}]
 
     @patch("lib.cache.yf.download")
     def test_watchlist_quotes_fall_back_to_single_ticker_fetches_when_bulk_download_fails(
@@ -130,6 +133,101 @@ class TestWatchlistAPI:
             {"ticker": "AAPL", "last": 194.0, "chg": 1.0, "chg_pct": 0.52},
             {"ticker": "TSLA", "last": 246.0, "chg": 2.0, "chg_pct": 0.82},
         ]
+
+    def test_watchlist_trends_returns_loading_then_cached_rows(self, client):
+        rows = [
+            {
+                "ticker": "AAPL",
+                "daily": {"ribbon": {"date": "2024-03-15", "dir": "bullish"}},
+                "weekly": {"ribbon": {"date": "2024-03-08", "dir": "bullish"}},
+            },
+            {
+                "ticker": "TSLA",
+                "daily": {"ribbon": {"date": "2024-03-14", "dir": "bearish"}},
+                "weekly": {"ribbon": {"date": "2024-02-23", "dir": "bearish"}},
+            },
+        ]
+
+        with patch("routes.watchlist._build_watchlist_trends", return_value=rows) as mock_build:
+            cold = client.get("/api/watchlist/trends")
+            assert cold.status_code == 200
+            assert cold.get_json() == {"items": [], "loading": True, "stale": False}
+
+            data = {}
+            for _ in range(30):
+                warm = client.get("/api/watchlist/trends")
+                assert warm.status_code == 200
+                data = warm.get_json()
+                if data["items"] == rows and data["loading"] is False:
+                    break
+                time.sleep(0.01)
+
+            assert data["items"] == rows
+            assert data["loading"] is False
+            assert data["stale"] is False
+            mock_build.assert_called_once()
+
+    def test_watchlist_trends_handles_malformed_rows(self, client):
+        malformed = [
+            {"ticker": "AAPL", "daily": {}, "weekly": {}},
+            {"ticker": "TSLA", "daily": {"ribbon": {"date": None, "dir": None}}, "weekly": {}},
+        ]
+
+        with patch("routes.watchlist._build_watchlist_trends", return_value=malformed):
+            client.get("/api/watchlist/trends")
+
+            data = {}
+            for _ in range(30):
+                resp = client.get("/api/watchlist/trends")
+                assert resp.status_code == 200
+                data = resp.get_json()
+                if data["items"] == malformed and data["loading"] is False:
+                    break
+                time.sleep(0.01)
+
+            assert data["items"] == malformed
+            assert data["loading"] is False
+            assert data["stale"] is False
+
+    def test_watchlist_trends_empty_watchlist(self, client):
+        import routes.watchlist as watchlist_module
+
+        with open(watchlist_module.WATCHLIST_FILE, "w") as f:
+            json.dump([], f)
+
+        resp = client.get("/api/watchlist/trends")
+        assert resp.status_code == 200
+        assert resp.get_json() == {"items": [], "loading": False, "stale": False}
+
+    def test_build_trend_row_reuses_disk_snapshot_when_latest_bar_dates_match(self, app, sample_df):
+        import routes.watchlist as watchlist_module
+
+        weekly_df = sample_df.resample("W-FRI").agg(
+            {
+                "Open": "first",
+                "High": "max",
+                "Low": "min",
+                "Close": "last",
+                "Volume": "sum",
+            }
+        ).dropna(subset=["Open", "High", "Low", "Close"])
+        expected_row = {
+            "ticker": "AAPL",
+            "daily": {"ribbon": {"date": "2024-01-01", "dir": "bullish"}},
+            "weekly": {"ribbon": {"date": "2024-01-05", "dir": "bullish"}},
+        }
+
+        with patch("routes.watchlist.cached_download", side_effect=[sample_df, weekly_df, sample_df, weekly_df]):
+            with patch(
+                "routes.watchlist.compute_all_trend_flips",
+                side_effect=[expected_row["daily"], expected_row["weekly"]],
+            ) as mock_flips:
+                first = watchlist_module._build_trend_row("AAPL")
+                second = watchlist_module._build_trend_row("AAPL")
+
+        assert first == expected_row
+        assert second == expected_row
+        assert mock_flips.call_count == 2
 
 
 class TestYFinanceCacheConfig:
@@ -175,6 +273,32 @@ class TestChartAPI:
         assert "volumes" in data
         assert "strategies" in data
         assert len(data["candles"]) == n
+
+    @patch("lib.cache.yf.download")
+    def test_supertrend_payload_includes_whitespace_breaks(self, mock_download, client):
+        close = [10, 11, 12, 13, 14, 15, 5, 4, 3, 2, 6, 7, 8]
+        dates = pd.bdate_range("2024-01-01", periods=len(close))
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": [c + 0.5 for c in close],
+                "Low": [c - 0.5 for c in close],
+                "Close": close,
+                "Volume": np.full(len(close), 1_000),
+            },
+            index=dates,
+        )
+
+        resp = client.get("/api/chart?ticker=TEST&start=2024-01-01&period=2&multiplier=1")
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+        st_up = data["supertrend_up"]
+        st_down = data["supertrend_down"]
+        assert len(st_up) == len(st_down)
+        assert [pt["time"] for pt in st_up] == [pt["time"] for pt in st_down]
+        assert any("value" not in pt for pt in st_up), "Bullish series should include break markers"
+        assert any("value" not in pt for pt in st_down), "Bearish series should include break markers"
 
     @patch("lib.cache.yf.download")
     def test_chart_empty_data(self, mock_download, client):
@@ -271,17 +395,17 @@ class TestChartAPI:
         assert "1mo" not in requested_intervals
         assert "1wk" in requested_intervals
 
-    @patch("routes.chart._fetch_treasury_yield_history")
-    def test_chart_supports_treasury_yield_series(self, mock_history, client):
+    @patch("lib.cache.yf.download")
+    def test_chart_supports_treasury_price_proxies(self, mock_download, client):
         dates = pd.bdate_range("2023-01-01", periods=260)
-        values = np.linspace(3.5, 4.5, len(dates))
-        mock_history.return_value = pd.DataFrame(
+        values = np.linspace(88.0, 95.0, len(dates))
+        mock_download.return_value = pd.DataFrame(
             {
-                "Open": values,
-                "High": values,
-                "Low": values,
+                "Open": values - 0.1,
+                "High": values + 0.2,
+                "Low": values - 0.2,
                 "Close": values,
-                "Volume": np.zeros(len(values)),
+                "Volume": np.full(len(values), 500_000),
             },
             index=dates,
         )
@@ -289,7 +413,9 @@ class TestChartAPI:
         resp = client.get("/api/chart?ticker=UST10Y&start=2023-01-01")
         assert resp.status_code == 200
         data = resp.get_json()
-        assert data["ticker_name"] == "10-Year Treasury Yield"
+        requested_tickers = [call.args[0] for call in mock_download.call_args_list]
+        assert "IEF" in requested_tickers
+        assert data["ticker_name"] == "10-Year Treasury Price Proxy (IEF)"
         assert len(data["candles"]) == len(dates)
         assert data["candles"][0]["close"] == round(float(values[0]), 2)
 
@@ -350,12 +476,13 @@ class TestFinancialsAPI:
         assert second.status_code == 200
         mock_info.assert_called_once_with("TSLA")
 
-    def test_financials_unavailable_for_treasury_series(self, client):
+    def test_financials_unavailable_for_treasury_price_proxies(self, client):
         resp = client.get("/api/financials?ticker=UST10Y")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["available"] is False
-        assert "Treasury yield series" in data["message"]
+        assert "Treasury price proxies" in data["message"]
+        assert data["overview"]["yf_ticker"] == "IEF"
 
 
 class TestChartOverlays:

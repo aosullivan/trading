@@ -5,6 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_PATH = ROOT / "templates" / "index.html"
 TOOLBAR_PARTIAL_PATH = ROOT / "templates" / "partials" / "toolbar.html"
 CHART_CORE_JS_PATH = ROOT / "static" / "js" / "chart_core.js"
+CHART_LEGEND_JS_PATH = ROOT / "static" / "js" / "chart_legend.js"
 CHART_LOAD_JS_PATH = ROOT / "static" / "js" / "chart_load.js"
 CHART_SIGNALS_JS_PATH = ROOT / "static" / "js" / "chart_signals.js"
 CHART_SR_JS_PATH = ROOT / "static" / "js" / "chart_sr.js"
@@ -14,6 +15,7 @@ def test_price_overlays_opt_out_of_autoscale():
     source = CHART_CORE_JS_PATH.read_text()
     assert "autoscaleInfoProvider:()=>null" in source
     assert "sma200wSeries" in source
+    assert "sma100wSeries" in source
     assert "ribbonCenterSeries" in source
 
 
@@ -81,4 +83,13 @@ def test_template_exposes_trend_flip_pulse_controls():
 
 def test_template_updates_last_data_before_refreshing_trend_flip_ui():
     source = CHART_LOAD_JS_PATH.read_text()
-    assert "lastData=data;\n    // Trend flip dates\n    updateFlipInfo();" in source
+    assert "lastData=data;\n    syncAutoMovingAverages();\n    // Trend flip dates\n    updateFlipInfo();" in source
+
+
+def test_moving_average_legend_exposes_auto_and_100w_options():
+    source = CHART_LEGEND_JS_PATH.read_text()
+    assert "const MA_AUTO_KEY='maAuto';" in source
+    assert "'1d':['sma50','sma100','sma200']" in source
+    assert "'1wk':['sma50w','sma100w','sma200w']" in source
+    assert "function syncAutoMovingAverages(){" in source
+    assert "label:'100W MA'" in source

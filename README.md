@@ -25,7 +25,7 @@ Opens at http://localhost:5050
 
 - Interactive candlestick charts with TradingView's Lightweight Charts
 - Daily, weekly, and monthly intervals
-- Overlay toggles: Supertrend, SMA 50/100/200, 200W MA, EMA 9/21, MACD
+- Overlay toggles: Supertrend, Auto MA, SMA 50/100/200, 50W/100W/200W MA, EMA 9/21, MACD
 - Backtest panel with full trade history, metrics, and strategy comparison
 - Watchlist with live quotes, sorting, and click-to-load
 

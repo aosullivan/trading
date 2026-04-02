@@ -2,10 +2,13 @@
 <div class="watchlist" id="wl-panel">
   <div class="wl-drag" id="wl-drag"></div>
   <div class="wl-head">
-    <h2>Watchlist</h2>
+    <div class="wl-view-tabs">
+      <button class="wl-view-tab active" type="button" data-view="watchlist" onclick="switchWLView('watchlist')">Watchlist</button>
+      <button class="wl-view-tab" type="button" data-view="trends" onclick="switchWLView('trends')">Trends</button>
+    </div>
     <span class="wl-cnt" id="wl-count">0</span>
   </div>
-  <div class="wl-add">
+  <div class="wl-add" id="wl-add-row">
     <input type="text" id="wl-input" placeholder="Add ticker..." onkeydown="if(event.key==='Enter')addWL()">
     <button onclick="addWL()">+</button>
   </div>
@@ -19,6 +22,15 @@
     <button class="wl-tab" data-tab="crypto" onclick="switchWLTab('crypto')">Crypto</button>
     <button class="wl-tab" data-tab="misc" onclick="switchWLTab('misc')">Misc</button>
   </div>
-  <div class="wl-cols"><span class="wl-sort" onclick="sortWL('sym')">Symbol<i id="wl-arrow-sym"></i></span><span class="wl-sort" onclick="sortWL('last')">Last<i id="wl-arrow-last"></i></span><span class="wl-sort" onclick="sortWL('chg')">Chg<i id="wl-arrow-chg"></i></span><span class="wl-sort" onclick="sortWL('chg_pct')">Chg%<i id="wl-arrow-chg_pct"></i></span></div>
+  <div class="wl-tabs wl-trend-tabs" id="wl-trend-tabs" style="display:none">
+    <button class="wl-tab active" data-frame="daily" onclick="switchWLTrendFrame('daily')">Daily</button>
+    <button class="wl-tab" data-frame="weekly" onclick="switchWLTrendFrame('weekly')">Weekly</button>
+  </div>
+  <div class="wl-cols" id="wl-quote-cols"><span class="wl-sort" onclick="sortWL('sym')">Symbol<i id="wl-arrow-sym"></i></span><span class="wl-sort" onclick="sortWL('last')">Last<i id="wl-arrow-last"></i></span><span class="wl-sort" onclick="sortWL('chg')">Chg<i id="wl-arrow-chg"></i></span><span class="wl-sort" onclick="sortWL('chg_pct')">Chg%<i id="wl-arrow-chg_pct"></i></span></div>
+  <div class="wl-cols wl-trend-cols" id="wl-trend-cols" style="display:none">
+    <span class="wl-sort" onclick="sortWLTrends('ticker')">Symbol<i id="wl-trend-arrow-ticker"></i></span>
+    <span class="wl-sort" onclick="sortWLTrends('flip')">Flip<i id="wl-trend-arrow-flip"></i></span>
+    <span class="wl-sort active" onclick="sortWLTrends('score')">Strength<i id="wl-trend-arrow-score"> ▼</i></span>
+  </div>
   <div class="wl-list" id="wl-items"></div>
 </div>

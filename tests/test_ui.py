@@ -87,9 +87,12 @@ class TestWatchlistUI:
         wl = browser_page.locator("#wl-panel")
         expect(wl).to_be_visible()
 
-    def test_watchlist_header(self, browser_page):
-        header = browser_page.locator(".wl-head h2")
-        expect(header).to_have_text("Watchlist")
+    def test_watchlist_and_trends_tabs_visible(self, browser_page):
+        watchlist_tab = browser_page.locator(".wl-view-tab", has_text="Watchlist")
+        trends_tab = browser_page.locator(".wl-view-tab", has_text="Trends")
+        expect(watchlist_tab).to_be_visible()
+        expect(watchlist_tab).to_have_class(re.compile(r"\bactive\b"))
+        expect(trends_tab).to_be_visible()
 
     def test_watchlist_has_items(self, browser_page):
         # Wait for watchlist to load
@@ -105,6 +108,20 @@ class TestWatchlistUI:
         inp = browser_page.locator("#wl-input")
         expect(inp).to_be_visible()
         expect(inp).to_have_attribute("placeholder", "Add ticker...")
+
+    def test_trends_tab_renders_ranked_rows_and_click_loads_ticker(self, browser_page):
+        browser_page.locator(".wl-view-tab", has_text="Trends").click()
+        first_row = browser_page.locator(".wl-trend-row").first
+        expect(first_row).to_be_visible(timeout=30000)
+        expect(first_row.locator(".tf-cell").first).to_be_visible()
+        expect(first_row.locator(".tf-flip-date").first).to_be_visible()
+
+        ticker = first_row.locator(".wl-trend-symbol strong").text_content().strip()
+        first_row.click()
+        expect(browser_page.locator("#ticker")).to_have_value(ticker)
+
+        browser_page.locator(".wl-view-tab", has_text="Watchlist").click()
+        expect(browser_page.locator("#wl-input")).to_be_visible()
 
 
 class TestOverlayChips:

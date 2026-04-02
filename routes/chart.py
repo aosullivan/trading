@@ -15,9 +15,9 @@ from lib.cache import (
 from lib.data_fetching import (
     cached_download,
     normalize_ticker,
-    is_treasury_yield_ticker,
-    _TREASURY_YIELD_SERIES,
-    _fetch_treasury_yield_history,
+    is_treasury_price_ticker,
+    _TREASURY_PRICE_PROXIES,
+    resolve_treasury_price_proxy_ticker,
 )
 from lib.technical_indicators import (
     compute_supertrend,
@@ -245,9 +245,11 @@ def _get_weekly_bundle(
         return cached, True
 
     sma_w50 = df_w["Close"].rolling(window=50).mean()
+    sma_w100 = df_w["Close"].rolling(window=100).mean()
     sma_w200 = df_w["Close"].rolling(window=200).mean()
     bundle = {
         "sma_w50": sma_w50,
+        "sma_w100": sma_w100,
         "sma_w200": sma_w200,
         "weekly_flips": compute_all_trend_flips(
             df_w,
@@ -257,6 +259,16 @@ def _get_weekly_bundle(
     }
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
     return bundle, False
+
+
+def _resolve_cached_ticker_name(ticker: str) -> str:
+    if is_treasury_price_ticker(ticker):
+        return _TREASURY_PRICE_PROXIES[ticker]["name"]
+    info = _get_cached_ticker_info_if_fresh(ticker)
+    if info:
+        return info.get("shortName") or info.get("longName") or ""
+    _warm_ticker_info_cache_async(ticker)
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +289,7 @@ def chart_data():
         phase_started_at = time.perf_counter()
 
     ticker = normalize_ticker(request.args.get("ticker", "TSLA"))
+    data_ticker = normalize_ticker(resolve_treasury_price_proxy_ticker(ticker))
     interval = request.args.get("interval", "1d")
     source_interval = _source_interval(interval)
     start = request.args.get("start", "2015-01-01")
@@ -288,6 +301,11 @@ def chart_data():
     )
     cached_chart = _cache_get(chart_cache_key)
     if cached_chart is not None:
+        if not cached_chart.get("ticker_name"):
+            ticker_name = _resolve_cached_ticker_name(ticker)
+            if ticker_name:
+                cached_chart = {**cached_chart, "ticker_name": ticker_name}
+                _cache_set(chart_cache_key, cached_chart, ttl=_CHART_CACHE_TTL)
         current_app.logger.info(
             "chart_data cache_hit ticker=%s interval=%s range=%s..%s total_ms=%s",
             ticker,
@@ -299,30 +317,19 @@ def chart_data():
         return jsonify(cached_chart)
 
     # Fetch full name for display
-    ticker_name = ""
-    if is_treasury_yield_ticker(ticker):
-        ticker_name = _TREASURY_YIELD_SERIES[ticker]["name"]
-    else:
-        info = _get_cached_ticker_info_if_fresh(ticker)
-        if info:
-            ticker_name = info.get("shortName") or info.get("longName") or ""
-        else:
-            _warm_ticker_info_cache_async(ticker)
+    ticker_name = _resolve_cached_ticker_name(ticker)
     mark_phase("metadata_ms")
 
     try:
         warmup_start = _warmup_start(start, interval)
-        if is_treasury_yield_ticker(ticker):
-            source_df = _fetch_treasury_yield_history(ticker, start=warmup_start, end=end or None)
-        else:
-            kwargs = {
-                "start": warmup_start,
-                "interval": source_interval,
-                "progress": False,
-            }
-            if end:
-                kwargs["end"] = end
-            source_df = cached_download(ticker, **kwargs)
+        kwargs = {
+            "start": warmup_start,
+            "interval": source_interval,
+            "progress": False,
+        }
+        if end:
+            kwargs["end"] = end
+        source_df = cached_download(data_ticker, **kwargs)
     except Exception as e:
         current_app.logger.info(
             "chart_data fetch_error ticker=%s interval=%s range=%s..%s metadata_ms=%s fetch_ms=%s total_ms=%s error=%s",
@@ -355,10 +362,7 @@ def chart_data():
         source_df.columns = source_df.columns.get_level_values(0)
 
     source_df = source_df[~source_df.index.duplicated(keep="last")]
-    if is_treasury_yield_ticker(ticker):
-        df = _derive_treasury_chart_frame(source_df, interval)
-    else:
-        df = _derive_chart_frame(source_df, interval)
+    df = _derive_chart_frame(source_df, interval)
 
     view_mask = _visible_mask(df.index, start, end)
     df_view = df.loc[view_mask].copy()
@@ -483,17 +487,10 @@ def chart_data():
         daily_flips = indicator_bundle["daily_flips"]
     else:
         try:
-            if is_treasury_yield_ticker(ticker):
-                df_d = _fetch_treasury_yield_history(
-                    ticker,
-                    start=_warmup_start(start, "1d"),
-                    end=end or None,
-                )
-            else:
-                kwargs_d = {"start": _warmup_start(start, "1d"), "interval": "1d", "progress": False}
-                if end:
-                    kwargs_d["end"] = end
-                df_d = cached_download(ticker, **kwargs_d)
+            kwargs_d = {"start": _warmup_start(start, "1d"), "interval": "1d", "progress": False}
+            if end:
+                kwargs_d["end"] = end
+            df_d = cached_download(data_ticker, **kwargs_d)
             if isinstance(df_d.columns, pd.MultiIndex):
                 df_d.columns = df_d.columns.get_level_values(0)
             if df_d.index.duplicated().any():
@@ -530,7 +527,9 @@ def chart_data():
         body_mid = round(float((df_view["Open"].iloc[i] + df_view["Close"].iloc[i]) / 2), 2)
         if direction_view.iloc[i] == 1:
             st_up.append({"time": ts, "value": val, "mid": body_mid})
+            st_down.append({"time": ts})
         else:
+            st_up.append({"time": ts})
             st_down.append({"time": ts, "value": val, "mid": body_mid})
 
     # --- Supertrend backtest ---
@@ -579,12 +578,11 @@ def chart_data():
 
     # --- Weekly SMAs and flips ---
     sma_50w = []
+    sma_100w = []
     sma_200w = []
     weekly_flips = {}
     try:
-        if is_treasury_yield_ticker(ticker):
-            df_w = _derive_treasury_chart_frame(source_df, "1wk")
-        elif source_interval == "1wk":
+        if source_interval == "1wk":
             df_w = source_df.copy()
         else:
             df_w = _resample_ohlcv(source_df, "W-FRI")
@@ -601,13 +599,17 @@ def chart_data():
                 multiplier_val,
             )
             sma_w50 = weekly_bundle["sma_w50"]
+            sma_w100 = weekly_bundle["sma_w100"]
             sma_w200 = weekly_bundle["sma_w200"]
             sma_w50_view = sma_w50.loc[df_w_view.index]
+            sma_w100_view = sma_w100.loc[df_w_view.index]
             sma_w200_view = sma_w200.loc[df_w_view.index]
             for i in range(len(df_w_view)):
                 ts = int(df_w_view.index[i].timestamp())
                 if not pd.isna(sma_w50_view.iloc[i]):
                     sma_50w.append({"time": ts, "value": round(float(sma_w50_view.iloc[i]), 2)})
+                if not pd.isna(sma_w100_view.iloc[i]):
+                    sma_100w.append({"time": ts, "value": round(float(sma_w100_view.iloc[i]), 2)})
                 if not pd.isna(sma_w200_view.iloc[i]):
                     sma_200w.append({"time": ts, "value": round(float(sma_w200_view.iloc[i]), 2)})
             if interval == "1wk":
@@ -739,6 +741,7 @@ def chart_data():
         "equity_curve": equity_curve,
         **smas,
         "sma_50w": sma_50w,
+        "sma_100w": sma_100w,
         "sma_200w": sma_200w,
         "strategies": {
             "supertrend": {"trades": trades, "summary": summary, "equity_curve": equity_curve},

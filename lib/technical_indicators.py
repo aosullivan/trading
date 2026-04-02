@@ -3,7 +3,7 @@ import pandas as pd
 
 
 def compute_supertrend(df, period=10, multiplier=3):
-    """Compute Supertrend indicator."""
+    """Compute Supertrend indicator using TradingView's band and flip rules."""
     high = df["High"]
     low = df["Low"]
     close = df["Close"]
@@ -12,7 +12,11 @@ def compute_supertrend(df, period=10, multiplier=3):
     hc = (high - close.shift(1)).abs()
     lc = (low - close.shift(1)).abs()
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    atr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
+    atr = pd.Series(np.nan, index=df.index)
+    if len(df) >= period:
+        atr.iloc[period - 1] = tr.iloc[:period].mean()
+        for i in range(period, len(df)):
+            atr.iloc[i] = ((atr.iloc[i - 1] * (period - 1)) + tr.iloc[i]) / period
 
     hl2 = (high + low) / 2
     upper_basic = hl2 + multiplier * atr
@@ -21,37 +25,38 @@ def compute_supertrend(df, period=10, multiplier=3):
     upper_band = pd.Series(np.nan, index=df.index)
     lower_band = pd.Series(np.nan, index=df.index)
     supertrend = pd.Series(np.nan, index=df.index)
-    direction = pd.Series(1, index=df.index)
+    direction = pd.Series(-1, index=df.index)
 
-    for i in range(period, len(df)):
-        if pd.isna(upper_band.iloc[i - 1]):
-            upper_band.iloc[i] = upper_basic.iloc[i]
-        else:
-            upper_band.iloc[i] = (
-                min(upper_basic.iloc[i], upper_band.iloc[i - 1])
-                if close.iloc[i - 1] <= upper_band.iloc[i - 1]
-                else upper_basic.iloc[i]
+    if len(df) < period:
+        return supertrend, direction
+
+    start = period - 1
+    upper_band.iloc[start] = upper_basic.iloc[start]
+    lower_band.iloc[start] = lower_basic.iloc[start]
+    supertrend.iloc[start] = upper_band.iloc[start]
+
+    for i in range(start + 1, len(df)):
+        upper_band.iloc[i] = (
+            upper_basic.iloc[i]
+            if (
+                upper_basic.iloc[i] < upper_band.iloc[i - 1]
+                or close.iloc[i - 1] > upper_band.iloc[i - 1]
             )
-
-        if pd.isna(lower_band.iloc[i - 1]):
-            lower_band.iloc[i] = lower_basic.iloc[i]
-        else:
-            lower_band.iloc[i] = (
-                max(lower_basic.iloc[i], lower_band.iloc[i - 1])
-                if close.iloc[i - 1] >= lower_band.iloc[i - 1]
-                else lower_basic.iloc[i]
+            else upper_band.iloc[i - 1]
+        )
+        lower_band.iloc[i] = (
+            lower_basic.iloc[i]
+            if (
+                lower_basic.iloc[i] > lower_band.iloc[i - 1]
+                or close.iloc[i - 1] < lower_band.iloc[i - 1]
             )
+            else lower_band.iloc[i - 1]
+        )
 
-        if i == period:
+        if supertrend.iloc[i - 1] == upper_band.iloc[i - 1]:
             direction.iloc[i] = 1 if close.iloc[i] > upper_band.iloc[i] else -1
         else:
-            prev_dir = direction.iloc[i - 1]
-            if prev_dir == -1 and close.iloc[i] > upper_band.iloc[i]:
-                direction.iloc[i] = 1
-            elif prev_dir == 1 and close.iloc[i] < lower_band.iloc[i]:
-                direction.iloc[i] = -1
-            else:
-                direction.iloc[i] = prev_dir
+            direction.iloc[i] = -1 if close.iloc[i] < lower_band.iloc[i] else 1
 
         supertrend.iloc[i] = lower_band.iloc[i] if direction.iloc[i] == 1 else upper_band.iloc[i]
 

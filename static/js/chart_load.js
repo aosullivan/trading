@@ -1,7 +1,32 @@
+let tickerNameRefreshToken=0;
+
+function syncTickerNameLabel(tickerName){
+  document.getElementById('tk-name').textContent=tickerName||'';
+}
+
+function queueTickerNameRefresh(ticker,url,token,attempt=1){
+  if(attempt>4)return;
+  window.setTimeout(async()=>{
+    if(token!==tickerNameRefreshToken)return;
+    if(document.getElementById('ticker').value.toUpperCase()!==ticker)return;
+    try{
+      const res=await fetch(url),data=await res.json();
+      if(token!==tickerNameRefreshToken)return;
+      if(document.getElementById('ticker').value.toUpperCase()!==ticker)return;
+      if(data.ticker_name){
+        syncTickerNameLabel(data.ticker_name);
+      }else{
+        queueTickerNameRefresh(ticker,url,token,attempt+1);
+      }
+    }catch(_e){}
+  },attempt*700);
+}
+
 async function loadChart(){
   const ld=document.getElementById('loading');
   ld.classList.add('on');
   const ticker=document.getElementById('ticker').value.toUpperCase();
+  const nameRefreshToken=++tickerNameRefreshToken;
   const interval=document.getElementById('interval').value;
   const start=chartStart,end=chartEnd;
 	const period=document.getElementById('period').value,mult=document.getElementById('multiplier').value;
@@ -12,22 +37,23 @@ async function loadChart(){
     const res=await fetch(url),data=await res.json();
     if(data.error){alert(data.error);return}
     document.getElementById('tk-sym').textContent=ticker;
-    document.getElementById('tk-name').textContent='';
+    syncTickerNameLabel('');
     document.getElementById('chart-tag').textContent=`${ticker} \u00b7 ${intervalLabel(interval)} \u00b7 ST ${period}/${mult}`;
     candleSeries.setData(data.candles);
     _lastCandles=data.candles;
-    const stUpData=data.supertrend_up.filter(d=>d.value!==null&&!isNaN(d.value));
-    const stDownData=data.supertrend_down.filter(d=>d.value!==null&&!isNaN(d.value));
-    stUpSeries.setData(stUpData);
-    stDownSeries.setData(stDownData);
+    const stUpData=(data.supertrend_up||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
+    const stDownData=(data.supertrend_down||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
+    clearSupertrendSegments();
+    stUpSeries=buildSupertrendSegments(stUpData,'#00e68a');
+    stDownSeries=buildSupertrendSegments(stDownData,'#ff5274');
     // Supertrend fills: area from body middle to supertrend line
-    stUpFill.setData(stUpData.map(d=>({time:d.time,value:d.mid||d.value})));
-    stDownFill.setData(stDownData.map(d=>({time:d.time,value:d.mid||d.value})));
+    stUpFill.setData(stUpData.map(d=>d.value==null?{time:d.time}:{time:d.time,value:d.mid??d.value}));
+    stDownFill.setData(stDownData.map(d=>d.value==null?{time:d.time}:{time:d.time,value:d.mid??d.value}));
     stUpMid.setData(stUpData);
     stDownMid.setData(stDownData);
     volumeSeries.setData(data.volumes);
     sma50Series.setData(data.sma_50||[]);sma100Series.setData(data.sma_100||[]);
-    sma200Series.setData(data.sma_200||[]);sma50wSeries.setData(data.sma_50w||[]);sma200wSeries.setData(data.sma_200w||[]);
+    sma200Series.setData(data.sma_200||[]);sma50wSeries.setData(data.sma_50w||[]);sma100wSeries.setData(data.sma_100w||[]);sma200wSeries.setData(data.sma_200w||[]);
     ema9Series.setData(data.ema9||[]);ema21Series.setData(data.ema21||[]);
     // Indicator overlays
     const ov=data.overlays||{};
@@ -48,6 +74,7 @@ async function loadChart(){
     ribbonLowerSeries.setData(rLower.map(d=>({time:d.time,value:d.value})));
     ribbonCenterSeries.setData(ov.ribbon?.center||[]);
     lastData=data;
+    syncAutoMovingAverages();
     // Trend flip dates
     updateFlipInfo();
     // Volume profile
@@ -66,7 +93,11 @@ async function loadChart(){
       ce.textContent=`${up?'+':''}${c.toFixed(2)} (${up?'+':''}${cp.toFixed(2)}%)`;
       ce.className='tk-chg '+(up?'up':'dn');
     }
-    if(data.ticker_name) document.getElementById('tk-name').textContent=data.ticker_name;
+    if(data.ticker_name){
+      syncTickerNameLabel(data.ticker_name);
+    }else{
+      queueTickerNameRefresh(ticker,url,nameRefreshToken);
+    }
     // Show last 1yr (daily) or 2yr (weekly) by default; all history is loaded so user can scroll left freely
     if(data.candles.length){
       const visStart=defaultVisibleStart(interval);
@@ -81,7 +112,11 @@ async function loadChart(){
     switchStrategy(document.getElementById('strategy-select').value);
     updateMarkers();
   }catch(e){alert('Error: '+e.message)}
-  finally{ld.classList.remove('on');pushURLParams()}
+  finally{
+    ld.classList.remove('on');
+    pushURLParams();
+    if(typeof queueWatchlistTrendPreload==='function')queueWatchlistTrendPreload();
+  }
 }
 
 function switchStrategy(name){
