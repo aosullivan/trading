@@ -16,16 +16,18 @@ def app(tmp_path):
     wl_file.write_text(json.dumps(["AAPL", "TSLA"]))
     flask_app.config["TESTING"] = True
     # Patch the watchlist file path
-    import app as app_module
-    original_wl = app_module.WATCHLIST_FILE
-    original_cache_dir = app_module._DATA_CACHE_DIR
-    app_module.WATCHLIST_FILE = str(wl_file)
-    app_module._DATA_CACHE_DIR = str(tmp_path / "data_cache")
-    os.makedirs(app_module._DATA_CACHE_DIR, exist_ok=True)
-    app_module._cache.clear()  # clear in-memory cache between tests
+    import routes.watchlist as watchlist_module
+    import lib.data_fetching as data_fetching_module
+    import lib.cache as cache_module
+    original_wl = watchlist_module.WATCHLIST_FILE
+    original_cache_dir = data_fetching_module._DATA_CACHE_DIR
+    watchlist_module.WATCHLIST_FILE = str(wl_file)
+    data_fetching_module._DATA_CACHE_DIR = str(tmp_path / "data_cache")
+    os.makedirs(data_fetching_module._DATA_CACHE_DIR, exist_ok=True)
+    cache_module._cache.clear()
     yield flask_app
-    app_module.WATCHLIST_FILE = original_wl
-    app_module._DATA_CACHE_DIR = original_cache_dir
+    watchlist_module.WATCHLIST_FILE = original_wl
+    data_fetching_module._DATA_CACHE_DIR = original_cache_dir
 
 
 @pytest.fixture

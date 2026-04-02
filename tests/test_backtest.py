@@ -4,15 +4,17 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app import (
+from lib.backtesting import (
     backtest_direction,
     backtest_supertrend,
+    build_equity_curve,
+    compute_summary,
+)
+from lib.technical_indicators import (
     compute_supertrend,
     compute_ema_crossover,
-    _build_equity_curve,
-    _compute_summary,
-    INITIAL_CAPITAL,
 )
+from lib.settings import INITIAL_CAPITAL
 
 
 class TestBacktestDirection:
@@ -24,14 +26,13 @@ class TestBacktestDirection:
 
     def test_single_trade_always_bullish(self, sample_df):
         direction = pd.Series(1, index=sample_df.index)
-        direction.iloc[0] = -1  # start bearish so entry triggers
+        direction.iloc[0] = -1
         trades, summary, equity = backtest_direction(sample_df, direction)
         assert len(trades) == 1
-        assert trades[0]["open"] is True  # still open at end
+        assert trades[0]["open"] is True
 
     def test_entry_exit_cycle(self, sample_df):
         direction = pd.Series(-1, index=sample_df.index)
-        # Go bullish for a stretch, then bearish
         direction.iloc[10:50] = 1
         trades, summary, equity = backtest_direction(sample_df, direction)
         assert len(trades) == 1
@@ -89,7 +90,7 @@ class TestEquityCurve:
 
 class TestComputeSummary:
     def test_empty_trades(self):
-        summary = _compute_summary([], [])
+        summary = compute_summary([], [])
         assert summary["total_trades"] == 0
         assert summary["win_rate"] == 0
         assert summary["ending_equity"] == INITIAL_CAPITAL
@@ -101,7 +102,7 @@ class TestComputeSummary:
             {"pnl": 200, "entry_price": 10, "exit_price": 12, "quantity": 10},
         ]
         equity = [{"value": INITIAL_CAPITAL}, {"value": INITIAL_CAPITAL + 250}]
-        summary = _compute_summary(trades, equity)
+        summary = compute_summary(trades, equity)
         assert summary["total_trades"] == 3
         assert summary["winners"] == 2
         assert summary["losers"] == 1
@@ -113,7 +114,7 @@ class TestComputeSummary:
             {"pnl": -100},
         ]
         equity = [{"value": INITIAL_CAPITAL}]
-        summary = _compute_summary(trades, equity)
+        summary = compute_summary(trades, equity)
         assert summary["profit_factor"] == 3.0
 
     def test_max_drawdown(self):
@@ -121,8 +122,8 @@ class TestComputeSummary:
         equity = [
             {"value": 100000},
             {"value": 110000},
-            {"value": 95000},  # drawdown = 15000 from peak 110000
+            {"value": 95000},
             {"value": 105000},
         ]
-        summary = _compute_summary(trades, equity)
+        summary = compute_summary(trades, equity)
         assert summary["max_drawdown"] == 15000.0

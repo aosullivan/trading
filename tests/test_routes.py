@@ -63,11 +63,11 @@ class TestWatchlistAPI:
         resp = client.delete("/api/watchlist", json={"ticker": "ZZZZ"})
         assert resp.status_code == 200
 
-    @patch("app._fetch_treasury_yield_history")
+    @patch("routes.watchlist._fetch_treasury_yield_history")
     def test_watchlist_quotes_support_treasury_yields(self, mock_history, client):
-        import app as app_module
+        import routes.watchlist as watchlist_module
 
-        with open(app_module.WATCHLIST_FILE, "w") as f:
+        with open(watchlist_module.WATCHLIST_FILE, "w") as f:
             json.dump(["UST10Y"], f)
 
         dates = pd.bdate_range("2024-01-01", periods=5)
@@ -88,13 +88,13 @@ class TestWatchlistAPI:
         data = resp.get_json()
         assert data == [{"ticker": "UST10Y", "last": 4.2, "chg": 0.08, "chg_pct": 1.94}]
 
-    @patch("app._yf_rate_limited_download")
+    @patch("lib.cache.yf.download")
     def test_watchlist_quotes_fall_back_to_single_ticker_fetches_when_bulk_download_fails(
         self, mock_download, client
     ):
-        import app as app_module
+        import routes.watchlist as watchlist_module
 
-        with open(app_module.WATCHLIST_FILE, "w") as f:
+        with open(watchlist_module.WATCHLIST_FILE, "w") as f:
             json.dump(["AAPL", "TSLA"], f)
 
         dates = pd.bdate_range("2024-01-01", periods=5)
@@ -134,13 +134,13 @@ class TestWatchlistAPI:
 
 class TestYFinanceCacheConfig:
     def test_configure_yfinance_cache_uses_project_local_directory(self, tmp_path, monkeypatch):
-        import app as app_module
+        import lib.cache as cache_module
 
         calls = []
         target = tmp_path / "yf-cache"
-        monkeypatch.setattr(app_module.yf, "set_tz_cache_location", lambda path: calls.append(path))
+        monkeypatch.setattr(cache_module.yf, "set_tz_cache_location", lambda path: calls.append(path))
 
-        resolved = app_module._configure_yfinance_cache(str(target))
+        resolved = cache_module._configure_yfinance_cache(str(target))
 
         assert resolved == str(target)
         assert target.is_dir()
@@ -148,7 +148,7 @@ class TestYFinanceCacheConfig:
 
 
 class TestChartAPI:
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_chart_returns_data(self, mock_download, client):
         n = 100
         dates = pd.bdate_range("2023-01-01", periods=n)
@@ -176,7 +176,7 @@ class TestChartAPI:
         assert "strategies" in data
         assert len(data["candles"]) == n
 
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_chart_empty_data(self, mock_download, client):
         mock_download.return_value = pd.DataFrame()
         resp = client.get("/api/chart?ticker=INVALID")
@@ -184,7 +184,7 @@ class TestChartAPI:
         data = resp.get_json()
         assert "error" in data
 
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_chart_strategies_present(self, mock_download, client):
         n = 100
         dates = pd.bdate_range("2023-01-01", periods=n)
@@ -215,8 +215,8 @@ class TestChartAPI:
             assert "trades" in strategies[key]
             assert "summary" in strategies[key]
 
-    @patch("app.yf.Ticker")
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.Ticker")
+    @patch("lib.cache.yf.download")
     def test_chart_monthly_view_derives_from_weekly_data(self, mock_download, mock_ticker, client):
         weekly_dates = pd.date_range("2023-09-01", periods=40, freq="W-FRI")
         weekly_close = np.linspace(100, 140, len(weekly_dates))
@@ -271,7 +271,7 @@ class TestChartAPI:
         assert "1mo" not in requested_intervals
         assert "1wk" in requested_intervals
 
-    @patch("app._fetch_treasury_yield_history")
+    @patch("routes.chart._fetch_treasury_yield_history")
     def test_chart_supports_treasury_yield_series(self, mock_history, client):
         dates = pd.bdate_range("2023-01-01", periods=260)
         values = np.linspace(3.5, 4.5, len(dates))
@@ -295,7 +295,7 @@ class TestChartAPI:
 
 
 class TestFinancialsAPI:
-    @patch("app._get_cached_ticker_info")
+    @patch("routes.financials._get_cached_ticker_info")
     def test_financials_returns_sections(self, mock_info, client):
         mock_info.return_value = {
             "shortName": "Tesla, Inc.",
@@ -334,7 +334,7 @@ class TestFinancialsAPI:
         assert "Scale" in section_titles
         assert any(metric["label"] == "Trailing P/E" for metric in data["sections"][0]["metrics"])
 
-    @patch("app._get_cached_ticker_info")
+    @patch("routes.financials._get_cached_ticker_info")
     def test_financials_endpoint_uses_cache(self, mock_info, client):
         mock_info.return_value = {
             "shortName": "Tesla, Inc.",
@@ -361,7 +361,7 @@ class TestFinancialsAPI:
 class TestChartOverlays:
     """Test that the chart API returns trend ribbon and volume profile data."""
 
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_chart_returns_ribbon_overlay(self, mock_download, client):
         n = 200
         dates = pd.bdate_range("2023-01-01", periods=n)
@@ -393,7 +393,7 @@ class TestChartOverlays:
         assert len(ribbon["lower"]) > 0, "Ribbon lower should have data"
         assert len(ribbon["center"]) > 0, "Ribbon center should have data"
 
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_ribbon_data_has_color_fields(self, mock_download, client):
         n = 200
         dates = pd.bdate_range("2023-01-01", periods=n)
@@ -414,7 +414,6 @@ class TestChartOverlays:
         resp = client.get("/api/chart?ticker=TEST&start=2023-01-01")
         data = resp.get_json()
         ribbon = data["overlays"]["ribbon"]
-        # Each upper/lower point should have time, value, color, lineColor
         sample = ribbon["upper"][0]
         assert "time" in sample
         assert "value" in sample
@@ -422,7 +421,7 @@ class TestChartOverlays:
         assert "lineColor" in sample
         assert sample["color"].startswith("rgba(")
 
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_ribbon_band_ordering_in_response(self, mock_download, client):
         n = 200
         dates = pd.bdate_range("2023-01-01", periods=n)
@@ -443,14 +442,13 @@ class TestChartOverlays:
         resp = client.get("/api/chart?ticker=TEST&start=2023-01-01")
         data = resp.get_json()
         ribbon = data["overlays"]["ribbon"]
-        # Upper should be >= lower for matching timestamps
         upper_map = {d["time"]: d["value"] for d in ribbon["upper"]}
         for pt in ribbon["lower"]:
             if pt["time"] in upper_map:
                 assert upper_map[pt["time"]] >= pt["value"], \
                     f"Upper ({upper_map[pt['time']]}) should be >= lower ({pt['value']}) at {pt['time']}"
 
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_chart_returns_vol_profile(self, mock_download, client):
         n = 200
         dates = pd.bdate_range("2023-01-01", periods=n)
@@ -476,7 +474,7 @@ class TestChartOverlays:
         assert isinstance(vp, list)
         assert len(vp) == 40, "Should have 40 price buckets"
 
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_vol_profile_structure(self, mock_download, client):
         n = 200
         dates = pd.bdate_range("2023-01-01", periods=n)
@@ -502,7 +500,7 @@ class TestChartOverlays:
         assert "buy" in bucket
         assert "sell" in bucket
 
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_vol_profile_buy_sell_sum(self, mock_download, client):
         """Buy + sell volume should equal total for each bucket."""
         n = 200
@@ -527,7 +525,7 @@ class TestChartOverlays:
             assert abs(bucket["buy"] + bucket["sell"] - bucket["total"]) < 1, \
                 f"Buy ({bucket['buy']}) + Sell ({bucket['sell']}) should equal Total ({bucket['total']})"
 
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_vol_profile_total_volume(self, mock_download, client):
         """Sum of all bucket totals should approximate total volume in the data."""
         n = 200
@@ -557,41 +555,44 @@ class TestChartOverlays:
 
 class TestHelperFunctions:
     def test_parse_start_date(self):
-        from app import _parse_start_date
+        from routes.chart import _parse_start_date
         result = _parse_start_date("2024-01-15")
         assert result == pd.Timestamp("2024-01-15")
 
     def test_parse_end_date_empty(self):
-        from app import _parse_end_date
+        from routes.chart import _parse_end_date
         assert _parse_end_date("") is None
         assert _parse_end_date(None) is None
 
     def test_warmup_start_daily(self):
-        from app import _warmup_start, DAILY_WARMUP_DAYS
+        from routes.chart import _warmup_start
+        from lib.settings import DAILY_WARMUP_DAYS
         result = _warmup_start("2024-06-01", "1d")
         expected = pd.Timestamp("2024-06-01") - pd.Timedelta(days=DAILY_WARMUP_DAYS)
         assert result == expected.strftime("%Y-%m-%d")
 
     def test_warmup_start_weekly(self):
-        from app import _warmup_start, WEEKLY_WARMUP_DAYS
+        from routes.chart import _warmup_start
+        from lib.settings import WEEKLY_WARMUP_DAYS
         result = _warmup_start("2024-06-01", "1wk")
         expected = pd.Timestamp("2024-06-01") - pd.Timedelta(days=WEEKLY_WARMUP_DAYS)
         assert result == expected.strftime("%Y-%m-%d")
 
     def test_warmup_start_monthly_uses_weekly_warmup(self):
-        from app import _warmup_start, WEEKLY_WARMUP_DAYS
+        from routes.chart import _warmup_start
+        from lib.settings import WEEKLY_WARMUP_DAYS
         result = _warmup_start("2024-06-01", "1mo")
         expected = pd.Timestamp("2024-06-01") - pd.Timedelta(days=WEEKLY_WARMUP_DAYS)
         assert result == expected.strftime("%Y-%m-%d")
 
     def test_source_interval_maps_monthly_to_weekly(self):
-        from app import _source_interval
+        from routes.chart import _source_interval
 
         assert _source_interval("1mo") == "1wk"
         assert _source_interval("1d") == "1d"
 
     def test_derive_chart_frame_monthly_resamples_ohlcv(self):
-        from app import _derive_chart_frame
+        from routes.chart import _derive_chart_frame
 
         weekly_dates = pd.to_datetime(
             ["2024-01-05", "2024-01-12", "2024-01-19", "2024-02-02", "2024-02-09"]

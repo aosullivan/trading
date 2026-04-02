@@ -1,0 +1,52 @@
+  <!-- BACKTEST PANEL (docked bottom) -->
+  <div class="bt-panel-wrap" id="bt-panel-wrap">
+    <div class="bt-drag" id="bt-drag"></div>
+    <div class="bt-head">
+      <h3>Strategy Report</h3>
+      <select id="strategy-select" class="inp" style="font-size:11px;padding:4px 8px;border-radius:20px" onchange="switchStrategy(this.value)">
+        <option value="supertrend">Supertrend</option>
+        <option value="ema_crossover">EMA 9/21 Cross</option>
+        <option value="macd">MACD Signal</option>
+        <option value="ma_confirm">MA Confirmation (200/3)</option>
+        <option value="donchian">Donchian Breakout (20)</option>
+        <option value="adx_trend">ADX Trend (14/25)</option>
+        <option value="bb_breakout">Bollinger Breakout (20/2)</option>
+        <option value="keltner">Keltner Breakout (20/10)</option>
+        <option value="parabolic_sar">Parabolic SAR</option>
+        <option value="cci_trend">CCI Trend (20/100)</option>
+        <option value="regime_router">Regime Router</option>
+      </select>
+      <button class="bt-close" onclick="toggleBT()">&times;</button>
+    </div>
+    <div class="bt-cfg">
+      <input type="date" id="bt-start" class="inp inp-d" style="display:none">
+      <input type="date" id="bt-end" class="inp inp-d" style="display:none">
+      <span class="bt-range-label" id="bt-range-start"></span>
+      <div class="bt-range-wrap">
+        <div class="bt-range-track" id="bt-range-track">
+          <div class="bt-range-fill" id="bt-range-fill"></div>
+          <div class="bt-range-handle" id="bt-range-lo"></div>
+          <div class="bt-range-handle" id="bt-range-hi"></div>
+        </div>
+      </div>
+      <span class="bt-range-label" id="bt-range-end"></span>
+    </div>
+	    <div class="bt-body">
+	        <div class="bt-metrics">
+	          <div class="bt-equity-card">
+	            <div class="bt-equity-head">
+	              <span>Equity Curve</span>
+	              <span class="bt-equity-sub" id="bt-equity-range">Selected range</span>
+	            </div>
+	            <div id="bt-equity-chart"></div>
+	          </div>
+	          <div class="stats-row" id="stats"></div>
+	        </div>
+        <div class="t-scroll" style="margin-top:12px">
+          <table class="ttbl">
+            <thead><tr><th>#</th><th>Side</th><th>Entry</th><th>Entry $</th><th>Exit</th><th>Exit $</th><th>P&L</th><th>Return</th></tr></thead>
+            <tbody id="trades-body"></tbody>
+          </table>
+        </div>
+    </div>
+  </div>

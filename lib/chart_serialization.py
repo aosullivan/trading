@@ -1,7 +1,7 @@
 import pandas as pd
 
-from app_settings import VOLUME_PROFILE_BUCKETS
-from technical_indicators import (
+from lib.settings import VOLUME_PROFILE_BUCKETS
+from lib.technical_indicators import (
     compute_adx_trend,
     compute_bollinger_breakout,
     compute_cci_trend,

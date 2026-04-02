@@ -179,10 +179,9 @@ class TestToolbarControls:
         assert period.input_value() == "10"
         assert mult.input_value() == "3"
 
-    def test_load_button(self, browser_page):
-        btn = browser_page.locator("#load-btn")
-        expect(btn).to_be_visible()
-        expect(btn).to_have_text("Load")
+    def test_load_and_report_buttons_removed(self, browser_page):
+        assert browser_page.locator("#load-btn").count() == 0
+        assert browser_page.locator("a[href='/report']").count() == 0
 
     def test_financials_button_visible(self, browser_page):
         btn = browser_page.locator("#financials-btn")

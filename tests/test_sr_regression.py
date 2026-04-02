@@ -11,7 +11,7 @@ import os
 import pandas as pd
 import pytest
 
-from support_resistance import compute_support_resistance
+from lib.support_resistance import compute_support_resistance
 
 FIXTURES_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from unittest.mock import patch
 
-from support_resistance import body_extremes, classify_level_type, compute_support_resistance
+from lib.support_resistance import body_extremes, classify_level_type, compute_support_resistance
 
 
 class TestSupportResistanceClassification:
@@ -67,15 +67,10 @@ class TestSupportResistanceDetection:
         assert compute_support_resistance(small_df.head(25), max_levels=5) == []
 
     def test_support_levels_anchor_to_candle_bodies_not_long_lower_wicks(self):
-        """Verify support anchors to body cluster (~100), not wick extremes (~85).
-
-        Pattern: stock oscillates 108-118, periodically dips with bodies near 100
-        but long lower wicks to 85. The KDE on body pivots should peak near 100.
-        """
+        """Verify support anchors to body cluster (~100), not wick extremes (~85)."""
         dates = pd.date_range("2023-01-06", periods=120, freq="W-FRI")
         rows = []
-        # Dip every 8 bars to support zone, with body near 100 and wick to 85
-        support_touch_indices = set(range(8, 112, 8))  # 8,16,24,...,104 = 13 touches
+        support_touch_indices = set(range(8, 112, 8))
 
         for i, dt in enumerate(dates):
             base = 113 + np.sin(i / 5) * 3
@@ -85,19 +80,16 @@ class TestSupportResistanceDetection:
             high = max(open_price, close_price) + 1.5
 
             if i in support_touch_indices:
-                # Body near 100-102, wick extends to 85
                 open_price = 102.0
                 close_price = 100.5
                 low = 85.0
                 high = 104.0
             elif i - 1 in support_touch_indices:
-                # Reversal candle after support touch
                 open_price = 101.5
                 close_price = 107.0
                 low = 100.0
                 high = 108.0
             elif i + 1 in support_touch_indices:
-                # Candle approaching support
                 open_price = 108.0
                 close_price = 104.0
                 low = 103.0
@@ -123,13 +115,12 @@ class TestSupportResistanceDetection:
             (level for level in supports if level["price"] < float(df["Close"].iloc[-1])),
             key=lambda level: level["price"],
         )
-        # Support should anchor near body cluster (~100), not wick extreme (~85)
         assert nearest_support["price"] > 95
         assert nearest_support["price"] < 110
 
 
 class TestSupportResistanceRoutePayload:
-    @patch("app.yf.download")
+    @patch("lib.cache.yf.download")
     def test_chart_payload_includes_zone_bounds(self, mock_download, client, sample_df):
         mock_download.return_value = sample_df
 

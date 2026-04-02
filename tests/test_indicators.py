@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app import (
+from lib.technical_indicators import (
     compute_supertrend,
     compute_ma_confirmation,
     compute_ema_crossover,
@@ -38,7 +38,6 @@ class TestSupertrend:
     def test_custom_params(self, sample_df):
         st1, d1 = compute_supertrend(sample_df, period=5, multiplier=1)
         st2, d2 = compute_supertrend(sample_df, period=20, multiplier=5)
-        # Different parameters should produce different results
         assert not st1.equals(st2)
 
 
@@ -72,7 +71,6 @@ class TestEMACrossover:
 
     def test_fast_reacts_quicker(self, sample_df):
         fast, slow, _ = compute_ema_crossover(sample_df)
-        # Fast EMA should be closer to current price than slow
         last_close = sample_df["Close"].iloc[-1]
         assert abs(fast.iloc[-1] - last_close) <= abs(slow.iloc[-1] - last_close)
 

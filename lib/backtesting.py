@@ -1,4 +1,4 @@
-from app_settings import INITIAL_CAPITAL
+from lib.settings import INITIAL_CAPITAL
 
 
 def build_equity_curve(df, trades):

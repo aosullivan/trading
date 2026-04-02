@@ -24,17 +24,10 @@ Opens at http://localhost:5050
 ### Chart View (`/`)
 
 - Interactive candlestick charts with TradingView's Lightweight Charts
-- Daily and weekly intervals
+- Daily, weekly, and monthly intervals
 - Overlay toggles: Supertrend, SMA 50/100/200, 200W MA, EMA 9/21, MACD
 - Backtest panel with full trade history, metrics, and strategy comparison
 - Watchlist with live quotes, sorting, and click-to-load
-
-### Backtest Report (`/report`)
-
-- Pre-generated backtest results for all watchlist tickers
-- Summary table: tickers as rows, years as columns, P&L colored green/red
-- Filter by specific strategy or show best strategy per cell
-- Click any cell to drill down into full metrics and trade list
 
 ## Strategies
 
@@ -53,40 +46,24 @@ Opens at http://localhost:5050
 
 All strategies output a direction signal (1=long, -1=short/flat) and use the same `backtest_direction()` engine.
 
-## Generating the Report
-
-The report page loads from a static `report_data.json` file. To regenerate it:
-
-```bash
-# Default periods: 2024, 2025, YTD current year
-python generate_report.py
-
-# Custom years
-python generate_report.py --years 2023 2024 2025
-
-# Custom date range
-python generate_report.py --start 2022-01-01 --end 2023-12-31
-```
-
-This downloads data for all watchlist tickers and runs every strategy against each period. Takes ~1-2 minutes depending on watchlist size.
-
 ## Adding a New Strategy
 
-1. Add a `compute_<name>(df, ...)` function in `app.py` that returns a direction Series (1=long, -1=short, 0=flat)
-2. Add an entry to the `STRATEGIES` dict in `app.py`
-3. Wire it into `/api/chart` for the live chart view (compute + backtest calls, add to strategies response dict)
-4. Add a `<option>` to the strategy dropdown in `templates/index.html`
-5. Re-run `python generate_report.py` to update the report
+1. Add a `compute_<name>(df, ...)` function in `lib/technical_indicators.py` that returns a direction Series (1=long, -1=short, 0=flat)
+2. Wire it into `/api/chart` in `routes/chart.py` (compute + backtest calls, add to the `strategies` payload)
+3. Add overlay/legend handling in `static/js/chart_overlays.js` and `static/js/chart_legend.js` if the strategy has chart visuals
+4. Add a `<option>` to the strategy dropdown in `templates/partials/backtest_panel.html`
 
 ## Project Structure
 
 ```
-app.py                  Flask app, all strategy logic and API routes
-generate_report.py      Script to generate report_data.json
-report_data.json        Pre-generated backtest results
-watchlist.json          Saved watchlist tickers
+app.py                  Flask app bootstrap + blueprint registration
+lib/                    Data fetching, caching, indicators, backtesting, serialization
+routes/                 Flask blueprints for pages and API endpoints
+static/js/              Frontend chart, overlays, backtest, watchlist, and modal scripts
+static/styles.css       Extracted app styles
 templates/
-  index.html            Chart + backtest UI
-  report.html           Backtest report UI
+  index.html            Thin page shell that includes partials and scripts
+  partials/             Toolbar, signal chips, backtest panel, watchlist, financials modal
+watchlist.json          Saved watchlist tickers
 requirements.txt        Python dependencies
 ```

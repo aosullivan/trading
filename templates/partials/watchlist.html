@@ -1,0 +1,24 @@
+<!-- WATCHLIST (RIGHT) -->
+<div class="watchlist" id="wl-panel">
+  <div class="wl-drag" id="wl-drag"></div>
+  <div class="wl-head">
+    <h2>Watchlist</h2>
+    <span class="wl-cnt" id="wl-count">0</span>
+  </div>
+  <div class="wl-add">
+    <input type="text" id="wl-input" placeholder="Add ticker..." onkeydown="if(event.key==='Enter')addWL()">
+    <button onclick="addWL()">+</button>
+  </div>
+  <div class="wl-tabs" id="wl-tabs">
+    <button class="wl-tab active" data-tab="indexes" onclick="switchWLTab('indexes')">Indexes</button>
+    <button class="wl-tab" data-tab="treasuries" onclick="switchWLTab('treasuries')">Treasury</button>
+    <button class="wl-tab" data-tab="semis" onclick="switchWLTab('semis')">Semis</button>
+    <button class="wl-tab" data-tab="tech" onclick="switchWLTab('tech')">Tech</button>
+    <button class="wl-tab" data-tab="software" onclick="switchWLTab('software')">Software</button>
+    <button class="wl-tab" data-tab="etfs" onclick="switchWLTab('etfs')">ETFs</button>
+    <button class="wl-tab" data-tab="crypto" onclick="switchWLTab('crypto')">Crypto</button>
+    <button class="wl-tab" data-tab="misc" onclick="switchWLTab('misc')">Misc</button>
+  </div>
+  <div class="wl-cols"><span class="wl-sort" onclick="sortWL('sym')">Symbol<i id="wl-arrow-sym"></i></span><span class="wl-sort" onclick="sortWL('last')">Last<i id="wl-arrow-last"></i></span><span class="wl-sort" onclick="sortWL('chg')">Chg<i id="wl-arrow-chg"></i></span><span class="wl-sort" onclick="sortWL('chg_pct')">Chg%<i id="wl-arrow-chg_pct"></i></span></div>
+  <div class="wl-list" id="wl-items"></div>
+</div>

@@ -4,18 +4,14 @@
 Fetches each ticker one at a time with a delay between calls to avoid
 Yahoo Finance rate limiting.
 """
-import json
-import os
 import time
-import sys
 
-# Bootstrap app imports
-sys.path.insert(0, os.path.dirname(__file__))
-from app import cached_download, normalize_ticker, load_watchlist
+from lib.data_fetching import cached_download, normalize_ticker
+from routes.watchlist import load_watchlist
 
 WATCHLIST = load_watchlist()
 START = "2015-01-01"
-DELAY = 2.0  # seconds between fetches
+DELAY = 2.0
 
 print(f"Pre-warming cache for {len(WATCHLIST)} tickers back to {START}")
 print(f"Delay between fetches: {DELAY}s\n")
