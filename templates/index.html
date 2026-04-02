@@ -50,6 +50,8 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
 .chip .cd{width:7px;height:7px;border-radius:50%;transition:opacity .15s}.chip:not(.on) .cd{opacity:.35}
 .chip-sep{width:1px;height:16px;background:var(--border);margin:0 5px}
 .chip{position:relative}
+.chip .chip-info{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;font-size:9px;font-weight:700;color:var(--text-4);background:var(--bg-3);border:1px solid var(--border);margin-left:2px;cursor:pointer;transition:all .15s;line-height:1;flex-shrink:0}
+.chip .chip-info:hover{color:var(--text-1);background:var(--bg-4);border-color:var(--text-3)}
 .chip .chip-tip{display:none;position:fixed;width:440px;max-height:500px;overflow-y:auto;background:var(--bg-3);border:1px solid var(--border-2);border-radius:8px;padding:18px 20px;font-size:12px;line-height:1.7;color:var(--text-2);box-shadow:0 8px 32px rgba(0,0,0,.55);z-index:1000;text-align:left;cursor:default;pointer-events:none}
 .chip .chip-tip.tip-visible{display:block;pointer-events:auto}
 .chip .chip-tip h4{color:var(--text-1);font-size:14px;font-weight:700;margin:0 0 6px 0}
@@ -103,11 +105,15 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
 .bt-cfg{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-3);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
 .bt-apply{background:var(--accent);color:#fff;border:none;padding:4px 12px;border-radius:4px;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;transition:all var(--t)}
 .bt-apply:hover{background:#4a6cf0}
-	.bt-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
-	.bt-tab{padding:7px 16px;font-size:11px;font-weight:600;color:var(--text-3);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
-	.bt-tab:hover{color:var(--text-2)}.bt-tab.active{color:var(--text-1);border-color:var(--accent)}
 	.bt-body{overflow-y:auto;flex:1;min-height:0}
-	.bt-panel{display:none}.bt-panel.vis{display:block}
+
+	/* Range slider */
+	.bt-range-wrap{display:flex;align-items:center;gap:10px;flex:1;min-width:200px}
+	.bt-range-track{position:relative;flex:1;height:4px;background:var(--bg-4);border-radius:2px;cursor:pointer}
+	.bt-range-fill{position:absolute;height:100%;background:var(--accent);border-radius:2px;pointer-events:none}
+	.bt-range-handle{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;background:var(--text-1);border:2px solid var(--accent);transform:translate(-50%,-50%);cursor:grab;z-index:2;transition:box-shadow .15s}
+	.bt-range-handle:hover,.bt-range-handle.active{box-shadow:0 0 0 4px rgba(91,127,255,0.3)}
+	.bt-range-label{font-size:10px;font-weight:600;color:var(--text-3);white-space:nowrap;font-variant-numeric:tabular-nums;min-width:70px;text-align:center}
 
 	/* Stats */
 	.bt-metrics{display:flex;flex-direction:column;gap:12px;padding:12px}
@@ -177,6 +183,10 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
 .wl-head{padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .wl-head h2{font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-3)}
 .wl-cnt{font-size:10px;font-weight:600;color:var(--text-4);background:var(--bg-3);padding:2px 7px;border-radius:10px}
+.wl-tabs{display:flex;border-bottom:1px solid var(--border);padding:0 10px;gap:2px}
+.wl-tab{flex:1;background:none;border:none;color:var(--text-4);font-size:10px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;padding:8px 0;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;font-family:inherit}
+.wl-tab:hover{color:var(--text-2)}
+.wl-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .wl-add{padding:8px 10px;border-bottom:1px solid var(--border);display:flex;gap:5px}
 .wl-add input{flex:1;background:var(--bg-3);border:1px solid var(--border);color:var(--text-1);padding:7px 10px;border-radius:var(--r);font-size:12px;min-width:0;font-family:inherit;transition:all var(--t)}
 .wl-add input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-g)}
@@ -226,6 +236,7 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
     </div>
     <button class="btn-go" id="load-btn" onclick="loadChart()">Load</button>
     <a href="/report" style="color:var(--text-3);font-size:11px;text-decoration:none;padding:5px 12px;border:1px solid var(--border);border-radius:4px;transition:all .2s;white-space:nowrap" onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--text-1)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-3)'">Report</a>
+    <span id="trend-flip-info" style="display:none;font-size:10px;color:var(--text-3);gap:8px;align-items:center;flex-wrap:wrap"></span>
     <div class="ld" id="loading"><div class="spin"></div>Loading...</div>
   </div>
 
@@ -464,18 +475,19 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
       <button class="bt-close" onclick="toggleBT()">&times;</button>
     </div>
     <div class="bt-cfg">
-      <span class="tb-lbl">From</span>
-      <input type="date" id="bt-start" class="inp inp-d">
-      <span class="tb-lbl">To</span>
-      <input type="date" id="bt-end" class="inp inp-d">
-      <button class="bt-apply" onclick="applyBT()">Apply</button>
-    </div>
-    <div class="bt-tabs">
-      <div class="bt-tab active" onclick="showBTPanel('metrics',this)">Metrics</div>
-      <div class="bt-tab" onclick="showBTPanel('trades',this)">Trades</div>
+      <input type="date" id="bt-start" class="inp inp-d" style="display:none">
+      <input type="date" id="bt-end" class="inp inp-d" style="display:none">
+      <span class="bt-range-label" id="bt-range-start"></span>
+      <div class="bt-range-wrap">
+        <div class="bt-range-track" id="bt-range-track">
+          <div class="bt-range-fill" id="bt-range-fill"></div>
+          <div class="bt-range-handle" id="bt-range-lo"></div>
+          <div class="bt-range-handle" id="bt-range-hi"></div>
+        </div>
+      </div>
+      <span class="bt-range-label" id="bt-range-end"></span>
     </div>
 	    <div class="bt-body">
-	      <div class="bt-panel vis" data-bp="metrics" id="bp-metrics">
 	        <div class="bt-metrics">
 	          <div class="bt-equity-card">
 	            <div class="bt-equity-head">
@@ -486,15 +498,12 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
 	          </div>
 	          <div class="stats-row" id="stats"></div>
 	        </div>
-	      </div>
-      <div class="bt-panel" data-bp="trades" id="bp-trades">
-        <div class="t-scroll">
+        <div class="t-scroll" style="margin-top:12px">
           <table class="ttbl">
             <thead><tr><th>#</th><th>Side</th><th>Entry</th><th>Entry $</th><th>Exit</th><th>Exit $</th><th>P&L</th><th>Return</th></tr></thead>
             <tbody id="trades-body"></tbody>
           </table>
         </div>
-      </div>
     </div>
   </div>
 </div>
@@ -510,6 +519,11 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
     <input type="text" id="wl-input" placeholder="Add ticker..." onkeydown="if(event.key==='Enter')addWL()">
     <button onclick="addWL()">+</button>
   </div>
+  <div class="wl-tabs" id="wl-tabs">
+    <button class="wl-tab active" data-tab="stocks" onclick="switchWLTab('stocks')">Stocks</button>
+    <button class="wl-tab" data-tab="indexes" onclick="switchWLTab('indexes')">Indexes</button>
+    <button class="wl-tab" data-tab="crypto" onclick="switchWLTab('crypto')">Crypto</button>
+  </div>
   <div class="wl-cols"><span class="wl-sort" onclick="sortWL('sym')">Symbol<i id="wl-arrow-sym"></i></span><span class="wl-sort" onclick="sortWL('last')">Last<i id="wl-arrow-last"></i></span><span class="wl-sort" onclick="sortWL('chg')">Chg<i id="wl-arrow-chg"></i></span><span class="wl-sort" onclick="sortWL('chg_pct')">Chg%<i id="wl-arrow-chg_pct"></i></span></div>
   <div class="wl-list" id="wl-items"></div>
 </div>
@@ -517,7 +531,7 @@ body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;d
 </div><!-- /app -->
 
 <script>
-let chart,candleSeries,stUpSeries,stDownSeries,volumeSeries,btEquityChart,btEquitySeries;
+let chart,candleSeries,stUpSeries,stDownSeries,stUpFill,stDownFill,stUpMid,stDownMid,volumeSeries,btEquityChart,btEquitySeries;
 let sma50Series,sma100Series,sma200Series,sma50wSeries,sma200wSeries,ema9Series,ema21Series;
 // Indicator overlay series — price overlays
 let donchUpperSeries,donchLowerSeries;
@@ -607,9 +621,14 @@ function initChart(){
 	ribbonUpperSeries=chart.addAreaSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false,visible:false,lineColor:'rgba(0,230,138,0.4)',topColor:'rgba(0,230,138,0.18)',bottomColor:'rgba(0,230,138,0.03)',crosshairMarkerVisible:false});
 	ribbonLowerSeries=chart.addAreaSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false,visible:false,lineColor:'rgba(8,9,13,1)',topColor:'rgba(8,9,13,1)',bottomColor:'rgba(8,9,13,1)',crosshairMarkerVisible:false});
 	ribbonCenterSeries=chart.addLineSeries({lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false,color:'rgba(255,255,255,0.5)',lineStyle:LightweightCharts.LineStyle.Dashed});
+	// Supertrend fills (before candles so candles render on top)
+	stUpFill=chart.addAreaSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false,visible:false,topColor:'rgba(0,230,138,0.10)',bottomColor:'rgba(0,230,138,0.10)',lineColor:'transparent',crosshairMarkerVisible:false});
+	stDownFill=chart.addAreaSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false,visible:false,topColor:'rgba(255,82,116,0.10)',bottomColor:'rgba(255,82,116,0.10)',lineColor:'transparent',crosshairMarkerVisible:false});
+	stUpMid=chart.addLineSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false,visible:false,color:'transparent',crosshairMarkerVisible:false});
+	stDownMid=chart.addLineSeries({lineWidth:0,lastValueVisible:false,priceLineVisible:false,visible:false,color:'transparent',crosshairMarkerVisible:false});
 	candleSeries=chart.addCandlestickSeries({upColor:'#00e68a',downColor:'#ff5274',borderUpColor:'#00e68a',borderDownColor:'#ff5274',wickUpColor:'#00e68a80',wickDownColor:'#ff527480'});
-	stUpSeries=chart.addLineSeries({color:'#00e68a',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,lastValueVisible:false,priceLineVisible:false,visible:false});
-	stDownSeries=chart.addLineSeries({color:'#ff5274',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,lastValueVisible:false,priceLineVisible:false,visible:false});
+	stUpSeries=chart.addLineSeries({color:'#00e68a',lineWidth:2,lineStyle:LightweightCharts.LineStyle.Solid,lastValueVisible:false,priceLineVisible:false,visible:false});
+	stDownSeries=chart.addLineSeries({color:'#ff5274',lineWidth:2,lineStyle:LightweightCharts.LineStyle.Solid,lastValueVisible:false,priceLineVisible:false,visible:false});
   sma50Series=chart.addLineSeries({color:'#ffa040',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
   sma100Series=chart.addLineSeries({color:'#b050ff',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
   sma200Series=chart.addLineSeries({color:'#00d4ff',lineWidth:1,lastValueVisible:false,priceLineVisible:false,visible:false});
@@ -643,7 +662,9 @@ function initChart(){
   // CCI oscillator
   cciLineSeries=chart.addLineSeries({...oscOpts,color:'#ff6e40',lineWidth:1});
   chart.priceScale('osc').applyOptions({scaleMargins:{top:0.75,bottom:0},borderVisible:false,drawTicks:false});
-  overlaySeries.push(ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,macdLineSeries,macdSignalSeries,macdHistSeries,adxLineSeries,plusDiSeries,minusDiSeries,cciLineSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries);
+  overlaySeries.push(stUpSeries,stDownSeries,stUpFill,stDownFill,stUpMid,stDownMid,sma50Series,sma100Series,sma200Series,sma50wSeries,sma200wSeries,ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,macdLineSeries,macdSignalSeries,macdHistSeries,adxLineSeries,plusDiSeries,minusDiSeries,cciLineSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries);
+  // Prevent overlay series on the main price scale from influencing vertical auto-scale
+  [stUpSeries,stDownSeries,stUpFill,stDownFill,stUpMid,stDownMid,sma50Series,sma100Series,sma200Series,sma50wSeries,sma200wSeries,ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries].forEach(s=>s.applyOptions({autoscaleInfoProvider:()=>null}));
 	volumeSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'volume'});
 	chart.priceScale('volume').applyOptions({scaleMargins:{top:.82,bottom:0}});
 	new ResizeObserver(()=>chart.applyOptions({width:c.clientWidth,height:c.clientHeight})).observe(c);
@@ -658,6 +679,7 @@ function initChart(){
       const bars=Math.round(range.to-range.from);
       lbl.textContent=bars+' bars';
     }
+    scheduleSRRedraw();
   });
 }
 
@@ -727,20 +749,90 @@ const sMap={vol:()=>[volumeSeries],sma50:()=>[sma50Series],sma100:()=>[sma100Ser
 const activeChips=new Set(['vol']); // track which legend items are on
 
 // === S/R LINE SERIES (solid around touches, dotted between) ===
-let srLineSeries=[];  // [{solid, dotted, priceLine}]
+const SR_AUTOSCALE_BUFFER_RATIO=0.12;
+const SR_MAX_VISIBLE_PER_TYPE=2;
+let srLineSeries=[];  // [{series:[], priceLine, type}]
+let srRedrawFrame=0;
 function clearSRLines(){
   srLineSeries.forEach(s=>{
-    chart.removeSeries(s.solid);
-    chart.removeSeries(s.dotted);
+    (s.series||[]).forEach(series=>chart.removeSeries(series));
     if(s.priceLine) candleSeries.removePriceLine(s.priceLine);
   });
   srLineSeries=[];
+}
+function getVisibleCandleRange(){
+  if(!chart||!lastData?.candles?.length)return null;
+  const candles=lastData.candles;
+  const range=chart.timeScale().getVisibleLogicalRange();
+  let from=0,to=candles.length-1;
+  if(range){
+    from=Math.max(0,Math.floor(range.from));
+    to=Math.min(candles.length-1,Math.ceil(range.to));
+  }
+  let low=Infinity,high=-Infinity;
+  for(let i=from;i<=to;i++){
+    const c=candles[i];
+    if(Number.isFinite(c.low))low=Math.min(low,c.low);
+    if(Number.isFinite(c.high))high=Math.max(high,c.high);
+  }
+  if(!Number.isFinite(low)||!Number.isFinite(high))return null;
+  return{low,high,span:Math.max(high-low,Math.max(Math.abs(low),Math.abs(high))*0.01,0.01)};
+}
+function srLevelAffectsAutoscale(level){
+  const range=getVisibleCandleRange();
+  const low=Number.isFinite(level?.zone_low)?level.zone_low:level?.price;
+  const high=Number.isFinite(level?.zone_high)?level.zone_high:level?.price;
+  if(!range||!Number.isFinite(low)||!Number.isFinite(high))return true;
+  const buffer=range.span*SR_AUTOSCALE_BUFFER_RATIO;
+  return high>=range.low-buffer&&low<=range.high+buffer;
+}
+function redrawActiveSRLines(){
+  if(activeChips.has('sup'))drawSRLines('support');
+  if(activeChips.has('res'))drawSRLines('resistance');
+}
+function srLevelIsOnExpectedSide(level,type){
+  const current=lastData?.candles?.[lastData.candles.length-1]?.close;
+  const low=Number.isFinite(level?.zone_low)?level.zone_low:level?.price;
+  const high=Number.isFinite(level?.zone_high)?level.zone_high:level?.price;
+  if(!Number.isFinite(current)||!Number.isFinite(low)||!Number.isFinite(high))return true;
+  if(type==='support')return high < current;
+  if(type==='resistance')return low > current;
+  return true;
+}
+function getVisibleTimeBounds(){
+  if(!chart||!lastData?.candles?.length)return null;
+  const candles=lastData.candles;
+  const range=chart.timeScale().getVisibleLogicalRange();
+  let from=0,to=candles.length-1;
+  if(range){
+    from=Math.max(0,Math.floor(range.from));
+    to=Math.min(candles.length-1,Math.ceil(range.to));
+  }
+  return{
+    from:candles[from]?.time??candles[0].time,
+    to:candles[to]?.time??candles[candles.length-1].time,
+  };
+}
+function srRecencyBeforeVisible(level){
+  const bounds=getVisibleTimeBounds();
+  const times=[...(level?.pivot_times||[]),...(level?.touch_times||[])].filter(t=>Number.isFinite(t));
+  if(!bounds||!times.length)return Number.POSITIVE_INFINITY;
+  const priorTimes=times.filter(t=>t<=bounds.to);
+  const ref=priorTimes.length?Math.max(...priorTimes):Math.min(...times);
+  return Math.abs(bounds.to-ref);
+}
+function scheduleSRRedraw(){
+  if(srRedrawFrame||!lastData?.candles?.length)return;
+  srRedrawFrame=requestAnimationFrame(()=>{
+    srRedrawFrame=0;
+    redrawActiveSRLines();
+  });
 }
 function drawSRLines(type){
   // Remove existing lines of this type
   srLineSeries=srLineSeries.filter(s=>{
     if(s.type===type){
-      chart.removeSeries(s.solid);chart.removeSeries(s.dotted);
+      (s.series||[]).forEach(series=>chart.removeSeries(series));
       if(s.priceLine) candleSeries.removePriceLine(s.priceLine);
       return false;
     }
@@ -748,26 +840,32 @@ function drawSRLines(type){
   });
   if(!lastData?.sr_levels||!lastData.candles?.length)return;
   const candles=lastData.candles;
-  const firstTime=candles[0].time;
-  const lastTime=candles[candles.length-1].time;
   // How many bars to extend solid on each side of a touch
   const barSpan=Math.max(5,Math.floor(candles.length*0.03));
-  // Build a time->index lookup
-  const timeIdx={};
-  candles.forEach((c,i)=>{timeIdx[c.time]=i});
 
-  const filtered=lastData.sr_levels.filter(lv=>lv.type===type);
-  // Levels are sorted by proximity to current price from backend.
-  // First level (closest) gets full brightness; others are dimmed.
+  const filtered=lastData.sr_levels
+    .filter(lv=>lv.type===type)
+    .filter(lv=>srLevelIsOnExpectedSide(lv,type))
+    .filter(lv=>srLevelAffectsAutoscale(lv))
+    .sort((a,b)=>{
+      const recencyDelta=srRecencyBeforeVisible(a)-srRecencyBeforeVisible(b);
+      if(recencyDelta!==0)return recencyDelta;
+      return Math.abs((b.touches||0)-(a.touches||0));
+    })
+    .slice(0,SR_MAX_VISIBLE_PER_TYPE);
+  // Draw only nearby levels for the current viewport.
+  // The most recent visible level gets full brightness; others are dimmed.
   const baseColor=type==='support'?'#ffa040':'#5b9fff';
-  const dimColor=type==='support'?'#ffa04035':'#5b9fff35';
-  const dimSolidColor=type==='support'?'#ffa04060':'#5b9fff60';
+  const dimColor=type==='support'?'#ffa04070':'#5b9fff70';
+  const dimSolidColor=type==='support'?'#ffa040b0':'#5b9fffb0';
 
   filtered.forEach((lv,rank)=>{
     const isClosest=rank===0;
     const solidColor=isClosest?baseColor:dimSolidColor;
     const dottedColor=isClosest?(baseColor+'60'):dimColor;  // dotted always subtle
     const solidWidth=isClosest?2:1;
+    const zoneLow=Number.isFinite(lv.zone_low)?lv.zone_low:lv.price;
+    const zoneHigh=Number.isFinite(lv.zone_high)?lv.zone_high:lv.price;
     const allTouches=lv.touch_times||[];
     const pivotTouches=lv.pivot_times||allTouches;
     // Build solid ranges: ±barSpan bars around each PIVOT touch, merge overlaps
@@ -800,11 +898,31 @@ function drawSRLines(type){
       if(inRange.has(i)) solidData.push({time:candles[i].time,value:lv.price});
     }
 
-    const dotted=chart.addLineSeries({color:dottedColor,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false});
-    const solid=chart.addLineSeries({color:solidColor,lineWidth:solidWidth,lineStyle:LightweightCharts.LineStyle.Solid,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false});
+    const toBandData=(data,value)=>data.map(p=>({time:p.time,value}));
+    const affectsAutoscale=srLevelAffectsAutoscale(lv);
+    const dottedOpts={color:dottedColor,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false};
+    const solidOpts={color:solidColor,lineWidth:solidWidth,lineStyle:LightweightCharts.LineStyle.Solid,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false};
+    const bandDottedOpts={color:dimColor,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false};
+    const bandSolidOpts={color:dimSolidColor,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false};
+    if(!affectsAutoscale){
+      dottedOpts.autoscaleInfoProvider=()=>null;
+      solidOpts.autoscaleInfoProvider=()=>null;
+      bandDottedOpts.autoscaleInfoProvider=()=>null;
+      bandSolidOpts.autoscaleInfoProvider=()=>null;
+    }
+    const dotted=chart.addLineSeries(dottedOpts);
+    const solid=chart.addLineSeries(solidOpts);
+    const upperDotted=chart.addLineSeries(bandDottedOpts);
+    const lowerDotted=chart.addLineSeries(bandDottedOpts);
+    const upperSolid=chart.addLineSeries(bandSolidOpts);
+    const lowerSolid=chart.addLineSeries(bandSolidOpts);
     dotted.setData(dottedData);
     solid.setData(solidData);
-    srLineSeries.push({solid,dotted,priceLine:null,type});
+    upperDotted.setData(toBandData(dottedData,zoneHigh));
+    lowerDotted.setData(toBandData(dottedData,zoneLow));
+    upperSolid.setData(toBandData(solidData,zoneHigh));
+    lowerSolid.setData(toBandData(solidData,zoneLow));
+    srLineSeries.push({series:[solid,dotted,upperDotted,lowerDotted,upperSolid,lowerSolid],priceLine:null,type});
   });
 }
 function toggleSRType(type,on){
@@ -812,7 +930,7 @@ function toggleSRType(type,on){
   else{
     srLineSeries=srLineSeries.filter(s=>{
       if(s.type===type){
-        chart.removeSeries(s.solid);chart.removeSeries(s.dotted);
+        (s.series||[]).forEach(series=>chart.removeSeries(series));
         if(s.priceLine) candleSeries.removePriceLine(s.priceLine);
         return false;
       }
@@ -884,6 +1002,7 @@ function toggleLegendItem(idx){
   else if(item.key==='res'){toggleSRType('resistance',item.on)}
   else if(item.key==='volProfile'){const vp=document.getElementById('vol-profile');if(vp)vp.style.display=item.on?'':'none'}
   else{(sMap[item.key]?.()||[]).forEach(s=>s.applyOptions({visible:item.on}))}
+  if(item.key==='ribbon')updateFlipInfo();
   pushURLParams();
 }
 
@@ -917,34 +1036,60 @@ const signalColors={
   ma_confirm:'#00d4ff',donchian:'#ffd644',adx_trend:'#00e68a',bb_breakout:'#ff5274',
   keltner:'#e040fb',parabolic_sar:'#76ff03',cci_trend:'#ff6e40',regime_router:'#00fff7'
 };
-// Position chip tooltips dynamically with hover delay
+// Add info buttons to chips and handle click-to-show tooltips
+let _openTip=null;
 document.querySelectorAll('.chip').forEach(chip=>{
   const tip=chip.querySelector('.chip-tip');
   if(!tip)return;
-  let hoverTimer=null;
-  chip.addEventListener('mouseenter',()=>{
-    hoverTimer=setTimeout(()=>{
-      const r=chip.getBoundingClientRect();
-      let left=r.left+r.width/2-220;
-      if(left<8)left=8;
-      if(left+440>window.innerWidth-8)left=window.innerWidth-448;
-      tip.style.left=left+'px';
-      tip.style.top=(r.bottom+8)+'px';
-      tip.classList.add('tip-visible');
-    },600);
+  // Insert info button before the tooltip
+  const btn=document.createElement('span');
+  btn.className='chip-info';
+  btn.textContent='i';
+  btn.addEventListener('click',e=>{
+    e.stopPropagation();
+    if(_openTip===tip){tip.classList.remove('tip-visible');_openTip=null;return}
+    if(_openTip)_openTip.classList.remove('tip-visible');
+    const r=chip.getBoundingClientRect();
+    let left=r.left+r.width/2-220;
+    if(left<8)left=8;
+    if(left+440>window.innerWidth-8)left=window.innerWidth-448;
+    tip.style.left=left+'px';
+    tip.style.top=(r.bottom+8)+'px';
+    tip.classList.add('tip-visible');
+    _openTip=tip;
   });
-  chip.addEventListener('mouseleave',()=>{
-    clearTimeout(hoverTimer);
-    tip.classList.remove('tip-visible');
-  });
+  chip.insertBefore(btn,tip);
 });
+// Close tooltip when clicking outside
+document.addEventListener('click',()=>{if(_openTip){_openTip.classList.remove('tip-visible');_openTip=null}});
 
 const activeSignals=new Set();
+const flipLabels={supertrend:'ST',ema_crossover:'EMA',macd:'MACD',ma_confirm:'MA',donchian:'Donch',adx_trend:'ADX',bb_breakout:'BB',keltner:'Kelt',parabolic_sar:'SAR',cci_trend:'CCI',regime_router:'RR',ribbon:'Ribbon'};
+function updateFlipInfo(){
+  const el=document.getElementById('trend-flip-info');
+  if(!lastData?.trend_flips){el.style.display='none';return}
+  const keys=[...activeSignals];
+  const ribbonOn=legendItems.find(i=>i.key==='ribbon')?.on;
+  if(ribbonOn)keys.push('ribbon');
+  if(!keys.length){el.style.display='none';return}
+  const flips=lastData.trend_flips;
+  const daysSince=(f)=>{if(!f?.date)return'<span style="opacity:0.4">--</span>';const diff=Math.floor((Date.now()-new Date(f.date+'T00:00:00'))/864e5);const c=f.dir==='bullish'?'var(--green)':'var(--red)';return`<span style="color:${c}">${diff}d</span>`};
+  let html='';
+  keys.forEach(k=>{
+    const lbl=flipLabels[k]||k;
+    const d=flips.daily?.[k],w=flips.weekly?.[k];
+    const clr=signalColors[k]||'#ffd644';
+    html+=`<span style="border-left:2px solid ${clr};padding-left:4px;margin-right:2px"><span style="font-weight:600">${lbl}</span> D:${daysSince(d)} W:${daysSince(w)}</span>`;
+  });
+  el.innerHTML=html;
+  el.style.display='inline-flex';
+}
 function toggleSignal(el,name){
   el.classList.toggle('on');
   if(el.classList.contains('on'))activeSignals.add(name);else activeSignals.delete(name);
   updateMarkers();
   updateOverlaysFromSignals();
+  updateFlipInfo();
   pushURLParams();
 }
 let activeBacktestStrat=null;
@@ -991,11 +1136,10 @@ function toggleBT(){
   const p=document.getElementById('bt-panel-wrap'),b=document.getElementById('bt-btn');
   p.classList.toggle('open',btOpen);
   b.classList.toggle('active',btOpen);
-  if(!p.style.height) p.style.height='280px';
+  if(!p.style.height) p.style.height='380px';
   document.getElementById('bt-lbl').textContent=btOpen?'Hide Backtest':'Backtest';
   if(btOpen&&lastData){
-    ensureBTChart();
-    switchStrategy(document.getElementById('strategy-select').value);
+    initBTSlider();
   }
   else{updateMarkers()}
   setTimeout(()=>{
@@ -1032,8 +1176,15 @@ async function loadChart(){
     if(data.error){alert(data.error);return}
     candleSeries.setData(data.candles);
     _lastCandles=data.candles;
-    stUpSeries.setData(data.supertrend_up.filter(d=>d.value!==null&&!isNaN(d.value)));
-    stDownSeries.setData(data.supertrend_down.filter(d=>d.value!==null&&!isNaN(d.value)));
+    const stUpData=data.supertrend_up.filter(d=>d.value!==null&&!isNaN(d.value));
+    const stDownData=data.supertrend_down.filter(d=>d.value!==null&&!isNaN(d.value));
+    stUpSeries.setData(stUpData);
+    stDownSeries.setData(stDownData);
+    // Supertrend fills: area from body middle to supertrend line
+    stUpFill.setData(stUpData.map(d=>({time:d.time,value:d.mid||d.value})));
+    stDownFill.setData(stDownData.map(d=>({time:d.time,value:d.mid||d.value})));
+    stUpMid.setData(stUpData);
+    stDownMid.setData(stDownData);
     volumeSeries.setData(data.volumes);
     sma50Series.setData(data.sma_50||[]);sma100Series.setData(data.sma_100||[]);
     sma200Series.setData(data.sma_200||[]);sma50wSeries.setData(data.sma_50w||[]);sma200wSeries.setData(data.sma_200w||[]);
@@ -1056,13 +1207,14 @@ async function loadChart(){
     }));
     ribbonLowerSeries.setData(rLower.map(d=>({time:d.time,value:d.value})));
     ribbonCenterSeries.setData(ov.ribbon?.center||[]);
+    // Trend flip dates
+    updateFlipInfo();
     // Volume profile
     renderVolProfile(data.vol_profile||[]);
     lastData=data;
     // Redraw S/R lines if chip is active
     clearSRLines();
-    if(activeChips.has('sup'))drawSRLines('support');
-    if(activeChips.has('res'))drawSRLines('resistance');
+    redrawActiveSRLines();
     updateLegendValues(null);
     // Price display
     if(data.candles.length){
@@ -1107,7 +1259,7 @@ function switchStrategy(name){
 
 // Map strategy names to their overlay series
 const overlayMap={
-  supertrend:[()=>stUpSeries,()=>stDownSeries],
+  supertrend:[()=>stUpSeries,()=>stDownSeries,()=>stUpFill,()=>stDownFill,()=>stUpMid,()=>stDownMid],
   ema_crossover:[()=>ema9Series,()=>ema21Series],
   macd:[()=>macdLineSeries,()=>macdSignalSeries,()=>macdHistSeries],
   ma_confirm:[()=>sma200Series],
@@ -1216,12 +1368,103 @@ function renderTrades(trades){
   </tr>`).join('');
 }
 
-function showBTPanel(name,el){
-  document.querySelectorAll('.bt-tab').forEach(t=>t.classList.remove('active'));
-  el.classList.add('active');
-  document.querySelectorAll('.bt-panel').forEach(p=>p.classList.remove('vis'));
-  document.querySelector(`.bt-panel[data-bp="${name}"]`).classList.add('vis');
+// === BACKTEST RANGE SLIDER ===
+let _btSliderDates=[];  // all available dates from chart data
+let _btSliderLo=0, _btSliderHi=1;  // 0-1 normalized positions
+
+function initBTSlider(){
+  if(!_lastCandles||!_lastCandles.length)return;
+  _btSliderDates=_lastCandles.map(c=>{
+    const d=new Date(c.time*1000);
+    return d.toISOString().split('T')[0];
+  });
+  // Default: match chart visible range
+  const visRange=chart.timeScale().getVisibleRange();
+  if(visRange){
+    const loIdx=_btSliderDates.findIndex(d=>new Date(d).getTime()/1000>=visRange.from);
+    const hiIdx=_btSliderDates.length-1-[..._btSliderDates].reverse().findIndex(d=>new Date(d).getTime()/1000<=visRange.to);
+    _btSliderLo=Math.max(0,loIdx)/_btSliderDates.length;
+    _btSliderHi=Math.min(_btSliderDates.length-1,hiIdx>=0?hiIdx:_btSliderDates.length-1)/_btSliderDates.length;
+  }else{
+    _btSliderLo=0;_btSliderHi=1;
+  }
+  updateBTSliderUI();
+  applyBTFromSlider();
 }
+
+function updateBTSliderUI(){
+  const track=document.getElementById('bt-range-track');
+  if(!track)return;
+  const fill=document.getElementById('bt-range-fill');
+  const lo=document.getElementById('bt-range-lo');
+  const hi=document.getElementById('bt-range-hi');
+  const loLabel=document.getElementById('bt-range-start');
+  const hiLabel=document.getElementById('bt-range-end');
+  fill.style.left=(_btSliderLo*100)+'%';
+  fill.style.width=((_btSliderHi-_btSliderLo)*100)+'%';
+  lo.style.left=(_btSliderLo*100)+'%';
+  hi.style.left=(_btSliderHi*100)+'%';
+  const n=_btSliderDates.length;
+  if(n){
+    const loDate=_btSliderDates[Math.min(Math.round(_btSliderLo*(n-1)),n-1)];
+    const hiDate=_btSliderDates[Math.min(Math.round(_btSliderHi*(n-1)),n-1)];
+    loLabel.textContent=loDate;
+    hiLabel.textContent=hiDate;
+    document.getElementById('bt-start').value=loDate;
+    document.getElementById('bt-end').value=hiDate;
+    document.getElementById('bt-equity-range').textContent=`${loDate} → ${hiDate}`;
+  }
+}
+
+function applyBTFromSlider(){
+  const n=_btSliderDates.length;
+  if(!n)return;
+  const loDate=_btSliderDates[Math.min(Math.round(_btSliderLo*(n-1)),n-1)];
+  const hiDate=_btSliderDates[Math.min(Math.round(_btSliderHi*(n-1)),n-1)];
+  document.getElementById('bt-start').value=loDate;
+  document.getElementById('bt-end').value=hiDate;
+  chartStart=loDate;
+  chartEnd=hiDate;
+  setBTRangeLabel();
+  loadChart();
+}
+
+(function(){
+  const track=document.getElementById('bt-range-track');
+  if(!track)return;
+  let dragging=null, startX=0;
+  function pctFromX(x){const r=track.getBoundingClientRect();return Math.max(0,Math.min(1,(x-r.left)/r.width))}
+
+  ['bt-range-lo','bt-range-hi'].forEach(id=>{
+    const el=document.getElementById(id);
+    el.addEventListener('mousedown',e=>{e.preventDefault();dragging=id;el.classList.add('active');startX=e.clientX});
+  });
+
+  document.addEventListener('mousemove',e=>{
+    if(!dragging)return;
+    const pct=pctFromX(e.clientX);
+    if(dragging==='bt-range-lo'){_btSliderLo=Math.min(pct,_btSliderHi-0.01)}
+    else{_btSliderHi=Math.max(pct,_btSliderLo+0.01)}
+    updateBTSliderUI();
+  });
+
+  document.addEventListener('mouseup',()=>{
+    if(!dragging)return;
+    document.getElementById(dragging).classList.remove('active');
+    dragging=null;
+    applyBTFromSlider();
+  });
+
+  // Click on track to move nearest handle
+  track.addEventListener('click',e=>{
+    if(e.target.classList.contains('bt-range-handle'))return;
+    const pct=pctFromX(e.clientX);
+    if(Math.abs(pct-_btSliderLo)<Math.abs(pct-_btSliderHi)){_btSliderLo=Math.min(pct,_btSliderHi-0.01)}
+    else{_btSliderHi=Math.max(pct,_btSliderLo+0.01)}
+    updateBTSliderUI();
+    applyBTFromSlider();
+  });
+})();
 
 // === WATCHLIST ===
 function toggleWatchlist(){
@@ -1240,6 +1483,21 @@ let wlQuotes={};
 let wlList=[];
 let wlSortKey=null; // 'sym','last','chg','chg_pct'
 let wlSortAsc=true;
+let wlActiveTab='stocks';
+
+const _WL_INDEX_SYMS=new Set(['IXIC','GSPC','DJI','RUT','VIX','NYA','XAX','FTSE','GDAXI','FCHI','N225','HSI','STOXX50E','BVSP','GSPTSE','AXJO','NZ50','KS11','TWII','SSEC','JKSE','KLSE','STI','NSEI','BSESN','TNX','TYX','FVX','IRX','SOX','SPX']);
+function wlTickerCategory(t){
+  if(t.endsWith('-USD'))return 'crypto';
+  const raw=t.replace(/^\^/,'').toUpperCase();
+  if(_WL_INDEX_SYMS.has(raw)||t.startsWith('^'))return 'indexes';
+  return 'stocks';
+}
+function switchWLTab(tab){
+  wlActiveTab=tab;
+  document.querySelectorAll('.wl-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+  renderWL(wlList);
+}
+function wlFilteredList(list){return list.filter(t=>wlTickerCategory(t)===wlActiveTab)}
 
 function sortWL(key){
   if(wlSortKey===key){wlSortAsc=!wlSortAsc}else{wlSortKey=key;wlSortAsc=key==='sym'}
@@ -1255,7 +1513,6 @@ let wlRefreshTimer=null;
 async function loadWL(){
   const r=await fetch('/api/watchlist'),list=await r.json();
   wlList=list;
-  document.getElementById('wl-count').textContent=list.length;
   renderWL(list);
   fetchQuotes();
   // Refresh quotes every 60s
@@ -1274,8 +1531,10 @@ function fetchQuotes(){
 }
 
 function renderWL(list){
+  const filtered=wlFilteredList(list);
+  document.getElementById('wl-count').textContent=filtered.length;
   if(wlSortKey){
-    list=[...list].sort((a,b)=>{
+    filtered.sort((a,b)=>{
       let va,vb;
       if(wlSortKey==='sym'){va=a;vb=b}
       else{const qa=wlQuotes[a]||{},qb=wlQuotes[b]||{};va=qa[wlSortKey]??-Infinity;vb=qb[wlSortKey]??-Infinity}
@@ -1284,7 +1543,7 @@ function renderWL(list){
     });
   }
   const cur=document.getElementById('ticker').value.toUpperCase();
-  document.getElementById('wl-items').innerHTML=list.map(t=>{
+  document.getElementById('wl-items').innerHTML=filtered.map(t=>{
     const q=wlQuotes[t]||{};
     const up=q.chg>=0;
     const cls=up?'up':'dn';
@@ -1361,7 +1620,7 @@ async function addWL(){
   const inp=document.getElementById('wl-input'),t=inp.value.trim().toUpperCase();
   if(!t)return;
   await fetch('/api/watchlist',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t})});
-  inp.value='';loadWL();
+  inp.value='';switchWLTab(wlTickerCategory(t));loadWL();
 }
 async function rmWL(t){
   await fetch('/api/watchlist',{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({ticker:t})});
@@ -1422,6 +1681,7 @@ function restoreURLState(){
       // sup, res and volProfile handled after data loads
       if(item.key==='sup'||item.key==='res'||item.key==='volProfile'){/* toggled after data loads */}
       else{(sMap[item.key]?.()||[]).forEach(s=>s.applyOptions({visible:shouldBeOn}))}
+      // updateFlipInfo called after data loads
       const row=document.querySelector(`.cl-row[data-li="${i}"]`);
       if(row){
         row.classList.toggle('off',!shouldBeOn);

@@ -1,6 +1,7 @@
 import json
 import os
 import time as _time
+import threading
 from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify
 import yfinance as yf
@@ -12,6 +13,7 @@ import numpy as np
 # ---------------------------------------------------------------------------
 _cache: dict[str, tuple[float, object]] = {}
 _CACHE_TTL = 300  # seconds (5 minutes)
+_yf_lock = threading.Lock()  # serialize yfinance calls to prevent cross-ticker contamination
 
 
 def _cache_get(key: str):
@@ -47,6 +49,52 @@ def _meta_path(ticker: str, interval: str) -> str:
     return os.path.join(_DATA_CACHE_DIR, f"{safe}.meta.json")
 
 
+def _has_suspicious_weekly_spacing(df: pd.DataFrame) -> bool:
+    """Weekly bars should not arrive less than 5 days apart."""
+    if df is None or df.empty or len(df.index) < 2:
+        return False
+    idx = pd.Index(df.index).sort_values()
+    deltas = idx.to_series().diff().dropna()
+    return bool((deltas < pd.Timedelta(days=5)).any())
+
+
+def _incremental_data_failed_validation(
+    cached_df: pd.DataFrame | None, new_df: pd.DataFrame, interval: str
+) -> bool:
+    """Reject obvious cross-ticker or wrong-interval incremental fetches."""
+    if new_df is None or new_df.empty:
+        return False
+
+    if interval == "1wk":
+        if _has_suspicious_weekly_spacing(new_df):
+            return True
+        if cached_df is not None and not cached_df.empty:
+            weekly_tail = cached_df.tail(1)
+            if _has_suspicious_weekly_spacing(pd.concat([weekly_tail, new_df])):
+                return True
+
+    if (
+        cached_df is None
+        or cached_df.empty
+        or "Close" not in cached_df.columns
+        or "Close" not in new_df.columns
+    ):
+        return False
+
+    cached_close = cached_df["Close"].dropna()
+    new_close = new_df["Close"].dropna()
+    if cached_close.empty or new_close.empty:
+        return False
+
+    last_cached_close = cached_close.iloc[-1]
+    first_new_close = new_close.iloc[0]
+    if last_cached_close <= 0:
+        return False
+
+    ratio = first_new_close / last_cached_close
+    return ratio > 2 or ratio < 0.5
+
+
 def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
     """Download OHLCV data with persistent local file cache.
 
@@ -65,7 +113,10 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
         cached = _cache_get(key)
         if cached is not None:
             return cached
-        df = yf.download(ticker, **kwargs)
+        download_kwargs = dict(kwargs)
+        download_kwargs.setdefault("threads", False)
+        with _yf_lock:
+            df = yf.download(ticker, **download_kwargs)
         _cache_set(key, df)
         return df
 
@@ -100,7 +151,12 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
     if cached_df is not None and not cached_df.empty:
         # Only fetch from day after last cached row
         last_cached = cached_df.index.max()
-        fetch_start = (last_cached + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        # For weekly data, re-fetch from the last cached date (not +1 day)
+        # to avoid mid-week fetches that return garbage from yfinance
+        if interval == "1wk":
+            fetch_start = last_cached.strftime("%Y-%m-%d")
+        else:
+            fetch_start = (last_cached + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
         # If fetch_start is in the future, nothing new to get
         if pd.Timestamp(fetch_start) > pd.Timestamp.now():
             _write_meta(meta_path, now)
@@ -108,12 +164,14 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
     else:
         fetch_start = start
 
-    # Fetch new data
-    fetch_kwargs = {k: v for k, v in kwargs.items() if k not in ("start", "end")}
+    # Fetch new data — serialize yfinance calls to prevent cross-ticker contamination
+    fetch_kwargs = dict(kwargs)
     fetch_kwargs["start"] = fetch_start
     fetch_kwargs["progress"] = False
+    fetch_kwargs.setdefault("threads", False)
     try:
-        new_df = yf.download(ticker, **fetch_kwargs)
+        with _yf_lock:
+            new_df = yf.download(ticker, **fetch_kwargs)
     except Exception:
         # Network error — return whatever we have cached
         if cached_df is not None:
@@ -123,9 +181,15 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
     if isinstance(new_df.columns, pd.MultiIndex):
         new_df.columns = new_df.columns.get_level_values(0)
 
-    # Deduplicate index from yfinance download
+    # Deduplicate index from yfinance
     if not new_df.empty and new_df.index.duplicated().any():
         new_df = new_df[~new_df.index.duplicated(keep="last")]
+
+    # Validate new data against cached data to detect cross-ticker contamination
+    if _incremental_data_failed_validation(cached_df, new_df, interval):
+        # New data looks like a different ticker or wrong interval — discard it
+        _write_meta(meta_path, now)
+        return _slice_df(cached_df, start, end)
 
     # Merge with cached data
     if cached_df is not None and not cached_df.empty and not new_df.empty:
@@ -169,6 +233,29 @@ def _slice_df(df: pd.DataFrame, start, end) -> pd.DataFrame:
     if end:
         mask &= df.index <= pd.Timestamp(end)
     return df.loc[mask]
+
+
+# Well-known index symbols that require a ^ prefix on Yahoo Finance
+_INDEX_SYMBOLS = {
+    "IXIC", "GSPC", "DJI", "RUT", "VIX", "NYA", "XAX",
+    "FTSE", "GDAXI", "FCHI", "N225", "HSI", "STOXX50E",
+    "BVSP", "GSPTSE", "AXJO", "NZ50", "KS11", "TWII",
+    "SSEC", "JKSE", "KLSE", "STI", "NSEI", "BSESN",
+    "TNX", "TYX", "FVX", "IRX",  # Treasury yields
+    "SOX",  # Semiconductor index
+    "SPX",  # Alias: redirect to GSPC
+}
+
+def normalize_ticker(ticker: str) -> str:
+    """Add ^ prefix for known index symbols if user forgot it."""
+    t = ticker.upper().strip()
+    if t.startswith("^"):
+        return t
+    if t == "SPX":
+        return "^GSPC"
+    if t in _INDEX_SYMBOLS:
+        return f"^{t}"
+    return t
 
 
 app = Flask(__name__)
@@ -230,12 +317,12 @@ def compute_supertrend(df, period=10, multiplier=3):
     low = df["Low"]
     close = df["Close"]
 
-    # ATR calculation
+    # ATR calculation using Wilder's smoothing (RMA) to match TradingView
     hl = high - low
     hc = (high - close.shift(1)).abs()
     lc = (low - close.shift(1)).abs()
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    atr = tr.rolling(window=period).mean()
+    atr = tr.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
 
     # Basic bands
     hl2 = (high + low) / 2
@@ -814,18 +901,17 @@ def compute_support_resistance(df, max_levels=8):
             if not (in_zone_low or in_zone_high):
                 continue
 
-            # Support bounce: low wicked into zone, close above, next bar
-            # confirms (close[i+1] > close[i] or low[i+1] > low[i])
-            if in_zone_low and closes[i] > level_price:
+            # Support bounce: low wicked into zone, close at or above level
+            if in_zone_low and closes[i] >= level_price - zone_width:
                 next_reversed = closes[i + 1] >= closes[i] or lows[i + 1] > lows[i]
                 if next_reversed:
                     sup_bounces.append(i)
                 else:
                     breaks += 1
 
-            # Resistance rejection: high wicked into zone, close below,
-            # next bar confirms (close[i+1] <= close[i] or high[i+1] < high[i])
-            elif in_zone_high and closes[i] < level_price:
+            # Resistance rejection: high wicked into zone, close at or below level
+            # (independent check — same bar can test both sides on wide candles)
+            if in_zone_high and closes[i] <= level_price + zone_width:
                 next_reversed = closes[i + 1] <= closes[i] or highs[i + 1] < highs[i]
                 if next_reversed:
                     res_bounces.append(i)
@@ -838,15 +924,17 @@ def compute_support_resistance(df, max_levels=8):
         if n_bounces < 2:
             continue
 
-        # Determine type based on actual price action, not just position
-        # relative to current price. If a level has more support bounces
-        # it's support; if more resistance rejections it's resistance.
-        if len(sup_bounces) > len(res_bounces):
-            level_type = "support"
-        elif len(res_bounces) > len(sup_bounces):
-            level_type = "resistance"
+        # Present levels by where they sit relative to the current market.
+        # A former resistance that price has already broken above is more
+        # useful to display as support, and vice versa.
+        if abs(level_price - current_price) <= zone_width:
+            if len(sup_bounces) > len(res_bounces):
+                level_type = "support"
+            elif len(res_bounces) > len(sup_bounces):
+                level_type = "resistance"
+            else:
+                level_type = "support" if level_price <= current_price else "resistance"
         else:
-            # Tie: fall back to position relative to current price
             level_type = "support" if level_price < current_price else "resistance"
 
         # Respect ratio: how often the level held vs was broken
@@ -877,6 +965,8 @@ def compute_support_resistance(df, max_levels=8):
         levels.append(
             {
                 "price": round(float(level_price), 2),
+                "zone_low": round(float(level_price - zone_width), 2),
+                "zone_high": round(float(level_price + zone_width), 2),
                 "touches": n_bounces,
                 "type": level_type,
                 "touch_times": bounce_times,
@@ -886,8 +976,8 @@ def compute_support_resistance(df, max_levels=8):
             }
         )
 
-    # Sort by proximity to current price, break ties by score
-    levels.sort(key=lambda l: (abs(l["price"] - current_price), -l["_score"]))
+    # Sort by score (strong levels first), not just proximity to current price
+    levels.sort(key=lambda l: -l["_score"])
     for lv in levels:
         del lv["_score"]
     return levels[:max_levels]
@@ -900,7 +990,7 @@ def index():
 
 @app.route("/api/chart")
 def chart_data():
-    ticker = request.args.get("ticker", "TSLA")
+    ticker = normalize_ticker(request.args.get("ticker", "TSLA"))
     interval = request.args.get("interval", "1d")
     start = request.args.get("start", "2023-01-01")
     end = request.args.get("end", "")
@@ -926,6 +1016,9 @@ def chart_data():
 
     view_mask = _visible_mask(df.index, start, end)
     df_view = df.loc[view_mask].copy()
+    # Extra safety: deduplicate view index
+    if df_view.index.duplicated().any():
+        df_view = df_view[~df_view.index.duplicated(keep="last")]
     if df_view.empty:
         return jsonify({"error": f"No data for {ticker} in selected range"}), 400
 
@@ -997,6 +1090,76 @@ def chart_data():
     # Trend ribbon
     ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(df)
 
+    # Last trend flip dates for all indicators (daily and weekly)
+    def _last_trend_flip(direction_series):
+        """Find the date when a direction series last flipped."""
+        d = direction_series.dropna()
+        d = d[d != 0]  # ignore neutral
+        if len(d) < 2:
+            return None, None
+        for i in range(len(d) - 1, 0, -1):
+            if d.iloc[i] != d.iloc[i - 1]:
+                flip_date = d.index[i].strftime("%Y-%m-%d")
+                flip_dir = "bullish" if d.iloc[i] == 1 else "bearish"
+                return flip_date, flip_dir
+        return None, None
+
+    def _compute_all_flips(src_df):
+        """Compute last flip date/dir for every indicator on a given dataframe."""
+        flips = {}
+        computations = [
+            ("supertrend", lambda d: compute_supertrend(d, period_val, multiplier_val)[1]),
+            ("ema_crossover", lambda d: compute_ema_crossover(d, 9, 21)[2]),
+            ("macd", lambda d: compute_macd_crossover(d)[3]),
+            ("ma_confirm", lambda d: compute_ma_confirmation(d, 200, 3)[1]),
+            ("donchian", lambda d: compute_donchian_breakout(d, 20)[2]),
+            ("adx_trend", lambda d: compute_adx_trend(d, 14, 25)[3]),
+            ("bb_breakout", lambda d: compute_bollinger_breakout(d, 20, 2)[3]),
+            ("keltner", lambda d: compute_keltner_breakout(d)[3]),
+            ("parabolic_sar", lambda d: compute_parabolic_sar(d)[1]),
+            ("cci_trend", lambda d: compute_cci_trend(d)[1]),
+            ("regime_router", lambda d: compute_regime_router(d)[1]),
+            ("ribbon", lambda d: compute_trend_ribbon(d)[4]),
+        ]
+        for key, compute_dir in computations:
+            try:
+                dir_series = compute_dir(src_df)
+                date, direction = _last_trend_flip(dir_series)
+                flips[key] = {"date": date, "dir": direction}
+            except Exception:
+                flips[key] = {"date": None, "dir": None}
+        return flips
+
+    # For daily flips: reuse current df if already daily, otherwise fetch daily data
+    if interval == "1d":
+        daily_flips = {}
+        # Reuse already-computed direction series to avoid redundant work
+        for key, dir_series in [
+            ("supertrend", direction), ("ema_crossover", ema_direction),
+            ("macd", macd_direction), ("ma_confirm", ma_conf_direction),
+            ("donchian", donch_direction), ("adx_trend", adx_direction),
+            ("bb_breakout", bb_direction), ("keltner", kelt_direction),
+            ("parabolic_sar", psar_direction), ("cci_trend", cci_direction),
+            ("regime_router", rr_direction), ("ribbon", ribbon_dir),
+        ]:
+            date, d = _last_trend_flip(dir_series)
+            daily_flips[key] = {"date": date, "dir": d}
+    else:
+        try:
+            kwargs_d = {"start": _warmup_start(start, "1d"), "interval": "1d", "progress": False}
+            if end:
+                kwargs_d["end"] = end
+            df_d = cached_download(ticker, **kwargs_d)
+            if isinstance(df_d.columns, pd.MultiIndex):
+                df_d.columns = df_d.columns.get_level_values(0)
+            if df_d.index.duplicated().any():
+                df_d = df_d[~df_d.index.duplicated(keep="last")]
+            daily_flips = _compute_all_flips(df_d)
+        except Exception:
+            daily_flips = {}
+
+    # Weekly flips computed after df_w is fetched (below)
+
     candles = []
     for i in range(len(df_view)):
         ts = int(df_view.index[i].timestamp())
@@ -1017,10 +1180,11 @@ def chart_data():
             continue
         ts = int(df_view.index[i].timestamp())
         val = round(float(supertrend_view.iloc[i]), 2)
+        body_mid = round(float((df_view["Open"].iloc[i] + df_view["Close"].iloc[i]) / 2), 2)
         if direction_view.iloc[i] == 1:
-            st_up.append({"time": ts, "value": val})
+            st_up.append({"time": ts, "value": val, "mid": body_mid})
         else:
-            st_down.append({"time": ts, "value": val})
+            st_down.append({"time": ts, "value": val, "mid": body_mid})
 
     trades, summary, equity_curve = backtest_supertrend(
         df_view, direction_view, start_in_position=supertrend_start_long
@@ -1066,6 +1230,7 @@ def chart_data():
 
     sma_50w = []
     sma_200w = []
+    weekly_flips = {}
     try:
         kwargs_w = {"start": _warmup_start(start, "1wk"), "interval": "1wk", "progress": False}
         if end:
@@ -1074,6 +1239,8 @@ def chart_data():
         if not df_w.empty:
             if isinstance(df_w.columns, pd.MultiIndex):
                 df_w.columns = df_w.columns.get_level_values(0)
+            if df_w.index.duplicated().any():
+                df_w = df_w[~df_w.index.duplicated(keep="last")]
             df_w_view = df_w.loc[_visible_mask(df_w.index, start, end)]
             sma_w50 = df_w["Close"].rolling(window=50).mean()
             sma_w200 = df_w["Close"].rolling(window=200).mean()
@@ -1085,11 +1252,26 @@ def chart_data():
                     sma_50w.append({"time": ts, "value": round(float(sma_w50_view.iloc[i]), 2)})
                 if not pd.isna(sma_w200_view.iloc[i]):
                     sma_200w.append({"time": ts, "value": round(float(sma_w200_view.iloc[i]), 2)})
+            # Weekly trend flips for all indicators
+            if interval == "1wk":
+                # Reuse already-computed direction series
+                for key, dir_series in [
+                    ("supertrend", direction), ("ema_crossover", ema_direction),
+                    ("macd", macd_direction), ("ma_confirm", ma_conf_direction),
+                    ("donchian", donch_direction), ("adx_trend", adx_direction),
+                    ("bb_breakout", bb_direction), ("keltner", kelt_direction),
+                    ("parabolic_sar", psar_direction), ("cci_trend", cci_direction),
+                    ("regime_router", rr_direction), ("ribbon", ribbon_dir),
+                ]:
+                    date, d = _last_trend_flip(dir_series)
+                    weekly_flips[key] = {"date": date, "dir": d}
+            else:
+                weekly_flips = _compute_all_flips(df_w)
     except Exception:
         pass
 
     # Support / Resistance levels
-    sr_levels = compute_support_resistance(df)
+    sr_levels = compute_support_resistance(df, max_levels=20)
 
     volumes = []
     for i in range(len(df_view)):
@@ -1278,6 +1460,7 @@ def chart_data():
                 "ribbon": {"upper": ribbon_upper_data, "lower": ribbon_lower_data, "center": ribbon_center_data},
             },
             "vol_profile": vol_profile,
+            "trend_flips": {"daily": daily_flips, "weekly": weekly_flips},
         }
     )
 
@@ -1324,16 +1507,20 @@ def watchlist_quotes():
     if cached is not None:
         return jsonify(cached)
 
+    # Map display names to yfinance symbols (e.g. IXIC -> ^IXIC)
+    yf_tickers = [normalize_ticker(t) for t in tickers]
+    yf_to_display = {normalize_ticker(t): t for t in tickers}
+
     results = []
     try:
         # Bulk download last 5 trading days — enough to get prev close
-        df = yf.download(tickers, period="5d", interval="1d", progress=False, group_by="ticker")
-        for ticker in tickers:
+        df = yf.download(yf_tickers, period="5d", interval="1d", progress=False, group_by="ticker")
+        for yf_ticker, display_ticker in zip(yf_tickers, tickers):
             try:
-                if len(tickers) == 1:
+                if len(yf_tickers) == 1:
                     tdf = df
                 else:
-                    tdf = df[ticker]
+                    tdf = df[yf_ticker]
                 if isinstance(tdf.columns, pd.MultiIndex):
                     tdf.columns = tdf.columns.get_level_values(0)
                 tdf = tdf.dropna(subset=["Close"])
@@ -1343,9 +1530,9 @@ def watchlist_quotes():
                 prev = round(float(tdf["Close"].iloc[-2]), 2)
                 chg = round(last - prev, 2)
                 chg_pct = round((chg / prev) * 100, 2) if prev else 0
-                results.append({"ticker": ticker, "last": last, "chg": chg, "chg_pct": chg_pct})
+                results.append({"ticker": display_ticker, "last": last, "chg": chg, "chg_pct": chg_pct})
             except Exception:
-                results.append({"ticker": ticker, "last": None, "chg": None, "chg_pct": None})
+                results.append({"ticker": display_ticker, "last": None, "chg": None, "chg_pct": None})
     except Exception:
         # Fallback: return empty quotes rather than error
         results = [{"ticker": t, "last": None, "chg": None, "chg_pct": None} for t in tickers]
@@ -1359,13 +1546,14 @@ def watchlist_quotes():
 @app.route("/api/watchlist/quote/<ticker>")
 def watchlist_quote(ticker):
     """Get latest price for a single ticker."""
+    yf_ticker = normalize_ticker(ticker)
     cache_key = f"quote:{ticker}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return jsonify(cached)
 
     try:
-        df = yf.download(ticker, period="5d", interval="1d", progress=False)
+        df = yf.download(yf_ticker, period="5d", interval="1d", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df = df.dropna(subset=["Close"])
