@@ -2,11 +2,45 @@ import json
 import os
 import time as _time
 import threading
-from datetime import datetime, timedelta
+from datetime import timedelta
 from flask import Flask, render_template, request, jsonify
 import yfinance as yf
 import pandas as pd
-import numpy as np
+
+from app_settings import (
+    DAILY_WARMUP_DAYS,
+    INITIAL_CAPITAL,
+    WEEKLY_WARMUP_DAYS,
+)
+from backtesting import (
+    backtest_direction as _backtest_direction_impl,
+    backtest_supertrend as _backtest_supertrend_impl,
+    build_equity_curve as _build_equity_curve_impl,
+    compute_summary as _compute_summary_impl,
+)
+from chart_serialization import (
+    build_volume_profile,
+    compute_all_trend_flips,
+    last_trend_flip,
+    series_to_json,
+)
+from support_resistance import compute_support_resistance as _compute_support_resistance_impl
+from technical_indicators import (
+    STRATEGIES,
+    compute_adx_trend as _compute_adx_trend_impl,
+    compute_bollinger_breakout as _compute_bollinger_breakout_impl,
+    compute_cci_trend as _compute_cci_trend_impl,
+    compute_donchian_breakout as _compute_donchian_breakout_impl,
+    compute_ema_crossover as _compute_ema_crossover_impl,
+    compute_keltner_breakout as _compute_keltner_breakout_impl,
+    compute_ma_confirmation as _compute_ma_confirmation_impl,
+    compute_macd_crossover as _compute_macd_crossover_impl,
+    compute_parabolic_sar as _compute_parabolic_sar_impl,
+    compute_regime_router as _compute_regime_router_impl,
+    compute_supertrend as _compute_supertrend_impl,
+    compute_trend_ribbon as _compute_trend_ribbon_impl,
+    detect_regime as _detect_regime_impl,
+)
 
 # ---------------------------------------------------------------------------
 # In-memory TTL cache (for quotes and short-lived data)
@@ -261,9 +295,6 @@ def normalize_ticker(ticker: str) -> str:
 app = Flask(__name__)
 
 WATCHLIST_FILE = os.path.join(os.path.dirname(__file__), "watchlist.json")
-INITIAL_CAPITAL = 10000.0
-DAILY_WARMUP_DAYS = 500
-WEEKLY_WARMUP_DAYS = 200 * 7 + 180
 
 
 def load_watchlist():
@@ -312,675 +343,91 @@ def _starts_long(direction, full_index, view_index):
 
 
 def compute_supertrend(df, period=10, multiplier=3):
-    """Compute Supertrend indicator."""
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-
-    # ATR calculation using Wilder's smoothing (RMA) to match TradingView
-    hl = high - low
-    hc = (high - close.shift(1)).abs()
-    lc = (low - close.shift(1)).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    atr = tr.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
-
-    # Basic bands
-    hl2 = (high + low) / 2
-    upper_basic = hl2 + multiplier * atr
-    lower_basic = hl2 - multiplier * atr
-
-    upper_band = pd.Series(np.nan, index=df.index)
-    lower_band = pd.Series(np.nan, index=df.index)
-    supertrend = pd.Series(np.nan, index=df.index)
-    direction = pd.Series(1, index=df.index)  # 1 = up (bullish), -1 = down (bearish)
-
-    for i in range(period, len(df)):
-        # Upper band
-        if pd.isna(upper_band.iloc[i - 1]):
-            upper_band.iloc[i] = upper_basic.iloc[i]
-        else:
-            upper_band.iloc[i] = (
-                min(upper_basic.iloc[i], upper_band.iloc[i - 1])
-                if close.iloc[i - 1] <= upper_band.iloc[i - 1]
-                else upper_basic.iloc[i]
-            )
-
-        # Lower band
-        if pd.isna(lower_band.iloc[i - 1]):
-            lower_band.iloc[i] = lower_basic.iloc[i]
-        else:
-            lower_band.iloc[i] = (
-                max(lower_basic.iloc[i], lower_band.iloc[i - 1])
-                if close.iloc[i - 1] >= lower_band.iloc[i - 1]
-                else lower_basic.iloc[i]
-            )
-
-        # Direction and supertrend value
-        if i == period:
-            direction.iloc[i] = 1 if close.iloc[i] > upper_band.iloc[i] else -1
-        else:
-            prev_dir = direction.iloc[i - 1]
-            if prev_dir == -1 and close.iloc[i] > upper_band.iloc[i]:
-                direction.iloc[i] = 1
-            elif prev_dir == 1 and close.iloc[i] < lower_band.iloc[i]:
-                direction.iloc[i] = -1
-            else:
-                direction.iloc[i] = prev_dir
-
-        supertrend.iloc[i] = (
-            lower_band.iloc[i] if direction.iloc[i] == 1 else upper_band.iloc[i]
-        )
-
-    return supertrend, direction
+    return _compute_supertrend_impl(df, period=period, multiplier=multiplier)
 
 
 def compute_ma_confirmation(df, ma_period=200, confirm_candles=3):
-    """Compute MA Confirmation direction: 1 when close is above MA for N consecutive candles."""
-    close = df["Close"]
-    ma = close.rolling(window=ma_period).mean()
-    above = (close > ma).astype(int)
-    direction = pd.Series(0, index=df.index)
-    for i in range(ma_period + confirm_candles - 1, len(df)):
-        if all(above.iloc[i - j] == 1 for j in range(confirm_candles)):
-            direction.iloc[i] = 1
-        elif all(above.iloc[i - j] == 0 for j in range(confirm_candles)):
-            direction.iloc[i] = -1
-        else:
-            direction.iloc[i] = direction.iloc[i - 1]
-    return ma, direction
+    return _compute_ma_confirmation_impl(
+        df, ma_period=ma_period, confirm_candles=confirm_candles
+    )
 
 
 def compute_ema_crossover(df, fast=9, slow=21):
-    """Compute EMA crossover direction: 1 when fast > slow, -1 otherwise."""
-    close = df["Close"]
-    ema_fast = close.ewm(span=fast, adjust=False).mean()
-    ema_slow = close.ewm(span=slow, adjust=False).mean()
-    direction = pd.Series(0, index=df.index)
-    for i in range(slow, len(df)):
-        direction.iloc[i] = 1 if ema_fast.iloc[i] > ema_slow.iloc[i] else -1
-    return ema_fast, ema_slow, direction
+    return _compute_ema_crossover_impl(df, fast=fast, slow=slow)
 
 
 def compute_macd_crossover(df, fast=12, slow=26, signal=9):
-    """Compute MACD signal line crossover direction."""
-    close = df["Close"]
-    ema_fast = close.ewm(span=fast, adjust=False).mean()
-    ema_slow = close.ewm(span=slow, adjust=False).mean()
-    macd_line = ema_fast - ema_slow
-    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
-    histogram = macd_line - signal_line
-    direction = pd.Series(0, index=df.index)
-    min_period = slow + signal
-    for i in range(min_period, len(df)):
-        direction.iloc[i] = 1 if macd_line.iloc[i] > signal_line.iloc[i] else -1
-    return macd_line, signal_line, histogram, direction
+    return _compute_macd_crossover_impl(df, fast=fast, slow=slow, signal=signal)
 
 
 def compute_donchian_breakout(df, period=20):
-    """Compute Donchian Channel breakout direction: long when close breaks above
-    the highest high of the last N periods, exit when close breaks below the
-    lowest low of the last N periods."""
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-    upper = high.rolling(window=period).max()
-    lower = low.rolling(window=period).min()
-    direction = pd.Series(0, index=df.index)
-    for i in range(period, len(df)):
-        if close.iloc[i] > upper.iloc[i - 1]:
-            direction.iloc[i] = 1
-        elif close.iloc[i] < lower.iloc[i - 1]:
-            direction.iloc[i] = -1
-        else:
-            direction.iloc[i] = direction.iloc[i - 1]
-    return upper, lower, direction
+    return _compute_donchian_breakout_impl(df, period=period)
 
 
 def compute_adx_trend(df, period=14, adx_threshold=25):
-    """Compute ADX-based trend direction: long when +DI > -DI and ADX > threshold,
-    short when -DI > +DI and ADX > threshold, flat otherwise."""
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-
-    plus_dm = high.diff()
-    minus_dm = -low.diff()
-    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
-    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
-
-    hl = high - low
-    hc = (high - close.shift(1)).abs()
-    lc = (low - close.shift(1)).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-
-    atr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    plus_di = 100 * (plus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() / atr)
-    minus_di = 100 * (minus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() / atr)
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-
-    direction = pd.Series(0, index=df.index)
-    start = period * 2
-    for i in range(start, len(df)):
-        if adx.iloc[i] > adx_threshold:
-            direction.iloc[i] = 1 if plus_di.iloc[i] > minus_di.iloc[i] else -1
-        else:
-            direction.iloc[i] = direction.iloc[i - 1]
-    return adx, plus_di, minus_di, direction
+    return _compute_adx_trend_impl(df, period=period, adx_threshold=adx_threshold)
 
 
 def compute_bollinger_breakout(df, period=20, std_dev=2):
-    """Compute Bollinger Band breakout direction: long when close breaks above
-    the upper band, exit when close falls below the middle band."""
-    close = df["Close"]
-    middle = close.rolling(window=period).mean()
-    std = close.rolling(window=period).std()
-    upper = middle + std_dev * std
-    lower = middle - std_dev * std
-    direction = pd.Series(0, index=df.index)
-    for i in range(period, len(df)):
-        if close.iloc[i] > upper.iloc[i]:
-            direction.iloc[i] = 1
-        elif close.iloc[i] < middle.iloc[i]:
-            direction.iloc[i] = -1
-        else:
-            direction.iloc[i] = direction.iloc[i - 1]
-    return upper, middle, lower, direction
+    return _compute_bollinger_breakout_impl(df, period=period, std_dev=std_dev)
 
 
 def compute_keltner_breakout(df, ema_period=20, atr_period=10, multiplier=1.5):
-    """Compute Keltner Channel breakout: long when close breaks above upper channel,
-    exit when close falls below middle line."""
-    close = df["Close"]
-    high = df["High"]
-    low = df["Low"]
-
-    middle = close.ewm(span=ema_period, adjust=False).mean()
-    hl = high - low
-    hc = (high - close.shift(1)).abs()
-    lc = (low - close.shift(1)).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    atr = tr.rolling(window=atr_period).mean()
-    upper = middle + multiplier * atr
-    lower = middle - multiplier * atr
-
-    direction = pd.Series(0, index=df.index)
-    start = max(ema_period, atr_period)
-    for i in range(start, len(df)):
-        if close.iloc[i] > upper.iloc[i]:
-            direction.iloc[i] = 1
-        elif close.iloc[i] < middle.iloc[i]:
-            direction.iloc[i] = -1
-        else:
-            direction.iloc[i] = direction.iloc[i - 1]
-    return upper, middle, lower, direction
+    return _compute_keltner_breakout_impl(
+        df,
+        ema_period=ema_period,
+        atr_period=atr_period,
+        multiplier=multiplier,
+    )
 
 
 def compute_parabolic_sar(df, af_start=0.02, af_increment=0.02, af_max=0.2):
-    """Compute Parabolic SAR trend direction."""
-    high = df["High"]
-    low = df["Low"]
-    n = len(df)
-    sar = pd.Series(np.nan, index=df.index)
-    direction = pd.Series(0, index=df.index)
-
-    # Initialize
-    bull = True
-    af = af_start
-    ep = float(high.iloc[0])
-    sar.iloc[0] = float(low.iloc[0])
-
-    for i in range(1, n):
-        prev_sar = float(sar.iloc[i - 1])
-        if bull:
-            sar_val = prev_sar + af * (ep - prev_sar)
-            sar_val = min(sar_val, float(low.iloc[i - 1]))
-            if i >= 2:
-                sar_val = min(sar_val, float(low.iloc[i - 2]))
-            if float(low.iloc[i]) < sar_val:
-                bull = False
-                sar_val = ep
-                ep = float(low.iloc[i])
-                af = af_start
-            else:
-                if float(high.iloc[i]) > ep:
-                    ep = float(high.iloc[i])
-                    af = min(af + af_increment, af_max)
-        else:
-            sar_val = prev_sar + af * (ep - prev_sar)
-            sar_val = max(sar_val, float(high.iloc[i - 1]))
-            if i >= 2:
-                sar_val = max(sar_val, float(high.iloc[i - 2]))
-            if float(high.iloc[i]) > sar_val:
-                bull = True
-                sar_val = ep
-                ep = float(high.iloc[i])
-                af = af_start
-            else:
-                if float(low.iloc[i]) < ep:
-                    ep = float(low.iloc[i])
-                    af = min(af + af_increment, af_max)
-
-        sar.iloc[i] = sar_val
-        direction.iloc[i] = 1 if bull else -1
-
-    return sar, direction
+    return _compute_parabolic_sar_impl(
+        df,
+        af_start=af_start,
+        af_increment=af_increment,
+        af_max=af_max,
+    )
 
 
 def compute_cci_trend(df, period=20, threshold=100):
-    """Compute CCI trend direction: long when CCI > threshold, short when CCI < -threshold."""
-    close = df["Close"]
-    high = df["High"]
-    low = df["Low"]
-    tp = (high + low + close) / 3
-    sma = tp.rolling(window=period).mean()
-    mad = tp.rolling(window=period).apply(lambda x: np.abs(x - x.mean()).mean(), raw=True)
-    cci = (tp - sma) / (0.015 * mad)
-
-    direction = pd.Series(0, index=df.index)
-    for i in range(period, len(df)):
-        if cci.iloc[i] > threshold:
-            direction.iloc[i] = 1
-        elif cci.iloc[i] < -threshold:
-            direction.iloc[i] = -1
-        else:
-            direction.iloc[i] = direction.iloc[i - 1]
-    return cci, direction
+    return _compute_cci_trend_impl(df, period=period, threshold=threshold)
 
 
 def compute_trend_ribbon(df, ema_period=21, atr_period=14, adx_period=14,
                           min_width=0.5, max_width=3.0):
-    """Compute a trend-strength ribbon: EMA center with ATR-based width scaled by ADX.
-
-    Returns: center (EMA), upper, lower, strength (0-1), direction (1/-1)
-    - Width = ATR * lerp(min_width, max_width, adx_normalized)
-    - When ADX is high (strong trend), ribbon is wide
-    - When ADX is low (choppy), ribbon narrows
-    """
-    close = df["Close"]
-    high = df["High"]
-    low = df["Low"]
-
-    # Center line
-    center = close.ewm(span=ema_period, adjust=False).mean()
-
-    # ATR for base width
-    hl = high - low
-    hc = (high - close.shift(1)).abs()
-    lc = (low - close.shift(1)).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    atr = tr.ewm(alpha=1 / atr_period, min_periods=atr_period, adjust=False).mean()
-
-    # ADX for strength scaling
-    plus_dm = high.diff()
-    minus_dm = -low.diff()
-    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
-    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
-    atr_adx = tr.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-    plus_di = 100 * (plus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr_adx)
-    minus_di = 100 * (minus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr_adx)
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-
-    # Normalize ADX to 0-1 range (0=no trend, 1=very strong)
-    strength = (adx / 60).clip(0, 1)
-
-    # Width = ATR * interpolated multiplier
-    width_mult = min_width + (max_width - min_width) * strength
-    half_width = atr * width_mult / 2
-    upper = center + half_width
-    lower = center - half_width
-
-    # Direction based on EMA slope
-    direction = pd.Series(0, index=df.index, dtype=int)
-    direction[center > center.shift(1)] = 1
-    direction[center < center.shift(1)] = -1
-
-    return center, upper, lower, strength, direction
+    return _compute_trend_ribbon_impl(
+        df,
+        ema_period=ema_period,
+        atr_period=atr_period,
+        adx_period=adx_period,
+        min_width=min_width,
+        max_width=max_width,
+    )
 
 
 def _build_equity_curve(df, trades):
-    equity_curve = []
-    if df.empty:
-        return equity_curve
-
-    entry_map = {t["entry_date"]: t for t in trades}
-    exit_map = {t["exit_date"]: t for t in trades if not t.get("open")}
-
-    cash = INITIAL_CAPITAL
-    shares = 0.0
-    active_trade = None
-
-    for date, row in df.iterrows():
-        day = str(date.date())
-
-        if shares == 0 and day in entry_map:
-            active_trade = entry_map[day]
-            shares = active_trade["quantity"]
-            cash = 0.0
-
-        if shares > 0 and day in exit_map and active_trade is exit_map[day]:
-            cash = round(shares * exit_map[day]["exit_price"], 2)
-            shares = 0.0
-            active_trade = None
-
-        equity = cash if shares == 0 else shares * float(row["Close"])
-        equity_curve.append({"time": int(date.timestamp()), "value": round(equity, 2)})
-
-    return equity_curve
+    return _build_equity_curve_impl(df, trades)
 
 
 def _compute_summary(trades, equity_curve):
-    """Compute enhanced summary stats for a list of trades."""
-    empty_summary = {
-        "total_trades": 0,
-        "winners": 0,
-        "losers": 0,
-        "win_rate": 0,
-        "total_pnl": 0,
-        "net_profit_pct": 0,
-        "avg_pnl": 0,
-        "best_trade": 0,
-        "worst_trade": 0,
-        "gross_profit": 0,
-        "gross_loss": 0,
-        "profit_factor": None,
-        "max_drawdown": 0,
-        "max_drawdown_pct": 0,
-        "avg_winner": 0,
-        "avg_loser": 0,
-        "ending_equity": INITIAL_CAPITAL,
-        "initial_capital": INITIAL_CAPITAL,
-    }
-    if not trades:
-        return empty_summary
-
-    total_pnl = sum(t["pnl"] for t in trades)
-    winners = [t for t in trades if t["pnl"] > 0]
-    losers = [t for t in trades if t["pnl"] <= 0]
-    gross_profit = sum(t["pnl"] for t in winners)
-    gross_loss = abs(sum(t["pnl"] for t in losers))
-
-    peak = INITIAL_CAPITAL
-    max_dd = 0
-    max_dd_pct = 0
-    ending_equity = INITIAL_CAPITAL
-    for point in equity_curve:
-        equity = point["value"]
-        peak = max(peak, equity)
-        ending_equity = equity
-        drawdown = peak - equity
-        drawdown_pct = (drawdown / peak) * 100 if peak else 0
-        if drawdown > max_dd:
-            max_dd = drawdown
-            max_dd_pct = drawdown_pct
-
-    return {
-        "total_trades": len(trades),
-        "winners": len(winners),
-        "losers": len(losers),
-        "win_rate": round(len(winners) / len(trades) * 100, 1),
-        "total_pnl": round(total_pnl, 2),
-        "net_profit_pct": round(((ending_equity / INITIAL_CAPITAL) - 1) * 100, 2),
-        "avg_pnl": round(total_pnl / len(trades), 2),
-        "best_trade": round(max((t["pnl"] for t in trades), default=0), 2),
-        "worst_trade": round(min((t["pnl"] for t in trades), default=0), 2),
-        "gross_profit": round(gross_profit, 2),
-        "gross_loss": round(gross_loss, 2),
-        "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss > 0 else None,
-        "max_drawdown": round(max_dd, 2),
-        "max_drawdown_pct": round(max_dd_pct, 2),
-        "avg_winner": round(gross_profit / len(winners), 2) if winners else 0,
-        "avg_loser": round(gross_loss / len(losers), 2) if losers else 0,
-        "ending_equity": round(ending_equity, 2),
-        "initial_capital": INITIAL_CAPITAL,
-    }
+    return _compute_summary_impl(trades, equity_curve)
 
 
 def backtest_direction(df, direction, start_in_position=False):
-    """Generic backtest: long when direction=1, flat otherwise, filled next bar open."""
-    trades = []
-    position = None
-    open_prices = df["Open"]
-    close = df["Close"]
-    dates = df.index
-    cash = INITIAL_CAPITAL
-
-    if start_in_position and len(df) > 0:
-        entry_price = round(float(open_prices.iloc[0]), 2)
-        quantity = cash / entry_price if entry_price else 0
-        position = {
-            "entry_date": str(dates[0].date()),
-            "entry_price": entry_price,
-            "type": "long",
-            "quantity": round(quantity, 8),
-        }
-        cash = 0.0
-
-    for i in range(1, len(df) - 1):
-        prev_dir = direction.iloc[i - 1]
-        curr_dir = direction.iloc[i]
-        execution_idx = i + 1
-        execution_price = round(float(open_prices.iloc[execution_idx]), 2)
-        execution_date = str(dates[execution_idx].date())
-
-        if prev_dir != 1 and curr_dir == 1 and position is None:
-            quantity = cash / execution_price if execution_price else 0
-            position = {
-                "entry_date": execution_date,
-                "entry_price": execution_price,
-                "type": "long",
-                "quantity": round(quantity, 8),
-            }
-            cash = 0.0
-
-        elif prev_dir == 1 and curr_dir != 1 and position is not None:
-            pnl = (execution_price - position["entry_price"]) * position["quantity"]
-            pnl_pct = ((execution_price / position["entry_price"]) - 1) * 100 if position["entry_price"] else 0
-            cash = execution_price * position["quantity"]
-            trades.append(
-                {
-                    **position,
-                    "exit_date": execution_date,
-                    "exit_price": execution_price,
-                    "pnl": round(pnl, 2),
-                    "pnl_pct": round(pnl_pct, 2),
-                }
-            )
-            position = None
-
-    if position is not None:
-        last_close = round(float(close.iloc[-1]), 2)
-        pnl = (last_close - position["entry_price"]) * position["quantity"]
-        pnl_pct = ((last_close / position["entry_price"]) - 1) * 100 if position["entry_price"] else 0
-        trades.append(
-            {
-                **position,
-                "exit_date": str(dates[-1].date()),
-                "exit_price": last_close,
-                "pnl": round(pnl, 2),
-                "pnl_pct": round(pnl_pct, 2),
-                "open": True,
-            }
-        )
-
-    equity_curve = _build_equity_curve(df, trades)
-    summary = _compute_summary(trades, equity_curve)
-    return trades, summary, equity_curve
+    return _backtest_direction_impl(
+        df, direction, start_in_position=start_in_position
+    )
 
 
 def backtest_supertrend(df, direction, start_in_position=False):
-    """Backtest a Supertrend strategy: long when bullish, flat when bearish."""
-    return backtest_direction(df, direction, start_in_position=start_in_position)
+    return _backtest_supertrend_impl(
+        df, direction, start_in_position=start_in_position
+    )
 
 
 def compute_support_resistance(df, max_levels=8):
-    """Detect support/resistance levels using KDE on swing pivots with
-    confirmed-bounce validation and respect-ratio filtering.
-
-    Algorithm:
-    1. Find swing highs/lows (fractal pivots) with adaptive window.
-    2. Use Kernel Density Estimation to find natural price clusters (peaks
-       in the density of pivot prices).
-    3. For each KDE peak, validate with confirmed bounces: bars where price
-       wicked into the zone and the NEXT bar reversed away.
-    4. Compute a respect ratio (bounces / (bounces + clean breaks)) to
-       filter out levels that price routinely slices through.
-    5. Score by confirmed bounces * recency * respect ratio.
-    """
-    from scipy.signal import find_peaks
-    from scipy.stats import gaussian_kde
-    import numpy as np
-
-    highs = df["High"].values
-    lows = df["Low"].values
-    closes = df["Close"].values
-    volumes = df["Volume"].values if "Volume" in df.columns else np.ones(len(df))
-    timestamps = [int(t.timestamp()) for t in df.index]
-    n = len(highs)
-    if n < 30:
-        return []
-
-    current_price = float(closes[-1])
-
-    # Adaptive parameters
-    atr_series = (df["High"] - df["Low"]).rolling(14).mean()
-    atr = float(atr_series.iloc[-1]) if not pd.isna(atr_series.iloc[-1]) else 0
-    if atr == 0:
-        atr = current_price * 0.02
-    window = 3 if n < 400 else 5
-
-    # Step 1: Find swing pivots
-    pivots = []  # price values only, for KDE
-    pivot_details = []  # (price, bar_index) for later matching
-    for i in range(window, n - window):
-        if highs[i] == max(highs[i - window : i + window + 1]):
-            pivots.append(highs[i])
-            pivot_details.append((highs[i], i))
-        if lows[i] == min(lows[i - window : i + window + 1]):
-            pivots.append(lows[i])
-            pivot_details.append((lows[i], i))
-
-    if len(pivots) < 4:
-        return []
-
-    # Step 2: KDE to find natural price clusters
-    pivot_arr = np.array(pivots)
-    # Bandwidth 0.05 gives good granularity — enough to separate distinct
-    # zones while merging pivots within one zone.
-    kde = gaussian_kde(pivot_arr, bw_method=0.05)
-
-    # Evaluate KDE on a grid spanning the price range
-    price_min, price_max = pivot_arr.min() * 0.95, pivot_arr.max() * 1.05
-    grid = np.linspace(price_min, price_max, 500)
-    density = kde(grid)
-
-    # Find peaks in the density
-    peak_indices, peak_props = find_peaks(density, height=density.max() * 0.05)
-    if len(peak_indices) == 0:
-        return []
-
-    # The S/R levels are the prices at KDE peaks
-    sr_prices = grid[peak_indices]
-    sr_densities = density[peak_indices]
-
-    # Step 3: For each level, find confirmed bounces and clean breaks
-    zone_width = atr * 0.5  # half-ATR zone around each level
-    levels = []
-    avg_vol = float(np.mean(volumes)) if np.mean(volumes) > 0 else 1.0
-
-    for li, level_price in enumerate(sr_prices):
-        sup_bounces = []  # bar indices where level acted as support
-        res_bounces = []  # bar indices where level acted as resistance
-        breaks = 0  # count of clean breaks through the level
-
-        for i in range(1, n - 1):
-            in_zone_low = abs(lows[i] - level_price) < zone_width
-            in_zone_high = abs(highs[i] - level_price) < zone_width
-
-            if not (in_zone_low or in_zone_high):
-                continue
-
-            # Support bounce: low wicked into zone, close at or above level
-            if in_zone_low and closes[i] >= level_price - zone_width:
-                next_reversed = closes[i + 1] >= closes[i] or lows[i + 1] > lows[i]
-                if next_reversed:
-                    sup_bounces.append(i)
-                else:
-                    breaks += 1
-
-            # Resistance rejection: high wicked into zone, close at or below level
-            # (independent check — same bar can test both sides on wide candles)
-            if in_zone_high and closes[i] <= level_price + zone_width:
-                next_reversed = closes[i + 1] <= closes[i] or highs[i + 1] < highs[i]
-                if next_reversed:
-                    res_bounces.append(i)
-                else:
-                    breaks += 1
-
-        # Classify by which behavior dominates at this level
-        all_bounces = sorted(sup_bounces + res_bounces)
-        n_bounces = len(all_bounces)
-        if n_bounces < 2:
-            continue
-
-        # Present levels by where they sit relative to the current market.
-        # A former resistance that price has already broken above is more
-        # useful to display as support, and vice versa.
-        if abs(level_price - current_price) <= zone_width:
-            if len(sup_bounces) > len(res_bounces):
-                level_type = "support"
-            elif len(res_bounces) > len(sup_bounces):
-                level_type = "resistance"
-            else:
-                level_type = "support" if level_price <= current_price else "resistance"
-        else:
-            level_type = "support" if level_price < current_price else "resistance"
-
-        # Respect ratio: how often the level held vs was broken
-        total_tests = n_bounces + breaks
-        respect = n_bounces / total_tests if total_tests > 0 else 0
-        if respect < 0.3:
-            continue  # level broken too often
-
-        # Recency: weight by how recent the bounces are
-        avg_recency = sum(b / n for b in all_bounces) / n_bounces
-
-        # Volume weight: average volume on bounce bars vs overall average
-        vol_weight = sum(volumes[b] for b in all_bounces) / (n_bounces * avg_vol)
-        vol_weight = min(vol_weight, 3.0)  # cap at 3x
-
-        # Score
-        score = n_bounces * (0.3 + avg_recency) * vol_weight * respect
-
-        # Find which original swing pivots are near this level (for solid segments)
-        pivot_bar_indices = sorted(
-            [idx for p, idx in pivot_details if abs(p - level_price) < zone_width]
-        )
-        pivot_times = [timestamps[i] for i in pivot_bar_indices]
-
-        # Bounce bar times (deduplicated)
-        bounce_times = sorted(set(timestamps[b] for b in all_bounces))
-
-        levels.append(
-            {
-                "price": round(float(level_price), 2),
-                "zone_low": round(float(level_price - zone_width), 2),
-                "zone_high": round(float(level_price + zone_width), 2),
-                "touches": n_bounces,
-                "type": level_type,
-                "touch_times": bounce_times,
-                "pivot_times": pivot_times,
-                "respect": round(respect, 2),
-                "_score": score,
-            }
-        )
-
-    # Sort by score (strong levels first), not just proximity to current price
-    levels.sort(key=lambda l: -l["_score"])
-    for lv in levels:
-        del lv["_score"]
-    return levels[:max_levels]
+    return _compute_support_resistance_impl(df, max_levels=max_levels)
 
 
 @app.route("/")
@@ -1090,46 +537,6 @@ def chart_data():
     # Trend ribbon
     ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(df)
 
-    # Last trend flip dates for all indicators (daily and weekly)
-    def _last_trend_flip(direction_series):
-        """Find the date when a direction series last flipped."""
-        d = direction_series.dropna()
-        d = d[d != 0]  # ignore neutral
-        if len(d) < 2:
-            return None, None
-        for i in range(len(d) - 1, 0, -1):
-            if d.iloc[i] != d.iloc[i - 1]:
-                flip_date = d.index[i].strftime("%Y-%m-%d")
-                flip_dir = "bullish" if d.iloc[i] == 1 else "bearish"
-                return flip_date, flip_dir
-        return None, None
-
-    def _compute_all_flips(src_df):
-        """Compute last flip date/dir for every indicator on a given dataframe."""
-        flips = {}
-        computations = [
-            ("supertrend", lambda d: compute_supertrend(d, period_val, multiplier_val)[1]),
-            ("ema_crossover", lambda d: compute_ema_crossover(d, 9, 21)[2]),
-            ("macd", lambda d: compute_macd_crossover(d)[3]),
-            ("ma_confirm", lambda d: compute_ma_confirmation(d, 200, 3)[1]),
-            ("donchian", lambda d: compute_donchian_breakout(d, 20)[2]),
-            ("adx_trend", lambda d: compute_adx_trend(d, 14, 25)[3]),
-            ("bb_breakout", lambda d: compute_bollinger_breakout(d, 20, 2)[3]),
-            ("keltner", lambda d: compute_keltner_breakout(d)[3]),
-            ("parabolic_sar", lambda d: compute_parabolic_sar(d)[1]),
-            ("cci_trend", lambda d: compute_cci_trend(d)[1]),
-            ("regime_router", lambda d: compute_regime_router(d)[1]),
-            ("ribbon", lambda d: compute_trend_ribbon(d)[4]),
-        ]
-        for key, compute_dir in computations:
-            try:
-                dir_series = compute_dir(src_df)
-                date, direction = _last_trend_flip(dir_series)
-                flips[key] = {"date": date, "dir": direction}
-            except Exception:
-                flips[key] = {"date": None, "dir": None}
-        return flips
-
     # For daily flips: reuse current df if already daily, otherwise fetch daily data
     if interval == "1d":
         daily_flips = {}
@@ -1142,7 +549,7 @@ def chart_data():
             ("parabolic_sar", psar_direction), ("cci_trend", cci_direction),
             ("regime_router", rr_direction), ("ribbon", ribbon_dir),
         ]:
-            date, d = _last_trend_flip(dir_series)
+            date, d = last_trend_flip(dir_series)
             daily_flips[key] = {"date": date, "dir": d}
     else:
         try:
@@ -1154,7 +561,9 @@ def chart_data():
                 df_d.columns = df_d.columns.get_level_values(0)
             if df_d.index.duplicated().any():
                 df_d = df_d[~df_d.index.duplicated(keep="last")]
-            daily_flips = _compute_all_flips(df_d)
+            daily_flips = compute_all_trend_flips(
+                df_d, period_val=period_val, multiplier_val=multiplier_val
+            )
         except Exception:
             daily_flips = {}
 
@@ -1263,10 +672,12 @@ def chart_data():
                     ("parabolic_sar", psar_direction), ("cci_trend", cci_direction),
                     ("regime_router", rr_direction), ("ribbon", ribbon_dir),
                 ]:
-                    date, d = _last_trend_flip(dir_series)
+                    date, d = last_trend_flip(dir_series)
                     weekly_flips[key] = {"date": date, "dir": d}
             else:
-                weekly_flips = _compute_all_flips(df_w)
+                weekly_flips = compute_all_trend_flips(
+                    df_w, period_val=period_val, multiplier_val=multiplier_val
+                )
     except Exception:
         pass
 
@@ -1318,31 +729,19 @@ def chart_data():
                 }
             )
 
-    # --- Serialize indicator overlay data ---
-    def _series_to_json(series, view_index, decimals=2):
-        """Convert a pandas Series to [{time, value}, ...] for the view range."""
-        view = series.loc[view_index]
-        out = []
-        for i in range(len(view)):
-            v = view.iloc[i]
-            if pd.isna(v):
-                continue
-            out.append({"time": int(view_index[i].timestamp()), "value": round(float(v), decimals)})
-        return out
-
     # Donchian channels
-    donch_upper_data = _series_to_json(donch_upper, df_view.index)
-    donch_lower_data = _series_to_json(donch_lower, df_view.index)
+    donch_upper_data = series_to_json(donch_upper, df_view.index)
+    donch_lower_data = series_to_json(donch_lower, df_view.index)
 
     # Bollinger Bands
-    bb_upper_data = _series_to_json(bb_upper, df_view.index)
-    bb_mid_data = _series_to_json(bb_mid, df_view.index)
-    bb_lower_data = _series_to_json(bb_lower, df_view.index)
+    bb_upper_data = series_to_json(bb_upper, df_view.index)
+    bb_mid_data = series_to_json(bb_mid, df_view.index)
+    bb_lower_data = series_to_json(bb_lower, df_view.index)
 
     # Keltner Channels
-    kelt_upper_data = _series_to_json(kelt_upper, df_view.index)
-    kelt_mid_data = _series_to_json(kelt_mid, df_view.index)
-    kelt_lower_data = _series_to_json(kelt_lower, df_view.index)
+    kelt_upper_data = series_to_json(kelt_upper, df_view.index)
+    kelt_mid_data = series_to_json(kelt_mid, df_view.index)
+    kelt_lower_data = series_to_json(kelt_lower, df_view.index)
 
     # Parabolic SAR dots (split into bull/bear for color)
     psar_bull_data = []
@@ -1360,12 +759,12 @@ def chart_data():
             psar_bear_data.append(pt)
 
     # ADX / +DI / -DI
-    adx_data = _series_to_json(adx_val, df_view.index)
-    plus_di_data = _series_to_json(plus_di, df_view.index)
-    minus_di_data = _series_to_json(minus_di, df_view.index)
+    adx_data = series_to_json(adx_val, df_view.index)
+    plus_di_data = series_to_json(plus_di, df_view.index)
+    minus_di_data = series_to_json(minus_di, df_view.index)
 
     # CCI
-    cci_data = _series_to_json(cci_val, df_view.index)
+    cci_data = series_to_json(cci_val, df_view.index)
 
     # Trend ribbon — upper/lower with color per bar
     ribbon_upper_data = []
@@ -1389,34 +788,8 @@ def chart_data():
         ribbon_upper_data.append({"time": ts, "value": round(float(u), 2), "color": color, "lineColor": line_color})
         ribbon_lower_data.append({"time": ts, "value": round(float(lo), 2), "color": color, "lineColor": line_color})
 
-    ribbon_center_data = _series_to_json(ribbon_center, df_view.index)
-
-    # Volume profile — aggregate volume by price bucket
-    vol_profile = []
-    if not df_view.empty:
-        prices = df_view["Close"]
-        vols = df_view["Volume"]
-        price_min, price_max = float(prices.min()), float(prices.max())
-        n_buckets = 200
-        bucket_size = (price_max - price_min) / n_buckets if price_max > price_min else 1
-        for b in range(n_buckets):
-            lo_price = price_min + b * bucket_size
-            hi_price = lo_price + bucket_size
-            mask = (prices >= lo_price) & (prices < hi_price)
-            if b == n_buckets - 1:
-                mask = mask | (prices == price_max)
-            bucket_vol = float(vols[mask].sum())
-            # Split buy/sell: up-close bars are "buy", down-close are "sell"
-            up_mask = mask & (df_view["Close"] >= df_view["Open"])
-            dn_mask = mask & (df_view["Close"] < df_view["Open"])
-            buy_vol = float(vols[up_mask].sum())
-            sell_vol = float(vols[dn_mask].sum())
-            vol_profile.append({
-                "price": round((lo_price + hi_price) / 2, 2),
-                "total": bucket_vol,
-                "buy": buy_vol,
-                "sell": sell_vol,
-            })
+    ribbon_center_data = series_to_json(ribbon_center, df_view.index)
+    vol_profile = build_volume_profile(df_view)
 
     return jsonify(
         {
@@ -1509,12 +882,19 @@ def watchlist_quotes():
 
     # Map display names to yfinance symbols (e.g. IXIC -> ^IXIC)
     yf_tickers = [normalize_ticker(t) for t in tickers]
-    yf_to_display = {normalize_ticker(t): t for t in tickers}
 
     results = []
     try:
         # Bulk download last 5 trading days — enough to get prev close
-        df = yf.download(yf_tickers, period="5d", interval="1d", progress=False, group_by="ticker")
+        with _yf_lock:
+            df = yf.download(
+                yf_tickers,
+                period="5d",
+                interval="1d",
+                progress=False,
+                group_by="ticker",
+                threads=False,
+            )
         for yf_ticker, display_ticker in zip(yf_tickers, tickers):
             try:
                 if len(yf_tickers) == 1:
@@ -1553,7 +933,14 @@ def watchlist_quote(ticker):
         return jsonify(cached)
 
     try:
-        df = yf.download(yf_ticker, period="5d", interval="1d", progress=False)
+        with _yf_lock:
+            df = yf.download(
+                yf_ticker,
+                period="5d",
+                interval="1d",
+                progress=False,
+                threads=False,
+            )
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
         df = df.dropna(subset=["Close"])
@@ -1574,141 +961,17 @@ def watchlist_quote(ticker):
 
 
 def detect_regime(df, ema_period=21, atr_period=10, adx_period=14, confirm_bars=3):
-    """Classify market regime using fast leading indicators.
-
-    Uses EMA slope + ATR expansion as leading signals (detect trends early),
-    with ADX as a lagging confirmation (upgrade to strong trend).
-
-    Returns a Series with values:
-        'strong_trend' - EMA slope strong AND ADX confirms (>25) OR ATR expanding fast
-        'trending'     - EMA slope meaningful, ATR not contracting
-        'choppy'       - EMA flat, normal volatility
-        'range_bound'  - EMA flat AND ATR contracting (squeeze)
-    """
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-
-    # --- EMA slope (fast leading indicator) ---
-    ema = close.ewm(span=ema_period, adjust=False).mean()
-    # Normalize slope as % change over lookback bars
-    ema_slope = (ema - ema.shift(confirm_bars)) / ema.shift(confirm_bars) * 100
-
-    # --- ATR expansion/contraction (leading indicator of breakouts) ---
-    hl = high - low
-    hc = (high - close.shift(1)).abs()
-    lc = (low - close.shift(1)).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    atr = tr.rolling(window=atr_period).mean()
-    atr_ma = atr.rolling(window=atr_period * 4).mean()
-    # ATR ratio: >1 means volatility expanding, <1 means contracting
-    atr_ratio = atr / atr_ma
-
-    # --- ADX (lagging confirmation) ---
-    plus_dm = high.diff()
-    minus_dm = -low.diff()
-    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
-    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
-
-    atr_adx = tr.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-    plus_di = 100 * (plus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr_adx)
-    minus_di = 100 * (minus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean() / atr_adx)
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-
-    # --- Classify ---
-    regime = pd.Series("choppy", index=df.index)
-    warmup = max(adx_period * 2, ema_period + confirm_bars, atr_period * 4)
-
-    # Thresholds
-    slope_strong = 1.5    # EMA moved >1.5% in confirm_bars — strong directional move
-    slope_trending = 0.4  # EMA moved >0.4% — mild trend
-    atr_expanding = 1.2   # ATR 20% above its average — volatility breakout
-    atr_contracting = 0.8 # ATR 20% below its average — squeeze
-
-    for i in range(warmup, len(df)):
-        slope = abs(ema_slope.iloc[i]) if not pd.isna(ema_slope.iloc[i]) else 0
-        atr_r = atr_ratio.iloc[i] if not pd.isna(atr_ratio.iloc[i]) else 1
-        adx_val = adx.iloc[i] if not pd.isna(adx.iloc[i]) else 0
-
-        if slope > slope_strong and atr_r > atr_expanding:
-            # Fast detection: big EMA move + volatility expanding = trend starting
-            regime.iloc[i] = "strong_trend"
-        elif slope > slope_trending and adx_val > 25:
-            # Confirmed trend: moderate slope + ADX agrees
-            regime.iloc[i] = "strong_trend"
-        elif slope > slope_trending:
-            # Mild trend: slope says yes, ADX hasn't confirmed yet
-            regime.iloc[i] = "trending"
-        elif atr_r < atr_contracting:
-            # Squeeze: flat slope + volatility drying up
-            regime.iloc[i] = "range_bound"
-        else:
-            regime.iloc[i] = "choppy"
-
-    return regime, adx
-
-
-# Pre-compute strategy directions keyed by name
-_STRATEGY_FNS = {
-    "Parabolic SAR": lambda df: compute_parabolic_sar(df)[1],
-    "Supertrend": lambda df: compute_supertrend(df)[1],
-}
+    return _detect_regime_impl(
+        df,
+        ema_period=ema_period,
+        atr_period=atr_period,
+        adx_period=adx_period,
+        confirm_bars=confirm_bars,
+    )
 
 
 def compute_regime_router(df):
-    """Regime-based strategy router v2.
-
-    Supertrend is the always-on base strategy. When a strong trend is
-    detected (via EMA slope + ATR expansion), upgrades to Parabolic SAR
-    which captures more of the move. In range-bound squeezes, goes flat
-    to avoid whipsaw losses.
-
-    Routing:
-        strong_trend -> Parabolic SAR  (aggressive, captures big moves)
-        trending     -> Parabolic SAR  (early upgrade, ride the trend)
-        choppy       -> Supertrend     (conservative base, filters noise)
-        range_bound  -> Supertrend     (stays in but Supertrend is sticky)
-
-    Returns (regime, direction).
-    """
-    regime, adx = detect_regime(df)
-
-    # Pre-compute sub-strategy directions
-    sub_directions = {}
-    for name, fn in _STRATEGY_FNS.items():
-        sub_directions[name] = fn(df)
-
-    # Route: Supertrend base, upgrade to Parabolic SAR in trends
-    regime_to_strategy = {
-        "strong_trend": "Parabolic SAR",
-        "trending": "Parabolic SAR",
-        "choppy": "Supertrend",
-        "range_bound": "Supertrend",
-    }
-
-    direction = pd.Series(0, index=df.index)
-    for i in range(len(df)):
-        r = regime.iloc[i]
-        strat_name = regime_to_strategy[r]
-        direction.iloc[i] = sub_directions[strat_name].iloc[i]
-
-    return regime, direction
-
-
-STRATEGIES = {
-    "Supertrend": lambda df: compute_supertrend(df)[1],
-    "EMA 9/21 Cross": lambda df: compute_ema_crossover(df)[2],
-    "MACD Signal": lambda df: compute_macd_crossover(df)[3],
-    "MA Confirm (200/3)": lambda df: compute_ma_confirmation(df)[1],
-    "Donchian (20)": lambda df: compute_donchian_breakout(df)[2],
-    "ADX Trend (14/25)": lambda df: compute_adx_trend(df)[3],
-    "Bollinger Breakout": lambda df: compute_bollinger_breakout(df)[3],
-    "Keltner Breakout": lambda df: compute_keltner_breakout(df)[3],
-    "Parabolic SAR": lambda df: compute_parabolic_sar(df)[1],
-    "CCI Trend (20/100)": lambda df: compute_cci_trend(df)[1],
-    "Regime Router": lambda df: compute_regime_router(df)[1],
-}
+    return _compute_regime_router_impl(df)
 
 
 @app.route("/report")

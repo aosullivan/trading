@@ -6,6 +6,7 @@
 <title>Trading App</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<script src="{{ url_for('static', filename='chart_support_resistance.js') }}"></script>
 <style>
 :root {
   --bg-0:#08090d; --bg-1:#0e1017; --bg-2:#141620; --bg-3:#1a1d2b; --bg-4:#22263a;
@@ -748,9 +749,10 @@ function ensureBTChart(){
 const sMap={vol:()=>[volumeSeries],sma50:()=>[sma50Series],sma100:()=>[sma100Series],sma200:()=>[sma200Series],sma50w:()=>[sma50wSeries],sma200w:()=>[sma200wSeries],emaCross:()=>[ema9Series,ema21Series],ribbon:()=>[ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries],volProfile:()=>[],sup:()=>[],res:()=>[]};
 const activeChips=new Set(['vol']); // track which legend items are on
 
-// === S/R LINE SERIES (solid around touches, dotted between) ===
+// === S/R LINE SERIES (single center line + shaded zone) ===
 const SR_AUTOSCALE_BUFFER_RATIO=0.12;
 const SR_MAX_VISIBLE_PER_TYPE=2;
+const srHelpers=window.ChartSupportResistance;
 let srLineSeries=[];  // [{series:[], priceLine, type}]
 let srRedrawFrame=0;
 function clearSRLines(){
@@ -762,29 +764,10 @@ function clearSRLines(){
 }
 function getVisibleCandleRange(){
   if(!chart||!lastData?.candles?.length)return null;
-  const candles=lastData.candles;
-  const range=chart.timeScale().getVisibleLogicalRange();
-  let from=0,to=candles.length-1;
-  if(range){
-    from=Math.max(0,Math.floor(range.from));
-    to=Math.min(candles.length-1,Math.ceil(range.to));
-  }
-  let low=Infinity,high=-Infinity;
-  for(let i=from;i<=to;i++){
-    const c=candles[i];
-    if(Number.isFinite(c.low))low=Math.min(low,c.low);
-    if(Number.isFinite(c.high))high=Math.max(high,c.high);
-  }
-  if(!Number.isFinite(low)||!Number.isFinite(high))return null;
-  return{low,high,span:Math.max(high-low,Math.max(Math.abs(low),Math.abs(high))*0.01,0.01)};
+  return srHelpers.getVisibleCandleRange(lastData.candles,chart.timeScale().getVisibleLogicalRange());
 }
 function srLevelAffectsAutoscale(level){
-  const range=getVisibleCandleRange();
-  const low=Number.isFinite(level?.zone_low)?level.zone_low:level?.price;
-  const high=Number.isFinite(level?.zone_high)?level.zone_high:level?.price;
-  if(!range||!Number.isFinite(low)||!Number.isFinite(high))return true;
-  const buffer=range.span*SR_AUTOSCALE_BUFFER_RATIO;
-  return high>=range.low-buffer&&low<=range.high+buffer;
+  return srHelpers.levelAffectsAutoscale(level,getVisibleCandleRange(),SR_AUTOSCALE_BUFFER_RATIO);
 }
 function redrawActiveSRLines(){
   if(activeChips.has('sup'))drawSRLines('support');
@@ -792,34 +775,14 @@ function redrawActiveSRLines(){
 }
 function srLevelIsOnExpectedSide(level,type){
   const current=lastData?.candles?.[lastData.candles.length-1]?.close;
-  const low=Number.isFinite(level?.zone_low)?level.zone_low:level?.price;
-  const high=Number.isFinite(level?.zone_high)?level.zone_high:level?.price;
-  if(!Number.isFinite(current)||!Number.isFinite(low)||!Number.isFinite(high))return true;
-  if(type==='support')return high < current;
-  if(type==='resistance')return low > current;
-  return true;
+  return srHelpers.levelIsOnExpectedSide(level,type,current);
 }
 function getVisibleTimeBounds(){
   if(!chart||!lastData?.candles?.length)return null;
-  const candles=lastData.candles;
-  const range=chart.timeScale().getVisibleLogicalRange();
-  let from=0,to=candles.length-1;
-  if(range){
-    from=Math.max(0,Math.floor(range.from));
-    to=Math.min(candles.length-1,Math.ceil(range.to));
-  }
-  return{
-    from:candles[from]?.time??candles[0].time,
-    to:candles[to]?.time??candles[candles.length-1].time,
-  };
+  return srHelpers.getVisibleTimeBounds(lastData.candles,chart.timeScale().getVisibleLogicalRange());
 }
 function srRecencyBeforeVisible(level){
-  const bounds=getVisibleTimeBounds();
-  const times=[...(level?.pivot_times||[]),...(level?.touch_times||[])].filter(t=>Number.isFinite(t));
-  if(!bounds||!times.length)return Number.POSITIVE_INFINITY;
-  const priorTimes=times.filter(t=>t<=bounds.to);
-  const ref=priorTimes.length?Math.max(...priorTimes):Math.min(...times);
-  return Math.abs(bounds.to-ref);
+  return srHelpers.recencyBeforeVisible(level,getVisibleTimeBounds());
 }
 function scheduleSRRedraw(){
   if(srRedrawFrame||!lastData?.candles?.length)return;
@@ -840,89 +803,74 @@ function drawSRLines(type){
   });
   if(!lastData?.sr_levels||!lastData.candles?.length)return;
   const candles=lastData.candles;
-  // How many bars to extend solid on each side of a touch
-  const barSpan=Math.max(5,Math.floor(candles.length*0.03));
-
-  const filtered=lastData.sr_levels
-    .filter(lv=>lv.type===type)
-    .filter(lv=>srLevelIsOnExpectedSide(lv,type))
-    .filter(lv=>srLevelAffectsAutoscale(lv))
-    .sort((a,b)=>{
-      const recencyDelta=srRecencyBeforeVisible(a)-srRecencyBeforeVisible(b);
-      if(recencyDelta!==0)return recencyDelta;
-      return Math.abs((b.touches||0)-(a.touches||0));
-    })
-    .slice(0,SR_MAX_VISIBLE_PER_TYPE);
+  const currentClose=candles[candles.length-1]?.close;
+  const visibleBounds=getVisibleTimeBounds();
+  const filtered=srHelpers.selectVisibleLevels(
+    lastData.sr_levels,
+    type,
+    candles,
+    chart.timeScale().getVisibleLogicalRange(),
+    currentClose,
+    {bufferRatio:SR_AUTOSCALE_BUFFER_RATIO,maxVisible:SR_MAX_VISIBLE_PER_TYPE},
+  );
   // Draw only nearby levels for the current viewport.
   // The most recent visible level gets full brightness; others are dimmed.
   const baseColor=type==='support'?'#ffa040':'#5b9fff';
-  const dimColor=type==='support'?'#ffa04070':'#5b9fff70';
-  const dimSolidColor=type==='support'?'#ffa040b0':'#5b9fffb0';
+  const dimColor=type==='support'?'#ffa04090':'#5b9fffa0';
+  const bandFill=type==='support'?'rgba(255,160,64,0.16)':'rgba(91,159,255,0.16)';
+  const dimBandFill=type==='support'?'rgba(255,160,64,0.08)':'rgba(91,159,255,0.08)';
 
   filtered.forEach((lv,rank)=>{
     const isClosest=rank===0;
-    const solidColor=isClosest?baseColor:dimSolidColor;
-    const dottedColor=isClosest?(baseColor+'60'):dimColor;  // dotted always subtle
+    const solidColor=isClosest?baseColor:dimColor;
     const solidWidth=isClosest?2:1;
     const zoneLow=Number.isFinite(lv.zone_low)?lv.zone_low:lv.price;
     const zoneHigh=Number.isFinite(lv.zone_high)?lv.zone_high:lv.price;
-    const allTouches=lv.touch_times||[];
-    const pivotTouches=lv.pivot_times||allTouches;
-    // Build solid ranges: ±barSpan bars around each PIVOT touch, merge overlaps
-    const ranges=[];
-    pivotTouches.forEach(t=>{
-      let best=0,bestDist=Infinity;
-      candles.forEach((c,i)=>{const d=Math.abs(c.time-t);if(d<bestDist){bestDist=d;best=i;}});
-      const lo=Math.max(0,best-barSpan);
-      const hi=Math.min(candles.length-1,best+barSpan);
-      if(ranges.length&&ranges[ranges.length-1][1]>=lo-1){
-        ranges[ranges.length-1][1]=Math.max(ranges[ranges.length-1][1],hi);
-      }else{
-        ranges.push([lo,hi]);
-      }
-    });
-    // Dotted line: full span from first pivot touch to end of chart
-    const dottedData=[];
-    if(pivotTouches.length){
-      let firstTouchIdx=0,bestDist=Infinity;
-      candles.forEach((c,i)=>{const d=Math.abs(c.time-pivotTouches[0]);if(d<bestDist){bestDist=d;firstTouchIdx=i;}});
-      for(let i=firstTouchIdx;i<candles.length;i++){
-        dottedData.push({time:candles[i].time,value:lv.price});
-      }
+    const zoneFloor=Math.min(zoneLow,zoneHigh);
+    const zoneCeiling=Math.max(zoneLow,zoneHigh);
+    const renderStartTime=srHelpers.getLevelRenderStartTime(lv,visibleBounds);
+    let renderStartIdx=0;
+    if(Number.isFinite(renderStartTime)){
+      let bestDist=Infinity;
+      candles.forEach((c,i)=>{
+        const d=Math.abs(c.time-renderStartTime);
+        if(d<bestDist){
+          bestDist=d;
+          renderStartIdx=i;
+        }
+      });
     }
-    // Solid line: only within ranges
-    const solidData=[];
-    const inRange=new Set();
-    ranges.forEach(([lo,hi])=>{for(let i=lo;i<=hi;i++)inRange.add(i)});
-    for(let i=0;i<candles.length;i++){
-      if(inRange.has(i)) solidData.push({time:candles[i].time,value:lv.price});
+    const centerLineData=[];
+    const bandData=[];
+    for(let i=renderStartIdx;i<candles.length;i++){
+      centerLineData.push({time:candles[i].time,value:lv.price});
+      bandData.push({time:candles[i].time,value:zoneCeiling});
     }
-
-    const toBandData=(data,value)=>data.map(p=>({time:p.time,value}));
     const affectsAutoscale=srLevelAffectsAutoscale(lv);
-    const dottedOpts={color:dottedColor,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false};
-    const solidOpts={color:solidColor,lineWidth:solidWidth,lineStyle:LightweightCharts.LineStyle.Solid,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false};
-    const bandDottedOpts={color:dimColor,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false};
-    const bandSolidOpts={color:dimSolidColor,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false};
+    const centerLineOpts={color:solidColor,lineWidth:solidWidth,lineStyle:LightweightCharts.LineStyle.Solid,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false};
+    const bandOpts={
+      baseValue:{type:'price',price:zoneFloor},
+      topFillColor1:isClosest?bandFill:dimBandFill,
+      topFillColor2:isClosest?bandFill:dimBandFill,
+      topLineColor:'rgba(0,0,0,0)',
+      bottomFillColor1:'rgba(0,0,0,0)',
+      bottomFillColor2:'rgba(0,0,0,0)',
+      bottomLineColor:'rgba(0,0,0,0)',
+      lastValueVisible:false,
+      priceLineVisible:false,
+      crosshairMarkerVisible:false
+    };
     if(!affectsAutoscale){
-      dottedOpts.autoscaleInfoProvider=()=>null;
-      solidOpts.autoscaleInfoProvider=()=>null;
-      bandDottedOpts.autoscaleInfoProvider=()=>null;
-      bandSolidOpts.autoscaleInfoProvider=()=>null;
+      centerLineOpts.autoscaleInfoProvider=()=>null;
+      bandOpts.autoscaleInfoProvider=()=>null;
     }
-    const dotted=chart.addLineSeries(dottedOpts);
-    const solid=chart.addLineSeries(solidOpts);
-    const upperDotted=chart.addLineSeries(bandDottedOpts);
-    const lowerDotted=chart.addLineSeries(bandDottedOpts);
-    const upperSolid=chart.addLineSeries(bandSolidOpts);
-    const lowerSolid=chart.addLineSeries(bandSolidOpts);
-    dotted.setData(dottedData);
-    solid.setData(solidData);
-    upperDotted.setData(toBandData(dottedData,zoneHigh));
-    lowerDotted.setData(toBandData(dottedData,zoneLow));
-    upperSolid.setData(toBandData(solidData,zoneHigh));
-    lowerSolid.setData(toBandData(solidData,zoneLow));
-    srLineSeries.push({series:[solid,dotted,upperDotted,lowerDotted,upperSolid,lowerSolid],priceLine:null,type});
+    const band=zoneCeiling>zoneFloor&&typeof chart.addBaselineSeries==='function'
+      ? chart.addBaselineSeries(bandOpts)
+      : null;
+    if(band)band.setData(bandData);
+    const centerLine=chart.addLineSeries(centerLineOpts);
+    centerLine.setData(centerLineData);
+    srLineSeries.push({series:[band,centerLine].filter(Boolean),priceLine:null,type});
   });
 }
 function toggleSRType(type,on){

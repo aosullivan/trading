@@ -10,7 +10,7 @@ import os
 import sys
 
 import pytest
-from playwright.sync_api import sync_playwright, expect
+from playwright.sync_api import sync_playwright, expect, Error as PlaywrightError
 
 BASE_URL = "http://127.0.0.1:5050"
 
@@ -52,7 +52,10 @@ def server():
 def browser_page(server):
     """Provide a Playwright browser page connected to the running server."""
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        try:
+            browser = p.chromium.launch(headless=True)
+        except PlaywrightError as exc:
+            pytest.skip(f"Playwright browser unavailable: {exc}")
         page = browser.new_page()
         page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15000)
         # Wait for initial JS to run
@@ -110,7 +113,7 @@ class TestOverlayChips:
         expect(st_chip).to_have_class(re.compile(r"on"))
 
     def test_toggle_chip(self, browser_page):
-        ema_chip = browser_page.locator(".chip", has_text="EMA Signals")
+        ema_chip = browser_page.locator(".chip", has_text="EMA Cross")
         # Should start off
         expect(ema_chip).not_to_have_class(re.compile(r"\bon\b"))
         ema_chip.click()
@@ -148,16 +151,12 @@ class TestBacktestPanel:
         # Close panel
         browser_page.locator(".bt-close").click()
 
-    def test_backtest_tabs(self, browser_page):
+    def test_backtest_range_controls(self, browser_page):
         btn = browser_page.locator("#bt-btn")
         btn.click()
-        metrics_tab = browser_page.locator(".bt-tab", has_text="Metrics")
-        trades_tab = browser_page.locator(".bt-tab", has_text="Trades")
-        expect(metrics_tab).to_have_class(re.compile(r"active"))
-        trades_tab.click()
-        expect(trades_tab).to_have_class(re.compile(r"active"))
-        expect(metrics_tab).not_to_have_class(re.compile(r"active"))
-        # Close panel
+        expect(browser_page.locator("#bt-range-track")).to_be_visible()
+        expect(browser_page.locator("#bt-range-lo")).to_be_visible()
+        expect(browser_page.locator("#bt-range-hi")).to_be_visible()
         browser_page.locator(".bt-close").click()
 
 
