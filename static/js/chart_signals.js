@@ -52,7 +52,7 @@ document.addEventListener('click',()=>{
 const activeSignals=new Set();
 const flipOrder=['ribbon','supertrend','ema_crossover','macd','ma_confirm','donchian','adx_trend','bb_breakout','keltner','parabolic_sar','cci_trend','regime_router'];
 const flipOrderRank=Object.fromEntries(flipOrder.map((key,idx)=>[key,idx]));
-const flipLabels={supertrend:'ST',ema_crossover:'EMA',macd:'MACD',ma_confirm:'MA',donchian:'Donch',adx_trend:'ADX',bb_breakout:'BB',keltner:'Kelt',parabolic_sar:'SAR',cci_trend:'CCI',regime_router:'RR',ribbon:'Trend'};
+const flipLabels={pulse:'Pulse',supertrend:'ST',ema_crossover:'EMA',macd:'MACD',ma_confirm:'MA',donchian:'Donch',adx_trend:'ADX',bb_breakout:'BB',keltner:'Kelt',parabolic_sar:'SAR',cci_trend:'CCI',regime_router:'RR',ribbon:'Trend'};
 const flipNames={supertrend:'Supertrend',ema_crossover:'EMA Cross',macd:'MACD',ma_confirm:'MA Confirm',donchian:'Donchian',adx_trend:'ADX',bb_breakout:'BB Breakout',keltner:'Keltner',parabolic_sar:'Parabolic SAR',cci_trend:'CCI',regime_router:'Regime Router',ribbon:'Trend-Driven'};
 const flipDateFormatter=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
 let trendPulseMode='equal';
@@ -166,11 +166,14 @@ function frameSummary(frameFlips,keys,weights){
     .map(item=>({age:daysSinceNumber(item.flip),weight:item.weight}))
     .filter(item=>item.age!=null);
   const ageWeight=ages.reduce((sum,item)=>sum+item.weight,0);
+  const avgAge=ages.length?Math.round(ages.reduce((sum,item)=>sum+item.age*item.weight,0)/(ageWeight||1)):null;
+  const avgDate=avgAge==null?null:new Date(Date.now()-avgAge*864e5).toISOString().slice(0,10);
   return{
     bullish,
     bearish,
     total:bullish+bearish,
-    avgAge:ages.length?Math.round(ages.reduce((sum,item)=>sum+item.age*item.weight,0)/(ageWeight||1)):null,
+    avgAge,
+    avgDate,
     meta:flipToneMeta(bullish,bearish),
   };
 }
@@ -379,7 +382,9 @@ function updateMarkers(){
     const c=signalColors[name]||'#5b7fff';
     s.trades.forEach(t=>{
       all.push({time:Math.floor(new Date(t.entry_date).getTime()/1000),position:'belowBar',color:c,shape:'arrowUp',text:'B',size:2});
-      all.push({time:Math.floor(new Date(t.exit_date).getTime()/1000),position:'aboveBar',color:c,shape:'arrowDown',text:'S',size:2});
+      if(!t.open){
+        all.push({time:Math.floor(new Date(t.exit_date).getTime()/1000),position:'aboveBar',color:c,shape:'arrowDown',text:'S',size:2});
+      }
     });
   });
   all.sort((a,b)=>a.time-b.time);

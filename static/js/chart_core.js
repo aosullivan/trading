@@ -1,4 +1,4 @@
-let chart,candleSeries,stUpFill,stDownFill,stUpMid,stDownMid,volumeSeries,btEquityChart,btEquitySeries;
+let chart,candleSeries,stUpFill,stDownFill,stUpMid,stDownMid,volumeSeries,btEquityChart,btEquitySeries,btHoldSeries;
 let stUpSeries=[],stDownSeries=[];
 let sma50Series,sma100Series,sma200Series,sma50wSeries,sma100wSeries,sma200wSeries,ema9Series,ema21Series;
 // Indicator overlay series — price overlays
@@ -235,6 +235,14 @@ function ensureBTChart(){
     lineWidth:2,
     priceLineVisible:false,
     lastValueVisible:false,
+  });
+  btHoldSeries=btEquityChart.addLineSeries({
+    color:'#ffd644',
+    lineWidth:2,
+    lineStyle:LightweightCharts.LineStyle.Dashed,
+    priceLineVisible:false,
+    lastValueVisible:false,
+    crosshairMarkerVisible:false,
   });
   new ResizeObserver(()=>{
     btEquityChart.applyOptions({width:c.clientWidth,height:c.clientHeight});

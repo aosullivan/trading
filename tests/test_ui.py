@@ -27,6 +27,14 @@ def _wait_for_server(host="127.0.0.1", port=5050, timeout=15):
     raise RuntimeError(f"Server did not start within {timeout}s")
 
 
+def _open_backtest_popup(page):
+    with page.expect_popup() as popup_info:
+        page.locator("#bt-btn").click()
+    popup = popup_info.value
+    popup.wait_for_load_state("domcontentloaded")
+    return popup
+
+
 @pytest.fixture(scope="module")
 def server():
     """Start the Flask dev server for UI tests."""
@@ -123,6 +131,43 @@ class TestWatchlistUI:
         browser_page.locator(".wl-view-tab", has_text="Watchlist").click()
         expect(browser_page.locator("#wl-input")).to_be_visible()
 
+    def test_watchlist_tab_state_round_trips_through_url(self, browser_page):
+        page = browser_page.context.new_page()
+        restored_page = browser_page.context.new_page()
+        try:
+            page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15000)
+            page.wait_for_timeout(3000)
+
+            page.locator("#wl-tabs .wl-tab", has_text="Tech").click()
+            page.locator(".wl-view-tab", has_text="Trends").click()
+            page.locator("#wl-trend-tabs .wl-tab", has_text="Weekly").click()
+            page.locator("#wl-toggle").click()
+
+            assert "wlTab=tech" in page.url
+            assert "wlView=trends" in page.url
+            assert "wlFrame=weekly" in page.url
+            assert "wlCollapsed=1" in page.url
+
+            restored_page.goto(page.url, wait_until="domcontentloaded", timeout=15000)
+            restored_page.wait_for_timeout(3000)
+
+            expect(restored_page.locator("#wl-panel")).to_have_class(re.compile(r"\bcollapsed\b"))
+            expect(restored_page.locator(".wl-view-tab[data-view='trends']")).to_have_class(
+                re.compile(r"\bactive\b")
+            )
+            expect(restored_page.locator("#wl-trend-tabs .wl-tab[data-frame='weekly']")).to_have_class(
+                re.compile(r"\bactive\b")
+            )
+
+            restored_page.locator("#wl-toggle").click()
+            restored_page.locator(".wl-view-tab", has_text="Watchlist").click()
+            expect(restored_page.locator("#wl-tabs .wl-tab[data-tab='tech']")).to_have_class(
+                re.compile(r"\bactive\b")
+            )
+        finally:
+            restored_page.close()
+            page.close()
+
 
 class TestOverlayChips:
     def test_overlay_chips_visible(self, browser_page):
@@ -153,32 +198,34 @@ class TestBacktestPanel:
         panel = browser_page.locator("#bt-panel-wrap")
         expect(panel).not_to_have_class(re.compile(r"open"))
 
-    def test_toggle_backtest_panel(self, browser_page):
-        btn = browser_page.locator("#bt-btn")
-        btn.click()
-        panel = browser_page.locator("#bt-panel-wrap")
-        expect(panel).to_have_class(re.compile(r"open"))
-        # Close it
-        close_btn = browser_page.locator(".bt-close")
-        close_btn.click()
-        expect(panel).not_to_have_class(re.compile(r"open"))
+    def test_backtest_button_opens_new_tab_report(self, browser_page):
+        popup = _open_backtest_popup(browser_page)
+        try:
+            assert "/backtest" in popup.url
+            expect(popup.locator("#bt-panel-wrap")).to_be_visible()
+            expect(popup.locator("#bt-symbol-label")).to_contain_text("TSLA", timeout=20000)
+        finally:
+            popup.close()
 
     def test_strategy_select_options(self, browser_page):
-        btn = browser_page.locator("#bt-btn")
-        btn.click()
-        select = browser_page.locator("#strategy-select")
-        options = select.locator("option")
-        assert options.count() == 11
-        # Close panel
-        browser_page.locator(".bt-close").click()
+        popup = _open_backtest_popup(browser_page)
+        try:
+            select = popup.locator("#strategy-select")
+            options = select.locator("option")
+            assert options.count() == 12
+            assert options.first.get_attribute("value") == "ribbon"
+            assert options.first.text_content().strip() == "Trend-Driven"
+        finally:
+            popup.close()
 
     def test_backtest_range_controls(self, browser_page):
-        btn = browser_page.locator("#bt-btn")
-        btn.click()
-        expect(browser_page.locator("#bt-range-track")).to_be_visible()
-        expect(browser_page.locator("#bt-range-lo")).to_be_visible()
-        expect(browser_page.locator("#bt-range-hi")).to_be_visible()
-        browser_page.locator(".bt-close").click()
+        popup = _open_backtest_popup(browser_page)
+        try:
+            expect(popup.locator("#bt-range-track")).to_be_visible()
+            expect(popup.locator("#bt-range-lo")).to_be_visible()
+            expect(popup.locator("#bt-range-hi")).to_be_visible()
+        finally:
+            popup.close()
 
 
 class TestToolbarControls:

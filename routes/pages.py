@@ -8,6 +8,11 @@ def index():
     return render_template("index.html")
 
 
+@bp.route("/backtest")
+def backtest_report():
+    return render_template("backtest.html")
+
+
 @bp.route("/favicon.ico")
 def favicon():
     return send_from_directory(

@@ -41,6 +41,8 @@ _TRENDS_START_DATE = "2015-01-01"
 _TRENDS_PERIOD = 10
 _TRENDS_MULTIPLIER = 3
 _TRENDS_CACHE_VERSION = 1
+_TRENDS_REFRESH_BATCH_SIZE = 6
+_TRENDS_REFRESH_BATCH_PAUSE = 0.25
 
 
 def load_watchlist():
@@ -185,7 +187,7 @@ def _trend_cache_path(ticker: str) -> str:
     return os.path.join(_TRENDS_CACHE_DIR, f"{safe}.json")
 
 
-def _load_disk_trend_row(ticker: str, daily_date: str | None, weekly_date: str | None) -> dict | None:
+def _read_disk_trend_payload(ticker: str) -> dict | None:
     path = _trend_cache_path(ticker)
     if not os.path.exists(path):
         return None
@@ -198,12 +200,32 @@ def _load_disk_trend_row(ticker: str, daily_date: str | None, weekly_date: str |
             return None
         if float(payload.get("multiplier", 0)) != float(_TRENDS_MULTIPLIER):
             return None
-        if payload.get("daily_date") != daily_date or payload.get("weekly_date") != weekly_date:
-            return None
         row = payload.get("row")
-        return row if isinstance(row, dict) and row.get("ticker") == ticker else None
+        if not isinstance(row, dict) or row.get("ticker") != ticker:
+            return None
+        return payload
     except Exception:
         return None
+
+
+def _load_disk_trend_row(ticker: str, daily_date: str | None, weekly_date: str | None) -> dict | None:
+    payload = _read_disk_trend_payload(ticker)
+    if payload is None:
+        return None
+    if payload.get("daily_date") != daily_date or payload.get("weekly_date") != weekly_date:
+        return None
+    return payload.get("row")
+
+
+def _load_disk_trend_snapshot_rows(tickers: list[str]) -> list[dict]:
+    rows = []
+    for ticker in tickers:
+        payload = _read_disk_trend_payload(ticker)
+        if payload is None:
+            rows.append({"ticker": ticker, "daily": {}, "weekly": {}})
+        else:
+            rows.append(payload["row"])
+    return rows
 
 
 def _save_disk_trend_row(
@@ -305,10 +327,23 @@ def _build_watchlist_trends(tickers: list[str], cache_key: str | None = None) ->
 
 def _refresh_watchlist_trends_cache(cache_key: str, tickers: list[str]):
     try:
-        _set_watchlist_trends_cache(
-            cache_key,
-            _build_watchlist_trends(tickers, cache_key=cache_key),
-        )
+        cached = _get_watchlist_trends_cache(cache_key)
+        rows = cached[0] if cached is not None else _load_disk_trend_snapshot_rows(tickers)
+        rows_by_ticker = {row.get("ticker"): row for row in rows if isinstance(row, dict)}
+        _set_watchlist_trends_cache(cache_key, [
+            rows_by_ticker.get(ticker, {"ticker": ticker, "daily": {}, "weekly": {}})
+            for ticker in tickers
+        ])
+        for i in range(0, len(tickers), _TRENDS_REFRESH_BATCH_SIZE):
+            batch = tickers[i:i + _TRENDS_REFRESH_BATCH_SIZE]
+            for row in _build_watchlist_trends(batch):
+                rows_by_ticker[row["ticker"]] = row
+            _set_watchlist_trends_cache(cache_key, [
+                rows_by_ticker.get(ticker, {"ticker": ticker, "daily": {}, "weekly": {}})
+                for ticker in tickers
+            ])
+            if i + _TRENDS_REFRESH_BATCH_SIZE < len(tickers):
+                _time.sleep(_TRENDS_REFRESH_BATCH_PAUSE)
     finally:
         with _watchlist_trends_lock:
             _watchlist_trend_refreshing.discard(cache_key)
@@ -366,8 +401,10 @@ def watchlist_trends():
             _schedule_watchlist_trends_refresh(cache_key, tickers)
         return jsonify({"items": items, "loading": loading, "stale": stale})
 
+    snapshot_items = _load_disk_trend_snapshot_rows(tickers)
+    _set_watchlist_trends_cache(cache_key, snapshot_items)
     _schedule_watchlist_trends_refresh(cache_key, tickers)
-    return jsonify({"items": [], "loading": True, "stale": False})
+    return jsonify({"items": snapshot_items, "loading": True, "stale": False})
 
 
 @bp.route("/api/watchlist/quote/<ticker>")

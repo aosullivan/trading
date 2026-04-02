@@ -1,14 +1,18 @@
 // === WATCHLIST ===
+const WL_DEFAULT_VIEW='watchlist';
+const WL_DEFAULT_TAB='all';
+const WL_DEFAULT_TREND_FRAME='daily';
+const WL_DEFAULT_TREND_SIDE='bullish';
+const WL_DEFAULT_TREND_SORT_KEY='score';
+const WL_SORT_KEYS=['sym','last','chg','chg_pct'];
+const WL_TREND_SORT_KEYS=['ticker','flip','score'];
+const WL_PANEL_DEFAULT_WIDTH=352;
+const WL_PANEL_MIN_WIDTH=320;
+const WL_PANEL_MAX_WIDTH=540;
+
 function toggleWatchlist(){
-  const panel=document.getElementById('wl-panel');
-  const btn=document.getElementById('wl-toggle');
-  const collapsed=!panel.classList.contains('collapsed');
-  panel.classList.toggle('collapsed',collapsed);
-  btn.innerHTML=collapsed?'&#9664;':'&#9654;';
-  btn.title=collapsed?'Show Watchlist':'Hide Watchlist';
-  setTimeout(()=>{
-    chart.applyOptions({width:document.getElementById('chart-container').clientWidth,height:document.getElementById('chart-container').clientHeight});
-  },250);
+  wlPanelCollapsed=!wlPanelCollapsed;
+  applyWatchlistPanelState({resizeDelay:250});
 }
 
 let wlQuotes={};
@@ -16,15 +20,99 @@ let wlList=[];
 let wlSortKey=null; // 'sym','last','chg','chg_pct'
 let wlSortAsc=true;
 let wlTrendFrame='daily';
+let wlTrendSide='bullish';
 let wlTrendSortKey='score'; // 'ticker','flip','score'
 let wlTrendSortAsc=false;
 let wlView='watchlist';
-let wlActiveTab='indexes';
+let wlActiveTab='all';
 let wlTrendRows=[];
 let wlTrendsLoading=false;
 let wlTrendsStale=false;
-const WL_TAB_ORDER=['indexes','treasuries','semis','tech','software','etfs','crypto','misc'];
+let wlPanelCollapsed=false;
+let wlPanelWidth=WL_PANEL_DEFAULT_WIDTH;
+const WL_TAB_ORDER=['all','indexes','treasuries','semis','tech','software','etfs','crypto','misc'];
 const WL_CATEGORY_LABELS={indexes:'Index',treasuries:'Rates',semis:'Semis',tech:'Tech',software:'Software',etfs:'ETF',crypto:'Crypto',misc:'Misc'};
+
+function wlNormalizeView(view){return view==='trends'?'trends':WL_DEFAULT_VIEW}
+function wlNormalizeTab(tab){return WL_TAB_ORDER.includes(tab)?tab:WL_DEFAULT_TAB}
+function wlNormalizeTrendFrame(frame){return frame==='weekly'?'weekly':WL_DEFAULT_TREND_FRAME}
+function wlNormalizeTrendSide(side){return ['bullish','bearish','mixed'].includes(side)?side:WL_DEFAULT_TREND_SIDE}
+function wlSortDefaultAsc(key){return key==='sym'}
+function wlTrendSortDefaultAsc(key){return key==='ticker'}
+function wlNormalizeWidth(width){
+  const nextWidth=Number.parseInt(width,10);
+  if(!Number.isFinite(nextWidth))return WL_PANEL_DEFAULT_WIDTH;
+  return Math.max(WL_PANEL_MIN_WIDTH,Math.min(WL_PANEL_MAX_WIDTH,nextWidth));
+}
+function syncWatchlistURLState(){
+  if(typeof pushURLParams==='function')pushURLParams();
+}
+function resizeWatchlistChart(){
+  const container=document.getElementById('chart-container');
+  if(!container||typeof chart==='undefined'||!chart?.applyOptions)return;
+  chart.applyOptions({width:container.clientWidth,height:container.clientHeight});
+}
+function applyWatchlistPanelState({syncURL=true,resizeDelay=0}={}){
+  const panel=document.getElementById('wl-panel');
+  const btn=document.getElementById('wl-toggle');
+  if(panel){
+    panel.style.width=`${wlPanelWidth}px`;
+    panel.classList.toggle('collapsed',wlPanelCollapsed);
+  }
+  if(btn){
+    btn.innerHTML=wlPanelCollapsed?'&#9664;':'&#9654;';
+    btn.title=wlPanelCollapsed?'Show Watchlist':'Hide Watchlist';
+  }
+  if(resizeDelay>0)setTimeout(resizeWatchlistChart,resizeDelay);
+  else resizeWatchlistChart();
+  if(syncURL)syncWatchlistURLState();
+}
+function readWatchlistURLState(params){
+  wlView=wlNormalizeView(params.get('wlView'));
+  wlActiveTab=wlNormalizeTab(params.get('wlTab'));
+  wlTrendFrame=wlNormalizeTrendFrame(params.get('wlFrame'));
+  wlTrendSide=wlNormalizeTrendSide(params.get('wlSide'));
+  const nextSort=params.get('wlSort');
+  wlSortKey=WL_SORT_KEYS.includes(nextSort)?nextSort:null;
+  if(wlSortKey){
+    wlSortAsc=params.has('wlSortAsc')?params.get('wlSortAsc')!=='0':wlSortDefaultAsc(wlSortKey);
+  }else{
+    wlSortAsc=true;
+  }
+  const nextTrendSort=params.get('wlTrendSort');
+  wlTrendSortKey=WL_TREND_SORT_KEYS.includes(nextTrendSort)?nextTrendSort:WL_DEFAULT_TREND_SORT_KEY;
+  wlTrendSortAsc=params.has('wlTrendSortAsc')
+    ?params.get('wlTrendSortAsc')!=='0'
+    :wlTrendSortDefaultAsc(wlTrendSortKey);
+  wlPanelCollapsed=params.get('wlCollapsed')==='1';
+  wlPanelWidth=wlNormalizeWidth(params.get('wlWidth')||WL_PANEL_DEFAULT_WIDTH);
+}
+function writeWatchlistURLState(params){
+  if(wlView!==WL_DEFAULT_VIEW)params.set('wlView',wlView);
+  if(wlActiveTab!==WL_DEFAULT_TAB)params.set('wlTab',wlActiveTab);
+  if(wlTrendFrame!==WL_DEFAULT_TREND_FRAME)params.set('wlFrame',wlTrendFrame);
+  if(wlTrendSide!==WL_DEFAULT_TREND_SIDE)params.set('wlSide',wlTrendSide);
+  if(wlSortKey){
+    params.set('wlSort',wlSortKey);
+    if(wlSortAsc!==wlSortDefaultAsc(wlSortKey))params.set('wlSortAsc',wlSortAsc?'1':'0');
+  }
+  if(wlTrendSortKey!==WL_DEFAULT_TREND_SORT_KEY||wlTrendSortAsc!==wlTrendSortDefaultAsc(wlTrendSortKey)){
+    params.set('wlTrendSort',wlTrendSortKey);
+    if(wlTrendSortAsc!==wlTrendSortDefaultAsc(wlTrendSortKey)){
+      params.set('wlTrendSortAsc',wlTrendSortAsc?'1':'0');
+    }
+  }
+  if(wlPanelCollapsed)params.set('wlCollapsed','1');
+  if(wlPanelWidth!==WL_PANEL_DEFAULT_WIDTH)params.set('wlWidth',String(wlPanelWidth));
+}
+function restoreWatchlistURLState(){
+  const resizeDelay=(wlPanelCollapsed||wlPanelWidth!==WL_PANEL_DEFAULT_WIDTH)?250:0;
+  applyWatchlistPanelState({syncURL:false,resizeDelay});
+  switchWLTab(wlActiveTab,{syncURL:false});
+  switchWLTrendFrame(wlTrendFrame,{syncURL:false});
+  switchWLTrendSide(wlTrendSide,{syncURL:false});
+  switchWLView(wlView,{syncURL:false});
+}
 
 const _WL_INDEX_SYMS=new Set(['IXIC','GSPC','DJI','RUT','VIX','NYA','XAX','FTSE','GDAXI','FCHI','N225','HSI','STOXX50E','BVSP','GSPTSE','AXJO','NZ50','KS11','TWII','SSEC','JKSE','KLSE','STI','NSEI','BSESN','TNX','TYX','FVX','IRX','SOX','SPX']);
 const _WL_TREASURY_SYMS=new Set([...TREASURY_TICKERS]);
@@ -45,26 +133,33 @@ function wlTickerCategory(t){
   if(_WL_CRYPTO_ADJ_SYMS.has(raw))return 'crypto';
   return 'misc';
 }
-function switchWLTab(tab){
-  wlActiveTab=tab;
-  document.querySelectorAll('#wl-tabs .wl-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
+function switchWLTab(tab,{syncURL=true}={}){
+  wlActiveTab=wlNormalizeTab(tab);
+  document.querySelectorAll('#wl-tabs .wl-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===wlActiveTab));
   renderWL(wlList);
+  if(syncURL)syncWatchlistURLState();
 }
-function switchWLView(view){
-  wlView=view==='trends'?'trends':'watchlist';
+function switchWLView(view,{syncURL=true}={}){
+  wlView=wlNormalizeView(view);
   document.querySelectorAll('.wl-view-tab').forEach(b=>b.classList.toggle('active',b.dataset.view===wlView));
   document.getElementById('wl-add-row').style.display=wlView==='watchlist'?'flex':'none';
-  document.getElementById('wl-tabs').style.display=wlView==='watchlist'?'flex':'none';
+  document.getElementById('wl-tabs').style.display='flex';
   document.getElementById('wl-trend-tabs').style.display=wlView==='trends'?'flex':'none';
+  document.getElementById('wl-trend-side-tabs').style.display=wlView==='trends'?'flex':'none';
   document.getElementById('wl-quote-cols').style.display=wlView==='watchlist'?'grid':'none';
   document.getElementById('wl-trend-cols').style.display=wlView==='trends'?'grid':'none';
   if(wlView==='trends'){
-    switchWLTrendFrame(wlTrendFrame);
+    switchWLTrendFrame(wlTrendFrame,{syncURL:false});
+    switchWLTrendSide(wlTrendSide,{syncURL:false});
     fetchTrends();
   }
   renderWL(wlList);
+  if(syncURL)syncWatchlistURLState();
 }
-function wlFilteredList(list){return list.filter(t=>wlTickerCategory(t)===wlActiveTab)}
+function wlFilteredList(list){
+  if(wlActiveTab==='all')return list;
+  return list.filter(t=>wlTickerCategory(t)===wlActiveTab);
+}
 
 function wlTreasuryDuration(t){
   const match=t.replace(/^\^/,'').toUpperCase().match(/^UST(\d+)Y$/);
@@ -89,9 +184,10 @@ function syncWLSortArrows(keys,prefix,activeKey,asc){
 }
 
 function sortWL(key){
-  if(wlSortKey===key){wlSortAsc=!wlSortAsc}else{wlSortKey=key;wlSortAsc=key==='sym'}
+  if(wlSortKey===key){wlSortAsc=!wlSortAsc}else{wlSortKey=key;wlSortAsc=wlSortDefaultAsc(key)}
   syncWLSortArrows(['sym','last','chg','chg_pct'],'wl-arrow-',wlSortKey,wlSortAsc);
   renderWL(wlList);
+  syncWatchlistURLState();
 }
 
 function sortWLTrends(key){
@@ -99,22 +195,33 @@ function sortWLTrends(key){
     wlTrendSortAsc=!wlTrendSortAsc;
   }else{
     wlTrendSortKey=key;
-    wlTrendSortAsc=key==='ticker';
+    wlTrendSortAsc=wlTrendSortDefaultAsc(key);
   }
   syncWLSortArrows(['ticker','flip','score'],'wl-trend-arrow-',wlTrendSortKey,wlTrendSortAsc);
   renderWL(wlList);
+  syncWatchlistURLState();
 }
 
-function switchWLTrendFrame(frame){
-  wlTrendFrame=frame==='weekly'?'weekly':'daily';
+function switchWLTrendFrame(frame,{syncURL=true}={}){
+  wlTrendFrame=wlNormalizeTrendFrame(frame);
   document.querySelectorAll('.wl-trend-tabs .wl-tab').forEach(b=>{
     b.classList.toggle('active',b.dataset.frame===wlTrendFrame);
   });
   renderWL(wlList);
+  if(syncURL)syncWatchlistURLState();
+}
+
+function switchWLTrendSide(side,{syncURL=true}={}){
+  wlTrendSide=wlNormalizeTrendSide(side);
+  document.querySelectorAll('.wl-trend-side-tabs .wl-tab').forEach(b=>{
+    b.classList.toggle('active',b.dataset.side===wlTrendSide);
+  });
+  renderWL(wlList);
+  if(syncURL)syncWatchlistURLState();
 }
 
 function ensureVisibleWLTab(list){
-  if(list.some(t=>wlTickerCategory(t)===wlActiveTab))return;
+  if(wlActiveTab==='all'||list.some(t=>wlTickerCategory(t)===wlActiveTab))return;
   const currentTickerTab=wlTickerCategory(document.getElementById('ticker').value.toUpperCase());
   const nextTab=WL_TAB_ORDER.find(tab=>list.some(t=>wlTickerCategory(t)===tab))
     || currentTickerTab;
@@ -182,24 +289,15 @@ function fetchTrends(){
 
 function wlTrendFrameFlip(frameFlips,keys,weights,summary){
   summary=summary||frameSummary(frameFlips,keys,weights);
-  if(!summary.total)return{dir:null,date:null,meta:summary.meta,score:null,age:null,dateValue:-Infinity};
-  const dir=summary.bullish>=summary.bearish?'bullish':'bearish';
-  let bestFlip={dir:null,date:null};
-  let bestAge=Number.POSITIVE_INFINITY;
-  keys.forEach(key=>{
-    const flip=frameFlips?.[key];
-    const age=daysSinceNumber(flip);
-    if(flip?.dir===dir&&flip?.date&&age!=null&&age<bestAge){
-      bestFlip={dir:flip.dir,date:flip.date};
-      bestAge=age;
-    }
-  });
+  if(!summary.total)return{key:null,dir:null,date:null,meta:summary.meta,score:null,age:null,dateValue:-Infinity};
   return{
-    ...bestFlip,
+    key:'pulse',
+    dir:summary.bullish>=summary.bearish?'bullish':'bearish',
+    date:summary.avgDate,
     meta:summary.meta,
     score:summary.meta.score,
-    age:bestAge===Number.POSITIVE_INFINITY?null:bestAge,
-    dateValue:bestFlip.date?Date.parse(`${bestFlip.date}T00:00:00Z`):-Infinity,
+    age:summary.avgAge,
+    dateValue:summary.avgDate?Date.parse(`${summary.avgDate}T00:00:00Z`):-Infinity,
   };
 }
 
@@ -210,8 +308,9 @@ function wlTrendRowMeta(row){
     return{
       ticker:row.ticker,
       category:wlTickerCategory(row.ticker),
-      daily:{dir:null,date:null,score:null,age:null,dateValue:-Infinity,meta:{tone:'mixed'}},
-      weekly:{dir:null,date:null,score:null,age:null,dateValue:-Infinity,meta:{tone:'mixed'}},
+      daily:{key:null,dir:null,date:null,score:null,age:null,dateValue:-Infinity,meta:{tone:'mixed'}},
+      weekly:{key:null,dir:null,date:null,score:null,age:null,dateValue:-Infinity,meta:{tone:'mixed'}},
+      flips,
       freshness:Number.POSITIVE_INFINITY,
     };
   }
@@ -225,13 +324,17 @@ function wlTrendRowMeta(row){
     category:wlTickerCategory(row.ticker),
     daily,
     weekly,
+    flips,
   };
 }
 
 function renderTrends(){
   const cur=document.getElementById('ticker').value.toUpperCase();
   syncWLSortArrows(['ticker','flip','score'],'wl-trend-arrow-',wlTrendSortKey,wlTrendSortAsc);
-  const rows=(wlTrendRows||[]).map(wlTrendRowMeta).sort((a,b)=>{
+  const rows=(wlTrendRows||[])
+    .filter(row=>wlActiveTab==='all'||wlTickerCategory(row?.ticker||'')===wlActiveTab)
+    .map(wlTrendRowMeta)
+    .sort((a,b)=>{
     const aFrame=a[wlTrendFrame]||{};
     const bFrame=b[wlTrendFrame]||{};
     let delta=0;
@@ -256,7 +359,8 @@ function renderTrends(){
     }
     return a.ticker.localeCompare(b.ticker);
   });
-  document.getElementById('wl-count').textContent=(wlTrendsLoading&&wlList.length)?wlList.length:rows.length;
+  const categoryCount=wlActiveTab==='all'?wlList.length:wlList.filter(t=>wlTickerCategory(t)===wlActiveTab).length;
+  document.getElementById('wl-count').textContent=(wlTrendsLoading&&categoryCount)?categoryCount:rows.length;
   if(!rows.length){
     const statusText=wlTrendsLoading?'Loading trend pulse for your watchlist...':'No trend data available yet.';
     document.getElementById('wl-items').innerHTML=`<div class="wl-trend-msg">${statusText}</div>`;
@@ -265,38 +369,31 @@ function renderTrends(){
   const statusRow=wlTrendsLoading||wlTrendsStale
     ?`<div class="wl-trend-msg">${wlTrendsLoading?'Refreshing trend pulse...':'Trend pulse is updating...'}</div>`
     :'';
-  document.getElementById('wl-items').innerHTML=statusRow+rows.map(row=>{
-    const flip=row[wlTrendFrame]||{};
-    const score=flip.score==null?'--':`${flip.score>0?'+':''}${flip.score}`;
-    const tone=flip.meta?.tone||'mixed';
-    const scoreCls=tone==='bullish'?'bull':tone==='bearish'?'bear':'';
-    return `<div class="wl-trend-row${row.ticker===cur?' active':''}">
-      <div class="wl-trend-symbol" onclick="event.stopPropagation();pickTicker('${row.ticker}')">
-        <strong>${row.ticker}</strong>
-        <span class="wl-trend-cat">${WL_CATEGORY_LABELS[row.category]||row.category}</span>
-      </div>
-      <div class="wl-trend-cell" onclick="event.stopPropagation();openTrendPulse('${row.ticker}')">${wlTrendCellHtml(flip)}</div>
-      <div class="wl-trend-score ${scoreCls}" onclick="event.stopPropagation();openTrendPulse('${row.ticker}')">
-        <span class="wl-trend-score-val">${score}</span>
-        <span class="wl-trend-score-track"><span class="wl-trend-score-fill" style="width:${Math.min(100,Math.abs(flip.score||0))}%"></span></span>
-      </div>
-    </div>`;
-  }).join('');
+  const visibleRows=rows.filter(row=>(row[wlTrendFrame]?.meta?.tone||'mixed')===wlTrendSide);
+  document.getElementById('wl-count').textContent=visibleRows.length;
+  document.getElementById('wl-items').innerHTML=statusRow
+    +(visibleRows.length?visibleRows.map(row=>wlTrendRowHtml(row,cur)).join(''):`<div class="wl-trend-msg">No ${wlTrendSide} symbols in ${wlTrendFrame} trends.</div>`);
+}
+
+function wlTrendRowHtml(row,cur){
+  const flip=row[wlTrendFrame]||{};
+  const score=flip.score==null?'--':`${flip.score>0?'+':''}${flip.score}`;
+  const tone=flip.meta?.tone||'mixed';
+  const cls=tone==='bullish'?'up':tone==='bearish'?'dn':'';
+  return `<div class="wl-trend-row${row.ticker===cur?' active':''}">
+    <div class="wl-tk wl-trend-symbol" onclick="event.stopPropagation();pickTicker('${row.ticker}')"><span>${row.ticker}</span></div>
+    <div class="wl-trend-cell" onclick="event.stopPropagation();openTrendPulse('${row.ticker}')">${wlTrendCellHtml(flip)}</div>
+    <div class="wl-v wl-trend-score ${cls}" onclick="event.stopPropagation();openTrendPulse('${row.ticker}')">${score}</div>
+  </div>`;
 }
 
 function wlTrendCellHtml(f){
-  if(!f?.dir)return'<span class="tf-cell wl-trend-pill wl-trend-pill-empty"><span class="wl-trend-age">--</span><span class="tf-flip-date">No flip</span></span>';
-  const tone=f.dir==='bullish'?'bull':'bear';
+  if(!f?.dir)return'<span class="wl-trend-flip">--</span>';
+  const tone=f.dir==='bullish'?'up':'dn';
   const age=f.age==null?daysSinceNumber(f):f.age;
   const fullDate=flipDateLabel(f);
   const shortDate=fullDate.replace(/\s+\d{4}$/,'');
-  return `<span class="tf-cell tf-cell-${tone} wl-trend-pill">
-    <span class="wl-trend-pill-top">
-      <span class="wl-trend-age">${age==null?'--':age+'d'}</span>
-      <span class="wl-trend-dir">${f.dir==='bullish'?'Bull':'Bear'}</span>
-    </span>
-    <span class="tf-flip-date" title="${fullDate}">${shortDate}</span>
-  </span>`;
+  return `<span class="wl-trend-flip ${tone}" title="${fullDate}">${age==null?'--':age+'d'} ${shortDate}</span>`;
 }
 
 function renderWL(list){
@@ -304,6 +401,7 @@ function renderWL(list){
     renderTrends();
     return;
   }
+  syncWLSortArrows(['sym','last','chg','chg_pct'],'wl-arrow-',wlSortKey,wlSortAsc);
   const filtered=wlFilteredList(list);
   document.getElementById('wl-count').textContent=filtered.length;
   if(wlSortKey){
@@ -408,6 +506,14 @@ async function pickTicker(t){
 }
 
 async function openTrendPulse(t){
+  const row=wlTrendRows.find(item=>item?.ticker===t);
+  if(row?.daily||row?.weekly){
+    document.getElementById('ticker').value=t;
+    lastData={...(lastData||{}),trend_flips:{daily:row.daily||{},weekly:row.weekly||{}}};
+    updateFlipInfo();
+    if(typeof openTrendFlipAggregate==='function')openTrendFlipAggregate();
+    renderWL(wlList);
+  }
   await pickTicker(t);
   if(typeof openTrendFlipAggregate==='function')openTrendFlipAggregate();
 }
@@ -418,8 +524,18 @@ async function openTrendPulse(t){
   let startX,startW;
   drag.addEventListener('mousedown',e=>{
     startX=e.clientX;startW=panel.offsetWidth;
-    const move=ev=>{const dx=startX-ev.clientX;panel.style.width=Math.max(320,Math.min(540,startW+dx))+'px'};
-    const up=()=>{document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up)};
+    const move=ev=>{
+      const dx=startX-ev.clientX;
+      wlPanelWidth=wlNormalizeWidth(startW+dx);
+      panel.style.width=`${wlPanelWidth}px`;
+      resizeWatchlistChart();
+    };
+    const up=()=>{
+      document.removeEventListener('mousemove',move);
+      document.removeEventListener('mouseup',up);
+      syncWatchlistURLState();
+      setTimeout(resizeWatchlistChart,250);
+    };
     document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);
     e.preventDefault();
   });

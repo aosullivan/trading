@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trading App</title>
+<title>TriedingView</title>
 <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
@@ -42,7 +42,7 @@
     </div>
 
     <!-- Backtest toggle button -->
-    <button class="bt-toggle" id="bt-btn" onclick="toggleBT()">
+    <button class="bt-toggle" id="bt-btn" onclick="openBacktestTab()" title="Open Backtest in a new tab">
       <span class="dot"></span>
       <span id="bt-lbl">Backtest</span>
     </button>

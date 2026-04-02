@@ -1,4 +1,4 @@
-# Trading App
+# TriedingView
 
 Local backtesting and charting tool for stocks, crypto, and ETFs. Built with Flask, yfinance, and TradingView's Lightweight Charts.
 

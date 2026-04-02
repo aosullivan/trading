@@ -13,7 +13,8 @@
     <button onclick="addWL()">+</button>
   </div>
   <div class="wl-tabs" id="wl-tabs">
-    <button class="wl-tab active" data-tab="indexes" onclick="switchWLTab('indexes')">Indexes</button>
+    <button class="wl-tab active" data-tab="all" onclick="switchWLTab('all')">All</button>
+    <button class="wl-tab" data-tab="indexes" onclick="switchWLTab('indexes')">Indexes</button>
     <button class="wl-tab" data-tab="treasuries" onclick="switchWLTab('treasuries')">Treasury</button>
     <button class="wl-tab" data-tab="semis" onclick="switchWLTab('semis')">Semis</button>
     <button class="wl-tab" data-tab="tech" onclick="switchWLTab('tech')">Tech</button>
@@ -25,6 +26,11 @@
   <div class="wl-tabs wl-trend-tabs" id="wl-trend-tabs" style="display:none">
     <button class="wl-tab active" data-frame="daily" onclick="switchWLTrendFrame('daily')">Daily</button>
     <button class="wl-tab" data-frame="weekly" onclick="switchWLTrendFrame('weekly')">Weekly</button>
+  </div>
+  <div class="wl-tabs wl-trend-side-tabs" id="wl-trend-side-tabs" style="display:none">
+    <button class="wl-tab wl-tab-bull active" data-side="bullish" onclick="switchWLTrendSide('bullish')">Bullish</button>
+    <button class="wl-tab wl-tab-bear" data-side="bearish" onclick="switchWLTrendSide('bearish')">Bearish</button>
+    <button class="wl-tab wl-tab-mixed" data-side="mixed" onclick="switchWLTrendSide('mixed')">Mixed</button>
   </div>
   <div class="wl-cols" id="wl-quote-cols"><span class="wl-sort" onclick="sortWL('sym')">Symbol<i id="wl-arrow-sym"></i></span><span class="wl-sort" onclick="sortWL('last')">Last<i id="wl-arrow-last"></i></span><span class="wl-sort" onclick="sortWL('chg')">Chg<i id="wl-arrow-chg"></i></span><span class="wl-sort" onclick="sortWL('chg_pct')">Chg%<i id="wl-arrow-chg_pct"></i></span></div>
   <div class="wl-cols wl-trend-cols" id="wl-trend-cols" style="display:none">

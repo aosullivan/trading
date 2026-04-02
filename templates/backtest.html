@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Backtest Report</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="bt-page" data-backtest-mode="standalone">
+{% include 'partials/backtest_panel.html' %}
+
+<script src="{{ url_for('static', filename='js/chart_core.js') }}"></script>
+<script src="{{ url_for('static', filename='js/backtest_panel.js') }}"></script>
+<script src="{{ url_for('static', filename='js/backtest_report.js') }}"></script>
+</body>
+</html>

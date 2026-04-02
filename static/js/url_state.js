@@ -12,6 +12,7 @@ function readURLParams(){
   if(p.get('multiplier'))document.getElementById('multiplier').value=p.get('multiplier');
   if(p.get('signals'))_urlSignals=p.get('signals').split(',').filter(Boolean);
   if(p.has('chips'))_urlChips=p.get('chips').split(',').filter(Boolean);
+  if(typeof readWatchlistURLState==='function')readWatchlistURLState(p);
 }
 function pushURLParams(){
   const p=new URLSearchParams();
@@ -29,11 +30,13 @@ function pushURLParams(){
   const chipsArr=[...activeChips];
   const isDefault=chipsArr.length===defaultChips.length&&defaultChips.every(c=>activeChips.has(c));
   if(!isDefault)p.set('chips',chipsArr.join(','));
+  if(typeof writeWatchlistURLState==='function')writeWatchlistURLState(p);
   const qs=p.toString();
   history.replaceState(null,'',qs?'?'+qs:window.location.pathname);
 }
 
 function restoreURLState(){
+  if(typeof restoreWatchlistURLState==='function')restoreWatchlistURLState();
   // Restore legend items from URL
   if(_urlChips!==null){
     activeChips.clear();

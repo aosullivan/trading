@@ -7,6 +7,7 @@ import pytest
 from lib.backtesting import (
     backtest_direction,
     backtest_supertrend,
+    build_buy_hold_equity_curve,
     build_equity_curve,
     compute_summary,
 )
@@ -66,6 +67,61 @@ class TestBacktestDirection:
         expected_qty = INITIAL_CAPITAL / trades[0]["entry_price"]
         assert abs(trades[0]["quantity"] - round(expected_qty, 8)) < 0.01
 
+    def test_exits_on_first_visible_bar_when_prior_direction_was_long(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 101, 102, 103],
+                "High": [101, 102, 103, 104],
+                "Low": [99, 100, 101, 102],
+                "Close": [100, 101, 102, 103],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        direction = pd.Series([-1, -1, -1, -1], index=idx)
+
+        trades, summary, _ = backtest_direction(
+            df,
+            direction,
+            start_in_position=True,
+            prior_direction=1,
+        )
+
+        assert len(trades) == 1
+        assert trades[0]["entry_date"] == "2024-01-01"
+        assert trades[0]["exit_date"] == "2024-01-02"
+        assert trades[0].get("open") is None
+        assert summary["total_trades"] == 1
+        assert summary["open_trades"] == 0
+
+    def test_enters_after_first_visible_bar_when_prior_direction_was_flat(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 101, 102, 103],
+                "High": [101, 102, 103, 104],
+                "Low": [99, 100, 101, 102],
+                "Close": [100, 101, 102, 103],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        direction = pd.Series([1, 1, 1, 1], index=idx)
+
+        trades, summary, _ = backtest_direction(
+            df,
+            direction,
+            start_in_position=False,
+            prior_direction=-1,
+        )
+
+        assert len(trades) == 1
+        assert trades[0]["entry_date"] == "2024-01-02"
+        assert trades[0]["open"] is True
+        assert summary["total_trades"] == 0
+        assert summary["open_trades"] == 1
+
 
 class TestBacktestSupertrend:
     def test_delegates_to_backtest_direction(self, sample_df):
@@ -86,6 +142,27 @@ class TestEquityCurve:
         direction = pd.Series(-1, index=sample_df.index)
         trades, _, equity = backtest_direction(sample_df, direction)
         assert equity[0]["value"] == INITIAL_CAPITAL
+
+    def test_buy_hold_curve_uses_first_open_and_tracks_close_marks(self):
+        idx = pd.date_range("2024-01-01", periods=3, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [50, 52, 54],
+                "High": [51, 53, 55],
+                "Low": [49, 51, 53],
+                "Close": [50, 55, 60],
+                "Volume": [1, 1, 1],
+            },
+            index=idx,
+        )
+
+        equity = build_buy_hold_equity_curve(df)
+
+        assert equity == [
+            {"time": int(idx[0].timestamp()), "value": 10000.0},
+            {"time": int(idx[1].timestamp()), "value": 11000.0},
+            {"time": int(idx[2].timestamp()), "value": 12000.0},
+        ]
 
 
 class TestComputeSummary:
@@ -127,3 +204,28 @@ class TestComputeSummary:
         ]
         summary = compute_summary(trades, equity)
         assert summary["max_drawdown"] == 15000.0
+
+    def test_open_trade_is_excluded_from_closed_trade_stats(self):
+        trades = [
+            {"pnl": 120, "entry_price": 10, "exit_price": 11.2, "quantity": 100},
+            {
+                "pnl": 80,
+                "entry_price": 20,
+                "exit_price": 20.8,
+                "quantity": 100,
+                "open": True,
+            },
+        ]
+        equity = [{"value": INITIAL_CAPITAL}, {"value": INITIAL_CAPITAL + 200}]
+
+        summary = compute_summary(trades, equity)
+
+        assert summary["total_trades"] == 1
+        assert summary["open_trades"] == 1
+        assert summary["winners"] == 1
+        assert summary["losers"] == 0
+        assert summary["realized_pnl"] == 120
+        assert summary["open_pnl"] == 80
+        assert summary["total_pnl"] == 200
+        assert summary["avg_pnl"] == 120
+        assert summary["best_trade"] == 120

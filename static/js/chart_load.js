@@ -128,7 +128,7 @@ function switchStrategy(name){
   if(btOpen){
     ensureBTChart();
   }
-  renderEquityCurve(s.equity_curve||[]);
+  renderEquityCurve(s.equity_curve||[],lastData.buy_hold_equity_curve||[],s.trades||[]);
   renderStats(s.summary);
   renderTrades(s.trades);
 }

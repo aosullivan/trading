@@ -3,12 +3,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_PATH = ROOT / "templates" / "index.html"
+BACKTEST_TEMPLATE_PATH = ROOT / "templates" / "backtest.html"
 TOOLBAR_PARTIAL_PATH = ROOT / "templates" / "partials" / "toolbar.html"
+BACKTEST_PANEL_PARTIAL_PATH = ROOT / "templates" / "partials" / "backtest_panel.html"
 CHART_CORE_JS_PATH = ROOT / "static" / "js" / "chart_core.js"
 CHART_LEGEND_JS_PATH = ROOT / "static" / "js" / "chart_legend.js"
 CHART_LOAD_JS_PATH = ROOT / "static" / "js" / "chart_load.js"
 CHART_SIGNALS_JS_PATH = ROOT / "static" / "js" / "chart_signals.js"
 CHART_SR_JS_PATH = ROOT / "static" / "js" / "chart_sr.js"
+BACKTEST_PANEL_JS_PATH = ROOT / "static" / "js" / "backtest_panel.js"
+BACKTEST_REPORT_JS_PATH = ROOT / "static" / "js" / "backtest_report.js"
 
 
 def test_price_overlays_opt_out_of_autoscale():
@@ -84,6 +88,35 @@ def test_template_exposes_trend_flip_pulse_controls():
 def test_template_updates_last_data_before_refreshing_trend_flip_ui():
     source = CHART_LOAD_JS_PATH.read_text()
     assert "lastData=data;\n    syncAutoMovingAverages();\n    // Trend flip dates\n    updateFlipInfo();" in source
+
+
+def test_backtest_launches_in_new_tab_and_standalone_page_uses_report_script():
+    template_source = TEMPLATE_PATH.read_text()
+    report_source = BACKTEST_TEMPLATE_PATH.read_text()
+    partial_source = BACKTEST_PANEL_PARTIAL_PATH.read_text()
+    panel_js_source = BACKTEST_PANEL_JS_PATH.read_text()
+    report_js_source = BACKTEST_REPORT_JS_PATH.read_text()
+
+    assert 'onclick="openBacktestTab()"' in template_source
+    assert 'data-backtest-mode="standalone"' in report_source
+    assert "backtest_report.js" in report_source
+    assert 'onclick="closeBacktestView()"' in partial_source
+    assert "function openBacktestTab(){" in panel_js_source
+    assert "function loadBacktestReport(){" in report_js_source
+
+
+def test_backtest_equity_chart_renders_buy_hold_comparison_series():
+    core_source = CHART_CORE_JS_PATH.read_text()
+    panel_source = BACKTEST_PANEL_JS_PATH.read_text()
+    partial_source = BACKTEST_PANEL_PARTIAL_PATH.read_text()
+    load_source = CHART_LOAD_JS_PATH.read_text()
+
+    assert "btHoldSeries=btEquityChart.addLineSeries" in core_source
+    assert "function renderEquityCurve(points,holdPoints,trades){" in panel_source
+    assert "btHoldSeries.setData(holdPoints||[]);" in panel_source
+    assert "btEquitySeries.setMarkers(buildBTTradeMarkers(trades));" in panel_source
+    assert "Buy &amp; Hold" in partial_source
+    assert "renderEquityCurve(s.equity_curve||[],lastData.buy_hold_equity_curve||[],s.trades||[]);" in load_source
 
 
 def test_moving_average_legend_exposes_auto_and_100w_options():

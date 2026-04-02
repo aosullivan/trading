@@ -32,14 +32,32 @@ def build_equity_curve(df, trades):
     return equity_curve
 
 
+def build_buy_hold_equity_curve(df):
+    equity_curve = []
+    if df.empty:
+        return equity_curve
+
+    entry_price = round(float(df["Open"].iloc[0]), 2)
+    shares = INITIAL_CAPITAL / entry_price if entry_price else 0
+
+    for date, row in df.iterrows():
+        equity = shares * float(row["Close"]) if shares else INITIAL_CAPITAL
+        equity_curve.append({"time": int(date.timestamp()), "value": round(equity, 2)})
+
+    return equity_curve
+
+
 def compute_summary(trades, equity_curve):
     """Compute enhanced summary stats for a list of trades."""
     empty_summary = {
         "total_trades": 0,
+        "open_trades": 0,
         "winners": 0,
         "losers": 0,
         "win_rate": 0,
         "total_pnl": 0,
+        "realized_pnl": 0,
+        "open_pnl": 0,
         "net_profit_pct": 0,
         "avg_pnl": 0,
         "best_trade": 0,
@@ -57,9 +75,13 @@ def compute_summary(trades, equity_curve):
     if not trades:
         return empty_summary
 
-    total_pnl = sum(t["pnl"] for t in trades)
-    winners = [t for t in trades if t["pnl"] > 0]
-    losers = [t for t in trades if t["pnl"] <= 0]
+    closed_trades = [t for t in trades if not t.get("open")]
+    open_trades = [t for t in trades if t.get("open")]
+    realized_pnl = sum(t["pnl"] for t in closed_trades)
+    open_pnl = sum(t["pnl"] for t in open_trades)
+    total_pnl = realized_pnl + open_pnl
+    winners = [t for t in closed_trades if t["pnl"] > 0]
+    losers = [t for t in closed_trades if t["pnl"] <= 0]
     gross_profit = sum(t["pnl"] for t in winners)
     gross_loss = abs(sum(t["pnl"] for t in losers))
 
@@ -78,15 +100,18 @@ def compute_summary(trades, equity_curve):
             max_dd_pct = drawdown_pct
 
     return {
-        "total_trades": len(trades),
+        "total_trades": len(closed_trades),
+        "open_trades": len(open_trades),
         "winners": len(winners),
         "losers": len(losers),
-        "win_rate": round(len(winners) / len(trades) * 100, 1),
+        "win_rate": round(len(winners) / len(closed_trades) * 100, 1) if closed_trades else 0,
         "total_pnl": round(total_pnl, 2),
+        "realized_pnl": round(realized_pnl, 2),
+        "open_pnl": round(open_pnl, 2),
         "net_profit_pct": round(((ending_equity / INITIAL_CAPITAL) - 1) * 100, 2),
-        "avg_pnl": round(total_pnl / len(trades), 2),
-        "best_trade": round(max((t["pnl"] for t in trades), default=0), 2),
-        "worst_trade": round(min((t["pnl"] for t in trades), default=0), 2),
+        "avg_pnl": round(realized_pnl / len(closed_trades), 2) if closed_trades else 0,
+        "best_trade": round(max((t["pnl"] for t in closed_trades), default=0), 2),
+        "worst_trade": round(min((t["pnl"] for t in closed_trades), default=0), 2),
         "gross_profit": round(gross_profit, 2),
         "gross_loss": round(gross_loss, 2),
         "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss > 0 else None,
@@ -99,7 +124,7 @@ def compute_summary(trades, equity_curve):
     }
 
 
-def backtest_direction(df, direction, start_in_position=False):
+def backtest_direction(df, direction, start_in_position=False, prior_direction=None):
     """Generic backtest: long when direction=1, flat otherwise, filled next bar open."""
     trades = []
     position = None
@@ -107,6 +132,9 @@ def backtest_direction(df, direction, start_in_position=False):
     close = df["Close"]
     dates = df.index
     cash = INITIAL_CAPITAL
+    initial_prev_dir = prior_direction
+    if initial_prev_dir is None and len(df) > 0:
+        initial_prev_dir = 1 if start_in_position else direction.iloc[0]
 
     if start_in_position and len(df) > 0:
         entry_price = round(float(open_prices.iloc[0]), 2)
@@ -119,8 +147,8 @@ def backtest_direction(df, direction, start_in_position=False):
         }
         cash = 0.0
 
-    for i in range(1, len(df) - 1):
-        prev_dir = direction.iloc[i - 1]
+    for i in range(0, len(df) - 1):
+        prev_dir = initial_prev_dir if i == 0 else direction.iloc[i - 1]
         curr_dir = direction.iloc[i]
         execution_idx = i + 1
         execution_price = round(float(open_prices.iloc[execution_idx]), 2)

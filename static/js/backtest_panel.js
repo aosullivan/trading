@@ -1,3 +1,7 @@
+const BT_DEFAULT_STRATEGY='ribbon';
+const BT_IS_STANDALONE=document.body?.dataset?.backtestMode==='standalone';
+let _btSliderInitialized=false;
+
 function fmtCurrency(value){
   const n=Number(value||0);
   return `${n>=0?'+':'-'}$${Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
@@ -13,12 +17,73 @@ function fmtPct(value){
 }
 
 function setBTRangeLabel(){
-  const start=document.getElementById('bt-start').value;
-  const end=document.getElementById('bt-end').value;
-  document.getElementById('bt-equity-range').textContent=`${start||'Start'} -> ${end||'Now'}`;
+  const startEl=document.getElementById('bt-start');
+  const endEl=document.getElementById('bt-end');
+  const label=document.getElementById('bt-equity-range');
+  if(!startEl||!endEl||!label)return;
+  label.textContent=`${startEl.value||'Start'} -> ${endEl.value||'Now'}`;
+}
+
+function candleTimeToBTDate(ts){
+  return new Date(ts*1000).toISOString().split('T')[0];
+}
+
+function getBTLaunchRanges(){
+  const domainStart=chartStart||(_lastCandles?.length?candleTimeToBTDate(_lastCandles[0].time):'');
+  const domainEnd=chartEnd||(_lastCandles?.length?candleTimeToBTDate(_lastCandles[_lastCandles.length-1].time):'');
+  let start=domainStart;
+  let end=domainEnd;
+  const visRange=(typeof chart!=='undefined'&&chart?.timeScale)?chart.timeScale().getVisibleRange():null;
+  if(visRange&&_lastCandles?.length){
+    const loIdx=_lastCandles.findIndex(c=>c.time>=visRange.from);
+    const hiIdx=_lastCandles.length-1-[..._lastCandles].reverse().findIndex(c=>c.time<=visRange.to);
+    start=candleTimeToBTDate(_lastCandles[Math.max(0,loIdx>=0?loIdx:0)].time);
+    end=candleTimeToBTDate(_lastCandles[Math.max(0,Math.min(_lastCandles.length-1,hiIdx>=0?hiIdx:_lastCandles.length-1))].time);
+  }
+  return{start,end,domainStart,domainEnd};
+}
+
+function openBacktestTab(){
+  const p=new URLSearchParams();
+  const ticker=document.getElementById('ticker')?.value?.toUpperCase()||'TSLA';
+  const interval=document.getElementById('interval')?.value||'1d';
+  const period=document.getElementById('period')?.value||'10';
+  const mult=document.getElementById('multiplier')?.value||'3';
+  const strategy=document.getElementById('strategy-select')?.value||activeBacktestStrat||BT_DEFAULT_STRATEGY;
+  const ranges=getBTLaunchRanges();
+  p.set('ticker',ticker);
+  p.set('interval',interval);
+  if(ranges.start)p.set('start',ranges.start);
+  if(ranges.end)p.set('end',ranges.end);
+  if(ranges.domainStart)p.set('domain_start',ranges.domainStart);
+  if(ranges.domainEnd)p.set('domain_end',ranges.domainEnd);
+  p.set('period',period);
+  p.set('multiplier',mult);
+  p.set('strategy',strategy);
+  const url=`/backtest?${p.toString()}`;
+  const tab=window.open(url,'_blank');
+  if(tab){
+    tab.opener=null;
+    tab.focus();
+  }
+}
+
+function closeBacktestView(){
+  if(BT_IS_STANDALONE){
+    window.close();
+    window.setTimeout(()=>{
+      if(!window.closed)window.location.href=`/${window.location.search}`;
+    },120);
+    return;
+  }
+  toggleBT();
 }
 
 function toggleBT(){
+  if(BT_IS_STANDALONE){
+    closeBacktestView();
+    return;
+  }
   btOpen=!btOpen;
   const p=document.getElementById('bt-panel-wrap'),b=document.getElementById('bt-btn');
   p.classList.toggle('open',btOpen);
@@ -28,9 +93,14 @@ function toggleBT(){
   if(btOpen&&lastData){
     initBTSlider();
   }
-  else{updateMarkers()}
+  else{
+    if(typeof updateMarkers==='function')updateMarkers();
+    if(typeof updateOverlaysFromSignals==='function')updateOverlaysFromSignals();
+  }
   setTimeout(()=>{
-    chart.applyOptions({width:document.getElementById('chart-container').clientWidth,height:document.getElementById('chart-container').clientHeight});
+    if(typeof chart!=='undefined'&&chart){
+      chart.applyOptions({width:document.getElementById('chart-container').clientWidth,height:document.getElementById('chart-container').clientHeight});
+    }
     if(btEquityChart){
       const c=document.getElementById('bt-equity-chart');
       btEquityChart.applyOptions({width:c.clientWidth,height:c.clientHeight});
@@ -43,23 +113,61 @@ function applyBT(){
   chartStart=document.getElementById('bt-start').value;
   chartEnd=document.getElementById('bt-end').value;
   setBTRangeLabel();
-  loadChart();
+  requestBacktestReload();
 }
 
-function renderEquityCurve(points){
+function requestBacktestReload(){
+  if(typeof loadChart==='function'){
+    loadChart();
+    return;
+  }
+  if(typeof loadBacktestReport==='function'){
+    loadBacktestReport();
+  }
+}
+
+function buildBTTradeMarkers(trades){
+  return (trades||[]).flatMap(t=>{
+    const markers=[{
+      time:Math.floor(new Date(`${t.entry_date}T00:00:00Z`).getTime()/1000),
+      position:'belowBar',
+      color:'#00e68a',
+      shape:'arrowUp',
+      text:'BUY',
+    }];
+    if(!t.open){
+      markers.push({
+        time:Math.floor(new Date(`${t.exit_date}T00:00:00Z`).getTime()/1000),
+        position:'aboveBar',
+        color:'#ff5274',
+        shape:'arrowDown',
+        text:'SELL',
+      });
+    }
+    return markers;
+  }).sort((a,b)=>a.time-b.time);
+}
+
+function renderEquityCurve(points,holdPoints,trades){
   if(!btEquityChart||!btEquitySeries) return;
   btEquitySeries.setData(points);
+  btEquitySeries.setMarkers(buildBTTradeMarkers(trades));
+  if(btHoldSeries)btHoldSeries.setData(holdPoints||[]);
   btEquityChart.timeScale().fitContent();
 }
 
 function renderStats(s){
-  const profitFactor=s.profit_factor==null?'Inf':s.profit_factor;
+  const profitFactor=s.profit_factor==null?'N/A':s.profit_factor;
   const profitableLabel=s.total_trades?`${s.winners}/${s.total_trades}`:'0/0';
+  const openTrades=Number(s.open_trades||0);
+  const totalPnl=Number(s.total_pnl||0);
+  const realizedPnl=Number(s.realized_pnl||0);
+  const openPnl=Number(s.open_pnl||0);
   document.getElementById('stats').innerHTML=`
     <div class="sc">
       <div class="sc-l">Net Profit</div>
-      <div class="sc-v ${s.total_pnl>=0?'vg':'vr'}">${fmtCurrency(s.total_pnl)}</div>
-      <div class="sc-sub">${fmtPct(s.net_profit_pct)} on ${fmtCurrencyPlain(s.initial_capital)}</div>
+      <div class="sc-v ${totalPnl>=0?'vg':'vr'}">${fmtCurrency(totalPnl)}</div>
+      <div class="sc-sub">${fmtPct(s.net_profit_pct)} · ${fmtCurrency(realizedPnl)} realized / ${fmtCurrency(openPnl)} open</div>
     </div>
     <div class="sc">
       <div class="sc-l">Max Drawdown</div>
@@ -69,7 +177,7 @@ function renderStats(s){
     <div class="sc">
       <div class="sc-l">Profitable Trades</div>
       <div class="sc-v">${s.win_rate.toFixed(1)}%</div>
-      <div class="sc-sub">${profitableLabel}</div>
+      <div class="sc-sub">${profitableLabel} closed trades</div>
     </div>
     <div class="sc">
       <div class="sc-l">Profit Factor</div>
@@ -77,9 +185,14 @@ function renderStats(s){
       <div class="sc-sub">${fmtCurrencyPlain(s.gross_profit)} / ${fmtCurrencyPlain(s.gross_loss)}</div>
     </div>
     <div class="sc">
-      <div class="sc-l">Total Trades</div>
+      <div class="sc-l">Closed Trades</div>
       <div class="sc-v">${s.total_trades}</div>
-      <div class="sc-sub">Long-only next-bar execution</div>
+      <div class="sc-sub">${openTrades} open positions</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Open P&amp;L</div>
+      <div class="sc-v ${openPnl>=0?'vg':'vr'}">${fmtCurrency(openPnl)}</div>
+      <div class="sc-sub">Marked to last close</div>
     </div>
     <div class="sc">
       <div class="sc-l">Avg Trade</div>
@@ -128,24 +241,47 @@ function renderTrades(trades){
 let _btSliderDates=[];  // all available dates from chart data
 let _btSliderLo=0, _btSliderHi=1;  // 0-1 normalized positions
 
+function _btSliderIndexToPct(idx){
+  const n=_btSliderDates.length;
+  return n<=1?0:idx/(n-1);
+}
+
+function _btSliderPctToIndex(pct){
+  const n=_btSliderDates.length;
+  if(!n)return 0;
+  return Math.max(0,Math.min(n-1,Math.round(pct*(n-1))));
+}
+
+function _btSliderMinGap(){
+  const n=_btSliderDates.length;
+  return n<=1?0:1/(n-1);
+}
+
 function initBTSlider(){
   if(!_lastCandles||!_lastCandles.length)return;
   _btSliderDates=_lastCandles.map(c=>{
     const d=new Date(c.time*1000);
     return d.toISOString().split('T')[0];
   });
-  // Default: match chart visible range
-  const visRange=chart.timeScale().getVisibleRange();
+  const startVal=chartStart||_btSliderDates[0];
+  const endVal=chartEnd||_btSliderDates[_btSliderDates.length-1];
+  const loIdxByDate=_btSliderDates.findIndex(d=>d>=startVal);
+  const hiIdxByDate=_btSliderDates.length-1-[..._btSliderDates].reverse().findIndex(d=>d<=endVal);
+  const hasMainChart=typeof chart!=='undefined'&&chart&&chart.timeScale;
+  const visRange=hasMainChart&&!BT_IS_STANDALONE?chart.timeScale().getVisibleRange():null;
   if(visRange){
     const loIdx=_btSliderDates.findIndex(d=>new Date(d).getTime()/1000>=visRange.from);
     const hiIdx=_btSliderDates.length-1-[..._btSliderDates].reverse().findIndex(d=>new Date(d).getTime()/1000<=visRange.to);
-    _btSliderLo=Math.max(0,loIdx)/_btSliderDates.length;
-    _btSliderHi=Math.min(_btSliderDates.length-1,hiIdx>=0?hiIdx:_btSliderDates.length-1)/_btSliderDates.length;
+    _btSliderLo=_btSliderIndexToPct(Math.max(0,loIdx));
+    _btSliderHi=_btSliderIndexToPct(Math.min(_btSliderDates.length-1,hiIdx>=0?hiIdx:_btSliderDates.length-1));
   }else{
-    _btSliderLo=0;_btSliderHi=1;
+    _btSliderLo=_btSliderIndexToPct(Math.max(0,loIdxByDate>=0?loIdxByDate:0));
+    _btSliderHi=_btSliderIndexToPct(Math.max(0,Math.min(_btSliderDates.length-1,hiIdxByDate>=0?hiIdxByDate:_btSliderDates.length-1)));
   }
+  if(_btSliderHi<_btSliderLo)_btSliderHi=_btSliderLo;
+  _btSliderInitialized=true;
   updateBTSliderUI();
-  applyBTFromSlider();
+  if(!BT_IS_STANDALONE)applyBTFromSlider();
 }
 
 function updateBTSliderUI(){
@@ -156,16 +292,20 @@ function updateBTSliderUI(){
   const hi=document.getElementById('bt-range-hi');
   const loLabel=document.getElementById('bt-range-start');
   const hiLabel=document.getElementById('bt-range-end');
+  const loBubble=document.getElementById('bt-range-lo-bubble');
+  const hiBubble=document.getElementById('bt-range-hi-bubble');
   fill.style.left=(_btSliderLo*100)+'%';
   fill.style.width=((_btSliderHi-_btSliderLo)*100)+'%';
   lo.style.left=(_btSliderLo*100)+'%';
   hi.style.left=(_btSliderHi*100)+'%';
   const n=_btSliderDates.length;
   if(n){
-    const loDate=_btSliderDates[Math.min(Math.round(_btSliderLo*(n-1)),n-1)];
-    const hiDate=_btSliderDates[Math.min(Math.round(_btSliderHi*(n-1)),n-1)];
+    const loDate=_btSliderDates[_btSliderPctToIndex(_btSliderLo)];
+    const hiDate=_btSliderDates[_btSliderPctToIndex(_btSliderHi)];
     loLabel.textContent=loDate;
     hiLabel.textContent=hiDate;
+    if(loBubble)loBubble.textContent=loDate;
+    if(hiBubble)hiBubble.textContent=hiDate;
     document.getElementById('bt-start').value=loDate;
     document.getElementById('bt-end').value=hiDate;
     document.getElementById('bt-equity-range').textContent=`${loDate} → ${hiDate}`;
@@ -175,14 +315,14 @@ function updateBTSliderUI(){
 function applyBTFromSlider(){
   const n=_btSliderDates.length;
   if(!n)return;
-  const loDate=_btSliderDates[Math.min(Math.round(_btSliderLo*(n-1)),n-1)];
-  const hiDate=_btSliderDates[Math.min(Math.round(_btSliderHi*(n-1)),n-1)];
+  const loDate=_btSliderDates[_btSliderPctToIndex(_btSliderLo)];
+  const hiDate=_btSliderDates[_btSliderPctToIndex(_btSliderHi)];
   document.getElementById('bt-start').value=loDate;
   document.getElementById('bt-end').value=hiDate;
   chartStart=loDate;
   chartEnd=hiDate;
   setBTRangeLabel();
-  loadChart();
+  requestBacktestReload();
 }
 
 (function(){
@@ -199,8 +339,9 @@ function applyBTFromSlider(){
   document.addEventListener('mousemove',e=>{
     if(!dragging)return;
     const pct=pctFromX(e.clientX);
-    if(dragging==='bt-range-lo'){_btSliderLo=Math.min(pct,_btSliderHi-0.01)}
-    else{_btSliderHi=Math.max(pct,_btSliderLo+0.01)}
+    const minGap=_btSliderMinGap();
+    if(dragging==='bt-range-lo'){_btSliderLo=Math.min(pct,_btSliderHi-minGap)}
+    else{_btSliderHi=Math.max(pct,_btSliderLo+minGap)}
     updateBTSliderUI();
   });
 
@@ -215,8 +356,9 @@ function applyBTFromSlider(){
   track.addEventListener('click',e=>{
     if(e.target.classList.contains('bt-range-handle'))return;
     const pct=pctFromX(e.clientX);
-    if(Math.abs(pct-_btSliderLo)<Math.abs(pct-_btSliderHi)){_btSliderLo=Math.min(pct,_btSliderHi-0.01)}
-    else{_btSliderHi=Math.max(pct,_btSliderLo+0.01)}
+    const minGap=_btSliderMinGap();
+    if(Math.abs(pct-_btSliderLo)<Math.abs(pct-_btSliderHi)){_btSliderLo=Math.min(pct,_btSliderHi-minGap)}
+    else{_btSliderHi=Math.max(pct,_btSliderLo+minGap)}
     updateBTSliderUI();
     applyBTFromSlider();
   });
@@ -225,6 +367,7 @@ function applyBTFromSlider(){
 // === RESIZABLE BACKTEST PANEL ===
 (function(){
   const drag=document.getElementById('bt-drag'),panel=document.getElementById('bt-panel-wrap');
+  if(!drag||!panel||BT_IS_STANDALONE)return;
   let startY,startH;
   drag.addEventListener('mousedown',e=>{
     startY=e.clientY;startH=panel.offsetHeight;

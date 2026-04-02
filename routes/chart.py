@@ -33,7 +33,7 @@ from lib.technical_indicators import (
     compute_trend_ribbon,
     compute_regime_router,
 )
-from lib.backtesting import backtest_direction, backtest_supertrend
+from lib.backtesting import backtest_direction, build_buy_hold_equity_curve
 from lib.chart_serialization import (
     build_volume_profile,
     compute_all_trend_flips,
@@ -115,12 +115,27 @@ def _visible_mask(index, start, end):
 
 
 def _starts_long(direction, full_index, view_index):
+    prior_direction = _prior_direction(direction, full_index, view_index)
+    return prior_direction == 1
+
+
+def _prior_direction(direction, full_index, view_index):
     if len(view_index) == 0:
-        return False
+        return None
     first_visible_loc = full_index.get_loc(view_index[0])
     if first_visible_loc == 0:
-        return False
-    return direction.iloc[first_visible_loc - 1] == 1
+        return None
+    return direction.iloc[first_visible_loc - 1]
+
+
+def _run_direction_backtest(df_view, direction, full_index, view_index):
+    prior_direction = _prior_direction(direction, full_index, view_index)
+    return backtest_direction(
+        df_view,
+        direction.loc[view_index],
+        start_in_position=prior_direction == 1,
+        prior_direction=prior_direction,
+    )
 
 
 def _frame_signature(df: pd.DataFrame) -> str:
@@ -395,84 +410,73 @@ def chart_data():
     direction = indicator_bundle["direction"]
     direction_view = direction.loc[df_view.index]
     supertrend_view = supertrend.loc[df_view.index]
-    supertrend_start_long = _starts_long(direction, df.index, df_view.index)
 
     ema_fast = indicator_bundle["ema_fast"]
     ema_slow = indicator_bundle["ema_slow"]
     ema_direction = indicator_bundle["ema_direction"]
-    ema_direction_view = ema_direction.loc[df_view.index]
-    ema_trades, ema_summary, ema_equity_curve = backtest_direction(
-        df_view, ema_direction_view, start_in_position=_starts_long(ema_direction, df.index, df_view.index)
+    ema_trades, ema_summary, ema_equity_curve = _run_direction_backtest(
+        df_view, ema_direction, df.index, df_view.index
     )
 
     ma_conf_direction = indicator_bundle["ma_conf_direction"]
-    ma_conf_direction_view = ma_conf_direction.loc[df_view.index]
-    ma_conf_trades, ma_conf_summary, ma_conf_equity_curve = backtest_direction(
-        df_view, ma_conf_direction_view, start_in_position=_starts_long(ma_conf_direction, df.index, df_view.index)
+    ma_conf_trades, ma_conf_summary, ma_conf_equity_curve = _run_direction_backtest(
+        df_view, ma_conf_direction, df.index, df_view.index
     )
 
     macd_line = indicator_bundle["macd_line"]
     signal_line = indicator_bundle["signal_line"]
     macd_hist = indicator_bundle["macd_hist"]
     macd_direction = indicator_bundle["macd_direction"]
-    macd_direction_view = macd_direction.loc[df_view.index]
-    macd_trades, macd_summary, macd_equity_curve = backtest_direction(
-        df_view, macd_direction_view, start_in_position=_starts_long(macd_direction, df.index, df_view.index)
+    macd_trades, macd_summary, macd_equity_curve = _run_direction_backtest(
+        df_view, macd_direction, df.index, df_view.index
     )
 
     donch_upper = indicator_bundle["donch_upper"]
     donch_lower = indicator_bundle["donch_lower"]
     donch_direction = indicator_bundle["donch_direction"]
-    donch_direction_view = donch_direction.loc[df_view.index]
-    donch_trades, donch_summary, donch_equity_curve = backtest_direction(
-        df_view, donch_direction_view, start_in_position=_starts_long(donch_direction, df.index, df_view.index)
+    donch_trades, donch_summary, donch_equity_curve = _run_direction_backtest(
+        df_view, donch_direction, df.index, df_view.index
     )
 
     adx_val = indicator_bundle["adx_val"]
     plus_di = indicator_bundle["plus_di"]
     minus_di = indicator_bundle["minus_di"]
     adx_direction = indicator_bundle["adx_direction"]
-    adx_direction_view = adx_direction.loc[df_view.index]
-    adx_trades, adx_summary, adx_equity_curve = backtest_direction(
-        df_view, adx_direction_view, start_in_position=_starts_long(adx_direction, df.index, df_view.index)
+    adx_trades, adx_summary, adx_equity_curve = _run_direction_backtest(
+        df_view, adx_direction, df.index, df_view.index
     )
 
     bb_upper = indicator_bundle["bb_upper"]
     bb_mid = indicator_bundle["bb_mid"]
     bb_lower = indicator_bundle["bb_lower"]
     bb_direction = indicator_bundle["bb_direction"]
-    bb_direction_view = bb_direction.loc[df_view.index]
-    bb_trades, bb_summary, bb_equity_curve = backtest_direction(
-        df_view, bb_direction_view, start_in_position=_starts_long(bb_direction, df.index, df_view.index)
+    bb_trades, bb_summary, bb_equity_curve = _run_direction_backtest(
+        df_view, bb_direction, df.index, df_view.index
     )
 
     kelt_upper = indicator_bundle["kelt_upper"]
     kelt_mid = indicator_bundle["kelt_mid"]
     kelt_lower = indicator_bundle["kelt_lower"]
     kelt_direction = indicator_bundle["kelt_direction"]
-    kelt_direction_view = kelt_direction.loc[df_view.index]
-    kelt_trades, kelt_summary, kelt_equity_curve = backtest_direction(
-        df_view, kelt_direction_view, start_in_position=_starts_long(kelt_direction, df.index, df_view.index)
+    kelt_trades, kelt_summary, kelt_equity_curve = _run_direction_backtest(
+        df_view, kelt_direction, df.index, df_view.index
     )
 
     psar_line = indicator_bundle["psar_line"]
     psar_direction = indicator_bundle["psar_direction"]
-    psar_direction_view = psar_direction.loc[df_view.index]
-    psar_trades, psar_summary, psar_equity_curve = backtest_direction(
-        df_view, psar_direction_view, start_in_position=_starts_long(psar_direction, df.index, df_view.index)
+    psar_trades, psar_summary, psar_equity_curve = _run_direction_backtest(
+        df_view, psar_direction, df.index, df_view.index
     )
 
     cci_val = indicator_bundle["cci_val"]
     cci_direction = indicator_bundle["cci_direction"]
-    cci_direction_view = cci_direction.loc[df_view.index]
-    cci_trades, cci_summary, cci_equity_curve = backtest_direction(
-        df_view, cci_direction_view, start_in_position=_starts_long(cci_direction, df.index, df_view.index)
+    cci_trades, cci_summary, cci_equity_curve = _run_direction_backtest(
+        df_view, cci_direction, df.index, df_view.index
     )
 
     rr_direction = indicator_bundle["rr_direction"]
-    rr_direction_view = rr_direction.loc[df_view.index]
-    rr_trades, rr_summary, rr_equity_curve = backtest_direction(
-        df_view, rr_direction_view, start_in_position=_starts_long(rr_direction, df.index, df_view.index)
+    rr_trades, rr_summary, rr_equity_curve = _run_direction_backtest(
+        df_view, rr_direction, df.index, df_view.index
     )
 
     ribbon_center = indicator_bundle["ribbon_center"]
@@ -480,6 +484,9 @@ def chart_data():
     ribbon_lower = indicator_bundle["ribbon_lower"]
     ribbon_strength = indicator_bundle["ribbon_strength"]
     ribbon_dir = indicator_bundle["ribbon_dir"]
+    ribbon_trades, ribbon_summary, ribbon_equity_curve = _run_direction_backtest(
+        df_view, ribbon_dir, df.index, df_view.index
+    )
     mark_phase("indicators_ms")
 
     # --- Daily flips ---
@@ -533,9 +540,10 @@ def chart_data():
             st_down.append({"time": ts, "value": val, "mid": body_mid})
 
     # --- Supertrend backtest ---
-    trades, summary, equity_curve = backtest_supertrend(
-        df_view, direction_view, start_in_position=supertrend_start_long
+    trades, summary, equity_curve = _run_direction_backtest(
+        df_view, direction, df.index, df_view.index
     )
+    buy_hold_equity_curve = build_buy_hold_equity_curve(df_view)
     markers = []
     for t in trades:
         entry_ts = int(pd.Timestamp(t["entry_date"]).timestamp())
@@ -549,15 +557,16 @@ def chart_data():
                 "text": f"BUY {t['entry_price']}",
             }
         )
-        markers.append(
-            {
-                "time": exit_ts,
-                "position": "aboveBar",
-                "color": "#e91e63",
-                "shape": "arrowDown",
-                "text": f"SELL {t['exit_price']} ({t['pnl']:+.2f})",
-            }
-        )
+        if not t.get("open"):
+            markers.append(
+                {
+                    "time": exit_ts,
+                    "position": "aboveBar",
+                    "color": "#e91e63",
+                    "shape": "arrowDown",
+                    "text": f"SELL {t['exit_price']} ({t['pnl']:+.2f})",
+                }
+            )
 
     # --- SMAs ---
     smas = {}
@@ -739,11 +748,13 @@ def chart_data():
         "trades": trades,
         "summary": summary,
         "equity_curve": equity_curve,
+        "buy_hold_equity_curve": buy_hold_equity_curve,
         **smas,
         "sma_50w": sma_50w,
         "sma_100w": sma_100w,
         "sma_200w": sma_200w,
         "strategies": {
+            "ribbon": {"trades": ribbon_trades, "summary": ribbon_summary, "equity_curve": ribbon_equity_curve},
             "supertrend": {"trades": trades, "summary": summary, "equity_curve": equity_curve},
             "ema_crossover": {"trades": ema_trades, "summary": ema_summary, "equity_curve": ema_equity_curve},
             "macd": {"trades": macd_trades, "summary": macd_summary, "equity_curve": macd_equity_curve},

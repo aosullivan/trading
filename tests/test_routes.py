@@ -13,7 +13,13 @@ class TestIndexRoute:
     def test_index_returns_html(self, client):
         resp = client.get("/")
         assert resp.status_code == 200
-        assert b"Trading App" in resp.data
+        assert b"chart-container" in resp.data
+
+    def test_backtest_page_returns_html(self, client):
+        resp = client.get("/backtest")
+        assert resp.status_code == 200
+        assert b"Backtest Report" in resp.data
+        assert b"strategy-select" in resp.data
 
 
 class TestWatchlistAPI:
@@ -135,6 +141,10 @@ class TestWatchlistAPI:
         ]
 
     def test_watchlist_trends_returns_loading_then_cached_rows(self, client):
+        cold_rows = [
+            {"ticker": "AAPL", "daily": {}, "weekly": {}},
+            {"ticker": "TSLA", "daily": {}, "weekly": {}},
+        ]
         rows = [
             {
                 "ticker": "AAPL",
@@ -151,7 +161,7 @@ class TestWatchlistAPI:
         with patch("routes.watchlist._build_watchlist_trends", return_value=rows) as mock_build:
             cold = client.get("/api/watchlist/trends")
             assert cold.status_code == 200
-            assert cold.get_json() == {"items": [], "loading": True, "stale": False}
+            assert cold.get_json() == {"items": cold_rows, "loading": True, "stale": False}
 
             data = {}
             for _ in range(30):
@@ -166,6 +176,29 @@ class TestWatchlistAPI:
             assert data["loading"] is False
             assert data["stale"] is False
             mock_build.assert_called_once()
+
+    def test_watchlist_trends_returns_disk_snapshots_on_cold_memory_cache(self, client):
+        import routes.watchlist as watchlist_module
+
+        snapshot_row = {
+            "ticker": "AAPL",
+            "daily": {"ribbon": {"date": "2024-03-15", "dir": "bullish"}},
+            "weekly": {"ribbon": {"date": "2024-03-08", "dir": "bullish"}},
+        }
+        watchlist_module._save_disk_trend_row("AAPL", "2024-03-15", "2024-03-08", snapshot_row)
+
+        with patch("routes.watchlist._build_watchlist_trends", return_value=[]):
+            resp = client.get("/api/watchlist/trends")
+
+        assert resp.status_code == 200
+        assert resp.get_json() == {
+            "items": [
+                snapshot_row,
+                {"ticker": "TSLA", "daily": {}, "weekly": {}},
+            ],
+            "loading": True,
+            "stale": False,
+        }
 
     def test_watchlist_trends_handles_malformed_rows(self, client):
         malformed = [
@@ -271,8 +304,10 @@ class TestChartAPI:
         assert "supertrend_up" in data
         assert "supertrend_down" in data
         assert "volumes" in data
+        assert "buy_hold_equity_curve" in data
         assert "strategies" in data
         assert len(data["candles"]) == n
+        assert len(data["buy_hold_equity_curve"]) == n
 
     @patch("lib.cache.yf.download")
     def test_supertrend_payload_includes_whitespace_breaks(self, mock_download, client):
@@ -330,9 +365,10 @@ class TestChartAPI:
         data = resp.get_json()
         strategies = data["strategies"]
         expected_keys = [
+            "ribbon",
             "supertrend", "ema_crossover", "macd", "ma_confirm",
             "donchian", "adx_trend", "bb_breakout", "keltner",
-            "parabolic_sar", "cci_trend",
+            "parabolic_sar", "cci_trend", "regime_router",
         ]
         for key in expected_keys:
             assert key in strategies, f"Missing strategy: {key}"

@@ -2,8 +2,15 @@
   <div class="bt-panel-wrap" id="bt-panel-wrap">
     <div class="bt-drag" id="bt-drag"></div>
     <div class="bt-head">
-      <h3>Strategy Report</h3>
+      <div class="bt-title-wrap">
+        <h3>Strategy Report</h3>
+        <div class="bt-title-sub" id="bt-symbol-label">
+          <span class="bt-symbol-ticker" id="bt-symbol-ticker"></span>
+          <span class="bt-symbol-meta" id="bt-symbol-meta"></span>
+        </div>
+      </div>
       <select id="strategy-select" class="inp" style="font-size:11px;padding:4px 8px;border-radius:20px" onchange="switchStrategy(this.value)">
+        <option value="ribbon">Trend-Driven</option>
         <option value="supertrend">Supertrend</option>
         <option value="ema_crossover">EMA 9/21 Cross</option>
         <option value="macd">MACD Signal</option>
@@ -16,7 +23,7 @@
         <option value="cci_trend">CCI Trend (20/100)</option>
         <option value="regime_router">Regime Router</option>
       </select>
-      <button class="bt-close" onclick="toggleBT()">&times;</button>
+      <button class="bt-close" onclick="closeBacktestView()">&times;</button>
     </div>
     <div class="bt-cfg">
       <input type="date" id="bt-start" class="inp inp-d" style="display:none">
@@ -25,8 +32,12 @@
       <div class="bt-range-wrap">
         <div class="bt-range-track" id="bt-range-track">
           <div class="bt-range-fill" id="bt-range-fill"></div>
-          <div class="bt-range-handle" id="bt-range-lo"></div>
-          <div class="bt-range-handle" id="bt-range-hi"></div>
+          <div class="bt-range-handle" id="bt-range-lo">
+            <span class="bt-range-handle-label" id="bt-range-lo-bubble"></span>
+          </div>
+          <div class="bt-range-handle" id="bt-range-hi">
+            <span class="bt-range-handle-label" id="bt-range-hi-bubble"></span>
+          </div>
         </div>
       </div>
       <span class="bt-range-label" id="bt-range-end"></span>
@@ -34,10 +45,14 @@
 	    <div class="bt-body">
 	        <div class="bt-metrics">
 	          <div class="bt-equity-card">
-	            <div class="bt-equity-head">
-	              <span>Equity Curve</span>
-	              <span class="bt-equity-sub" id="bt-equity-range">Selected range</span>
-	            </div>
+		          <div class="bt-equity-head">
+		              <span>Equity Curve</span>
+		              <div class="bt-equity-meta">
+		                <span class="bt-equity-key"><i class="bt-equity-dot bt-equity-dot-strategy"></i>Strategy</span>
+		                <span class="bt-equity-key"><i class="bt-equity-dot bt-equity-dot-hold"></i>Buy &amp; Hold</span>
+		                <span class="bt-equity-sub" id="bt-equity-range">Selected range</span>
+		              </div>
+		            </div>
 	            <div id="bt-equity-chart"></div>
 	          </div>
 	          <div class="stats-row" id="stats"></div>
