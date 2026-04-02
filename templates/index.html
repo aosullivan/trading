@@ -1522,15 +1522,15 @@ async function loadChart(){
   const interval=document.getElementById('interval').value;
   const start=chartStart,end=chartEnd;
 	const period=document.getElementById('period').value,mult=document.getElementById('multiplier').value;
-	document.getElementById('tk-sym').textContent=ticker;
-	document.getElementById('tk-name').textContent='';
-	document.getElementById('chart-tag').textContent=`${ticker} \u00b7 ${intervalLabel(interval)} \u00b7 ST ${period}/${mult}`;
 	setBTRangeLabel();
 	try{
     let url=`/api/chart?ticker=${ticker}&interval=${interval}&start=${start}&period=${period}&multiplier=${mult}`;
     if(end)url+=`&end=${end}`;
     const res=await fetch(url),data=await res.json();
     if(data.error){alert(data.error);return}
+    document.getElementById('tk-sym').textContent=ticker;
+    document.getElementById('tk-name').textContent='';
+    document.getElementById('chart-tag').textContent=`${ticker} \u00b7 ${intervalLabel(interval)} \u00b7 ST ${period}/${mult}`;
     candleSeries.setData(data.candles);
     _lastCandles=data.candles;
     const stUpData=data.supertrend_up.filter(d=>d.value!==null&&!isNaN(d.value));

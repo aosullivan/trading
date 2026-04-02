@@ -88,6 +88,64 @@ class TestWatchlistAPI:
         data = resp.get_json()
         assert data == [{"ticker": "UST10Y", "last": 4.2, "chg": 0.08, "chg_pct": 1.94}]
 
+    @patch("app._yf_rate_limited_download")
+    def test_watchlist_quotes_fall_back_to_single_ticker_fetches_when_bulk_download_fails(
+        self, mock_download, client
+    ):
+        import app as app_module
+
+        with open(app_module.WATCHLIST_FILE, "w") as f:
+            json.dump(["AAPL", "TSLA"], f)
+
+        dates = pd.bdate_range("2024-01-01", periods=5)
+
+        def make_df(closes):
+            closes = np.array(closes, dtype=float)
+            return pd.DataFrame(
+                {
+                    "Open": closes - 0.5,
+                    "High": closes + 1,
+                    "Low": closes - 1,
+                    "Close": closes,
+                    "Volume": np.full(len(closes), 1_000_000),
+                },
+                index=dates,
+            )
+
+        def side_effect(tickers, **kwargs):
+            if isinstance(tickers, list):
+                raise RuntimeError("unable to open database file")
+            if tickers == "AAPL":
+                return make_df([190, 191, 192, 193, 194])
+            if tickers == "TSLA":
+                return make_df([240, 242, 241, 244, 246])
+            raise AssertionError(f"Unexpected ticker request: {tickers}")
+
+        mock_download.side_effect = side_effect
+
+        resp = client.get("/api/watchlist/quotes")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data == [
+            {"ticker": "AAPL", "last": 194.0, "chg": 1.0, "chg_pct": 0.52},
+            {"ticker": "TSLA", "last": 246.0, "chg": 2.0, "chg_pct": 0.82},
+        ]
+
+
+class TestYFinanceCacheConfig:
+    def test_configure_yfinance_cache_uses_project_local_directory(self, tmp_path, monkeypatch):
+        import app as app_module
+
+        calls = []
+        target = tmp_path / "yf-cache"
+        monkeypatch.setattr(app_module.yf, "set_tz_cache_location", lambda path: calls.append(path))
+
+        resolved = app_module._configure_yfinance_cache(str(target))
+
+        assert resolved == str(target)
+        assert target.is_dir()
+        assert calls == [str(target)]
+
 
 class TestChartAPI:
     @patch("app.yf.download")

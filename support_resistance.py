@@ -25,6 +25,7 @@ def classify_level_type(level_price, current_price, zone_width, sup_bounces, res
 def compute_support_resistance(df, max_levels=8):
     """Detect support/resistance levels using KDE on candle-body swing pivots."""
     body_highs, body_lows = body_extremes(df)
+    opens = df["Open"].values
     closes = df["Close"].values
     volumes = df["Volume"].values if "Volume" in df.columns else np.ones(len(df))
     timestamps = [int(t.timestamp()) for t in df.index]
@@ -34,8 +35,8 @@ def compute_support_resistance(df, max_levels=8):
 
     current_price = float(closes[-1])
 
-    body_range = pd.Series(body_highs - body_lows, index=df.index)
-    atr_series = body_range.rolling(14).mean()
+    true_range = df["High"] - df["Low"]
+    atr_series = true_range.rolling(14).mean()
     atr = float(atr_series.iloc[-1]) if not pd.isna(atr_series.iloc[-1]) else 0
     if atr == 0:
         atr = current_price * 0.02
@@ -83,14 +84,27 @@ def compute_support_resistance(df, max_levels=8):
             if not (in_zone_low or in_zone_high):
                 continue
 
-            if in_zone_low and closes[i] >= level_price - zone_width:
+            if in_zone_low and in_zone_high:
+                # Entire body inside zone — classify by candle direction
+                if closes[i] >= opens[i]:  # bullish = support test
+                    next_reversed = closes[i + 1] >= closes[i] or body_lows[i + 1] > body_lows[i]
+                    if next_reversed:
+                        sup_bounces.append(i)
+                    else:
+                        breaks += 1
+                else:  # bearish = resistance test
+                    next_reversed = closes[i + 1] <= closes[i] or body_highs[i + 1] < body_highs[i]
+                    if next_reversed:
+                        res_bounces.append(i)
+                    else:
+                        breaks += 1
+            elif in_zone_low and closes[i] >= level_price - zone_width:
                 next_reversed = closes[i + 1] >= closes[i] or body_lows[i + 1] > body_lows[i]
                 if next_reversed:
                     sup_bounces.append(i)
                 else:
                     breaks += 1
-
-            if in_zone_high and closes[i] <= level_price + zone_width:
+            elif in_zone_high and closes[i] <= level_price + zone_width:
                 next_reversed = closes[i + 1] <= closes[i] or body_highs[i + 1] < body_highs[i]
                 if next_reversed:
                     res_bounces.append(i)
@@ -109,6 +123,10 @@ def compute_support_resistance(df, max_levels=8):
         total_tests = n_bounces + breaks
         respect = n_bounces / total_tests if total_tests > 0 else 0
         if respect < 0.3:
+            continue
+
+        distance_pct = abs(level_price - current_price) / current_price
+        if distance_pct > 0.50:
             continue
 
         avg_recency = sum(b / n for b in all_bounces) / n_bounces

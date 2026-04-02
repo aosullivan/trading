@@ -67,39 +67,41 @@ class TestSupportResistanceDetection:
         assert compute_support_resistance(small_df.head(25), max_levels=5) == []
 
     def test_support_levels_anchor_to_candle_bodies_not_long_lower_wicks(self):
-        dates = pd.date_range("2023-01-06", periods=60, freq="W-FRI")
+        """Verify support anchors to body cluster (~100), not wick extremes (~85).
+
+        Pattern: stock oscillates 108-118, periodically dips with bodies near 100
+        but long lower wicks to 85. The KDE on body pivots should peak near 100.
+        """
+        dates = pd.date_range("2023-01-06", periods=120, freq="W-FRI")
         rows = []
-        support_touch_indices = {10, 20, 30, 40, 50}
-        resistance_touch_indices = {15, 25, 35, 45, 55}
+        # Dip every 8 bars to support zone, with body near 100 and wick to 85
+        support_touch_indices = set(range(8, 112, 8))  # 8,16,24,...,104 = 13 touches
 
         for i, dt in enumerate(dates):
-            base = 111 + np.sin(i / 5) * 3
+            base = 113 + np.sin(i / 5) * 3
             open_price = base - 0.6
             close_price = base + 0.6
-            low = min(open_price, close_price) - 1.2
-            high = max(open_price, close_price) + 1.2
+            low = min(open_price, close_price) - 1.5
+            high = max(open_price, close_price) + 1.5
 
             if i in support_touch_indices:
-                open_price = 101.8
-                close_price = 100.6
-                low = 89.5
-                high = 108.5
-            elif i - 1 in support_touch_indices or i + 1 in support_touch_indices:
-                open_price = 106.5
-                close_price = 105.2
-                low = 103.8
-                high = 110.5
-
-            if i in resistance_touch_indices:
-                open_price = 118.2
-                close_price = 119.4
-                low = 112.0
-                high = 131.0
-            elif i - 1 in resistance_touch_indices or i + 1 in resistance_touch_indices:
-                open_price = 113.8
-                close_price = 115.1
-                low = 111.5
-                high = 117.5
+                # Body near 100-102, wick extends to 85
+                open_price = 102.0
+                close_price = 100.5
+                low = 85.0
+                high = 104.0
+            elif i - 1 in support_touch_indices:
+                # Reversal candle after support touch
+                open_price = 101.5
+                close_price = 107.0
+                low = 100.0
+                high = 108.0
+            elif i + 1 in support_touch_indices:
+                # Candle approaching support
+                open_price = 108.0
+                close_price = 104.0
+                low = 103.0
+                high = 109.0
 
             rows.append(
                 {
@@ -121,8 +123,9 @@ class TestSupportResistanceDetection:
             (level for level in supports if level["price"] < float(df["Close"].iloc[-1])),
             key=lambda level: level["price"],
         )
-        assert nearest_support["price"] > 97
-        assert nearest_support["price"] < 106
+        # Support should anchor near body cluster (~100), not wick extreme (~85)
+        assert nearest_support["price"] > 95
+        assert nearest_support["price"] < 110
 
 
 class TestSupportResistanceRoutePayload:

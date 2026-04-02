@@ -42,6 +42,21 @@ from technical_indicators import (
     detect_regime as _detect_regime_impl,
 )
 
+_APP_DIR = os.path.dirname(__file__)
+_PROJECT_CACHE_ROOT = os.path.join(_APP_DIR, "data_cache")
+_YF_CACHE_DIR = os.path.join(_PROJECT_CACHE_ROOT, "yfinance")
+
+
+def _configure_yfinance_cache(cache_dir: str | None = None) -> str:
+    """Pin yfinance's SQLite-backed caches to a writable project-local folder."""
+    resolved_dir = cache_dir or _YF_CACHE_DIR
+    os.makedirs(resolved_dir, exist_ok=True)
+    yf.set_tz_cache_location(resolved_dir)
+    return resolved_dir
+
+
+_configure_yfinance_cache()
+
 # ---------------------------------------------------------------------------
 # In-memory TTL cache (for quotes and short-lived data)
 # ---------------------------------------------------------------------------
@@ -107,7 +122,7 @@ def _get_cached_ticker_info(ticker: str) -> dict:
 # ---------------------------------------------------------------------------
 # Persistent local file cache for historical OHLCV data
 # ---------------------------------------------------------------------------
-_DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), "data_cache")
+_DATA_CACHE_DIR = _PROJECT_CACHE_ROOT
 os.makedirs(_DATA_CACHE_DIR, exist_ok=True)
 
 # Minimum seconds before re-fetching fresh data for a ticker+interval
@@ -478,6 +493,23 @@ def _quote_from_frame(ticker: str, df: pd.DataFrame) -> dict:
     chg = round(last - prev, 2)
     chg_pct = round((chg / prev) * 100, 2) if prev else 0
     return {"ticker": ticker, "last": last, "chg": chg, "chg_pct": chg_pct}
+
+
+def _fetch_market_quote_frame(yf_ticker: str) -> pd.DataFrame:
+    df = _yf_rate_limited_download(
+        yf_ticker,
+        period="5d",
+        interval="1d",
+        progress=False,
+        threads=False,
+    )
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    return df
+
+
+def _fetch_market_quote(display_ticker: str, yf_ticker: str) -> dict:
+    return _quote_from_frame(display_ticker, _fetch_market_quote_frame(yf_ticker))
 
 
 def _compact_number(value) -> str:
@@ -1207,6 +1239,7 @@ def watchlist_quotes():
 
     if market_tickers:
         yf_tickers = [normalize_ticker(t) for t in market_tickers]
+        bulk_loaded = False
         try:
             # Bulk download last 5 trading days — enough to get prev close
             df = _yf_rate_limited_download(
@@ -1233,9 +1266,21 @@ def watchlist_quotes():
                         "chg": None,
                         "chg_pct": None,
                     }
+            bulk_loaded = True
         except Exception:
-            for ticker in market_tickers:
-                results_by_ticker[ticker] = {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
+            bulk_loaded = False
+
+        if not bulk_loaded:
+            for yf_ticker, display_ticker in zip(yf_tickers, market_tickers):
+                try:
+                    results_by_ticker[display_ticker] = _fetch_market_quote(display_ticker, yf_ticker)
+                except Exception:
+                    results_by_ticker[display_ticker] = {
+                        "ticker": display_ticker,
+                        "last": None,
+                        "chg": None,
+                        "chg_pct": None,
+                    }
 
     results = [results_by_ticker.get(t, {"ticker": t, "last": None, "chg": None, "chg_pct": None}) for t in tickers]
 
@@ -1259,15 +1304,7 @@ def watchlist_quote(ticker):
         if is_treasury_yield_ticker(ticker):
             df = _fetch_treasury_yield_history(ticker)
         else:
-            df = _yf_rate_limited_download(
-                    yf_ticker,
-                    period="5d",
-                    interval="1d",
-                    progress=False,
-                    threads=False,
-                )
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
+            df = _fetch_market_quote_frame(yf_ticker)
         result = _quote_from_frame(ticker, df)
     except Exception:
         result = {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
