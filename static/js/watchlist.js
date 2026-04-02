@@ -44,6 +44,19 @@ function switchWLTab(tab){
 }
 function wlFilteredList(list){return list.filter(t=>wlTickerCategory(t)===wlActiveTab)}
 
+function wlTreasuryDuration(t){
+  const match=t.replace(/^\^/,'').toUpperCase().match(/^UST(\d+)Y$/);
+  return match?Number(match[1]):Number.POSITIVE_INFINITY;
+}
+
+function wlCompareSymbols(a,b){
+  if(wlActiveTab==='treasuries'){
+    const da=wlTreasuryDuration(a),db=wlTreasuryDuration(b);
+    if(da!==db)return da-db;
+  }
+  return a.localeCompare(b);
+}
+
 function sortWL(key){
   if(wlSortKey===key){wlSortAsc=!wlSortAsc}else{wlSortKey=key;wlSortAsc=key==='sym'}
   // Update arrows
@@ -95,11 +108,13 @@ function renderWL(list){
   if(wlSortKey){
     filtered.sort((a,b)=>{
       let va,vb;
-      if(wlSortKey==='sym'){va=a;vb=b}
+      if(wlSortKey==='sym')return wlSortAsc?wlCompareSymbols(a,b):wlCompareSymbols(b,a);
       else{const qa=wlQuotes[a]||{},qb=wlQuotes[b]||{};va=qa[wlSortKey]??-Infinity;vb=qb[wlSortKey]??-Infinity}
       if(typeof va==='string') return wlSortAsc?va.localeCompare(vb):vb.localeCompare(va);
       return wlSortAsc?va-vb:vb-va;
     });
+  }else if(wlActiveTab==='treasuries'){
+    filtered.sort(wlCompareSymbols);
   }
   const cur=document.getElementById('ticker').value.toUpperCase();
   document.getElementById('wl-items').innerHTML=filtered.map(t=>{

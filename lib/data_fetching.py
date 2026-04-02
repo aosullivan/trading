@@ -216,6 +216,8 @@ _TREASURY_YIELD_SERIES = {
     "UST30Y": {"fred_id": "DGS30", "name": "30-Year Treasury Yield"},
 }
 
+_FRED_DATE_COLUMNS = ("DATE", "observation_date")
+
 
 def normalize_ticker(ticker: str) -> str:
     """Add ^ prefix for known index symbols if user forgot it."""
@@ -245,11 +247,16 @@ def _fetch_treasury_yield_history(ticker: str, start=None, end=None) -> pd.DataF
         url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={meta['fred_id']}"
         req = urllib.request.urlopen(url, timeout=5)
         source = pd.read_csv(io.StringIO(req.read().decode("utf-8")))
-        if source.empty or "DATE" not in source.columns or meta["fred_id"] not in source.columns:
+        date_col = next((col for col in _FRED_DATE_COLUMNS if col in source.columns), None)
+        if source.empty or date_col is None or meta["fred_id"] not in source.columns:
             return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
-        source["DATE"] = pd.to_datetime(source["DATE"], errors="coerce")
+        source[date_col] = pd.to_datetime(source[date_col], errors="coerce")
         source[meta["fred_id"]] = pd.to_numeric(source[meta["fred_id"]], errors="coerce")
-        source = source.dropna(subset=["DATE", meta["fred_id"]]).set_index("DATE").sort_index()
+        source = (
+            source.dropna(subset=[date_col, meta["fred_id"]])
+            .set_index(date_col)
+            .sort_index()
+        )
         cached = source.rename(columns={meta["fred_id"]: "Close"})[["Close"]]
         cached["Open"] = cached["Close"]
         cached["High"] = cached["Close"]

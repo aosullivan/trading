@@ -123,6 +123,142 @@ def _starts_long(direction, full_index, view_index):
     return direction.iloc[first_visible_loc - 1] == 1
 
 
+def _frame_signature(df: pd.DataFrame) -> str:
+    if df is None or df.empty:
+        return "empty"
+    first_ts = int(pd.Timestamp(df.index[0]).timestamp())
+    last_ts = int(pd.Timestamp(df.index[-1]).timestamp())
+    last_row = df.iloc[-1]
+    tail_values = []
+    for col in ("Open", "High", "Low", "Close", "Volume"):
+        val = last_row.get(col)
+        tail_values.append("nan" if pd.isna(val) else f"{float(val):.6f}")
+    return f"{len(df)}:{first_ts}:{last_ts}:{':'.join(tail_values)}"
+
+
+def _last_flips_from_directions(direction_map: dict[str, pd.Series]) -> dict:
+    flips = {}
+    for key, dir_series in direction_map.items():
+        date, flip_dir = last_trend_flip(dir_series)
+        flips[key] = {"date": date, "dir": flip_dir}
+    return flips
+
+
+def _get_indicator_bundle(
+    ticker: str,
+    interval: str,
+    df: pd.DataFrame,
+    period_val: int,
+    multiplier_val: float,
+) -> tuple[dict, bool]:
+    cache_key = (
+        f"indicator_bundle:{ticker}:{interval}:{period_val}:{multiplier_val}:"
+        f"{_frame_signature(df)}"
+    )
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached, True
+
+    supertrend, direction = compute_supertrend(df, period_val, multiplier_val)
+    ema_fast, ema_slow, ema_direction = compute_ema_crossover(df, 9, 21)
+    ma_conf, ma_conf_direction = compute_ma_confirmation(df, 200, 3)
+    macd_line, signal_line, macd_hist, macd_direction = compute_macd_crossover(df)
+    donch_upper, donch_lower, donch_direction = compute_donchian_breakout(df, 20)
+    adx_val, plus_di, minus_di, adx_direction = compute_adx_trend(df, 14, 25)
+    bb_upper, bb_mid, bb_lower, bb_direction = compute_bollinger_breakout(df, 20, 2)
+    kelt_upper, kelt_mid, kelt_lower, kelt_direction = compute_keltner_breakout(df)
+    psar_line, psar_direction = compute_parabolic_sar(df)
+    cci_val, cci_direction = compute_cci_trend(df)
+    regime, rr_direction = compute_regime_router(df)
+    ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(df)
+
+    direction_map = {
+        "supertrend": direction,
+        "ema_crossover": ema_direction,
+        "macd": macd_direction,
+        "ma_confirm": ma_conf_direction,
+        "donchian": donch_direction,
+        "adx_trend": adx_direction,
+        "bb_breakout": bb_direction,
+        "keltner": kelt_direction,
+        "parabolic_sar": psar_direction,
+        "cci_trend": cci_direction,
+        "regime_router": rr_direction,
+        "ribbon": ribbon_dir.where(ribbon_dir != 0, 1),
+    }
+    bundle = {
+        "supertrend": supertrend,
+        "direction": direction,
+        "ema_fast": ema_fast,
+        "ema_slow": ema_slow,
+        "ema_direction": ema_direction,
+        "ma_conf": ma_conf,
+        "ma_conf_direction": ma_conf_direction,
+        "macd_line": macd_line,
+        "signal_line": signal_line,
+        "macd_hist": macd_hist,
+        "macd_direction": macd_direction,
+        "donch_upper": donch_upper,
+        "donch_lower": donch_lower,
+        "donch_direction": donch_direction,
+        "adx_val": adx_val,
+        "plus_di": plus_di,
+        "minus_di": minus_di,
+        "adx_direction": adx_direction,
+        "bb_upper": bb_upper,
+        "bb_mid": bb_mid,
+        "bb_lower": bb_lower,
+        "bb_direction": bb_direction,
+        "kelt_upper": kelt_upper,
+        "kelt_mid": kelt_mid,
+        "kelt_lower": kelt_lower,
+        "kelt_direction": kelt_direction,
+        "psar_line": psar_line,
+        "psar_direction": psar_direction,
+        "cci_val": cci_val,
+        "cci_direction": cci_direction,
+        "regime": regime,
+        "rr_direction": rr_direction,
+        "ribbon_center": ribbon_center,
+        "ribbon_upper": ribbon_upper,
+        "ribbon_lower": ribbon_lower,
+        "ribbon_strength": ribbon_strength,
+        "ribbon_dir": ribbon_dir,
+        "daily_flips": _last_flips_from_directions(direction_map),
+    }
+    _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
+    return bundle, False
+
+
+def _get_weekly_bundle(
+    ticker: str,
+    df_w: pd.DataFrame,
+    period_val: int,
+    multiplier_val: float,
+) -> tuple[dict, bool]:
+    cache_key = (
+        f"weekly_bundle:{ticker}:{period_val}:{multiplier_val}:"
+        f"{_frame_signature(df_w)}"
+    )
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached, True
+
+    sma_w50 = df_w["Close"].rolling(window=50).mean()
+    sma_w200 = df_w["Close"].rolling(window=200).mean()
+    bundle = {
+        "sma_w50": sma_w50,
+        "sma_w200": sma_w200,
+        "weekly_flips": compute_all_trend_flips(
+            df_w,
+            period_val=period_val,
+            multiplier_val=multiplier_val,
+        ),
+    }
+    _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
+    return bundle, False
+
+
 # ---------------------------------------------------------------------------
 # Chart API route
 # ---------------------------------------------------------------------------
@@ -132,6 +268,8 @@ def chart_data():
     request_started_at = time.perf_counter()
     phase_started_at = request_started_at
     timings_ms = {}
+    indicator_bundle_hit = False
+    weekly_bundle_hit = False
 
     def mark_phase(name: str):
         nonlocal phase_started_at
@@ -242,88 +380,107 @@ def chart_data():
     mark_phase("frame_ms")
 
     # --- Compute all indicators ---
-    supertrend, direction = compute_supertrend(df, period_val, multiplier_val)
+    indicator_bundle, indicator_bundle_hit = _get_indicator_bundle(
+        ticker,
+        interval,
+        df,
+        period_val,
+        multiplier_val,
+    )
+    supertrend = indicator_bundle["supertrend"]
+    direction = indicator_bundle["direction"]
     direction_view = direction.loc[df_view.index]
     supertrend_view = supertrend.loc[df_view.index]
     supertrend_start_long = _starts_long(direction, df.index, df_view.index)
 
-    ema_fast, ema_slow, ema_direction = compute_ema_crossover(df, 9, 21)
+    ema_fast = indicator_bundle["ema_fast"]
+    ema_slow = indicator_bundle["ema_slow"]
+    ema_direction = indicator_bundle["ema_direction"]
     ema_direction_view = ema_direction.loc[df_view.index]
     ema_trades, ema_summary, ema_equity_curve = backtest_direction(
         df_view, ema_direction_view, start_in_position=_starts_long(ema_direction, df.index, df_view.index)
     )
 
-    _ma_conf, ma_conf_direction = compute_ma_confirmation(df, 200, 3)
+    ma_conf_direction = indicator_bundle["ma_conf_direction"]
     ma_conf_direction_view = ma_conf_direction.loc[df_view.index]
     ma_conf_trades, ma_conf_summary, ma_conf_equity_curve = backtest_direction(
         df_view, ma_conf_direction_view, start_in_position=_starts_long(ma_conf_direction, df.index, df_view.index)
     )
 
-    macd_line, signal_line, macd_hist, macd_direction = compute_macd_crossover(df)
+    macd_line = indicator_bundle["macd_line"]
+    signal_line = indicator_bundle["signal_line"]
+    macd_hist = indicator_bundle["macd_hist"]
+    macd_direction = indicator_bundle["macd_direction"]
     macd_direction_view = macd_direction.loc[df_view.index]
     macd_trades, macd_summary, macd_equity_curve = backtest_direction(
         df_view, macd_direction_view, start_in_position=_starts_long(macd_direction, df.index, df_view.index)
     )
 
-    donch_upper, donch_lower, donch_direction = compute_donchian_breakout(df, 20)
+    donch_upper = indicator_bundle["donch_upper"]
+    donch_lower = indicator_bundle["donch_lower"]
+    donch_direction = indicator_bundle["donch_direction"]
     donch_direction_view = donch_direction.loc[df_view.index]
     donch_trades, donch_summary, donch_equity_curve = backtest_direction(
         df_view, donch_direction_view, start_in_position=_starts_long(donch_direction, df.index, df_view.index)
     )
 
-    adx_val, plus_di, minus_di, adx_direction = compute_adx_trend(df, 14, 25)
+    adx_val = indicator_bundle["adx_val"]
+    plus_di = indicator_bundle["plus_di"]
+    minus_di = indicator_bundle["minus_di"]
+    adx_direction = indicator_bundle["adx_direction"]
     adx_direction_view = adx_direction.loc[df_view.index]
     adx_trades, adx_summary, adx_equity_curve = backtest_direction(
         df_view, adx_direction_view, start_in_position=_starts_long(adx_direction, df.index, df_view.index)
     )
 
-    bb_upper, bb_mid, bb_lower, bb_direction = compute_bollinger_breakout(df, 20, 2)
+    bb_upper = indicator_bundle["bb_upper"]
+    bb_mid = indicator_bundle["bb_mid"]
+    bb_lower = indicator_bundle["bb_lower"]
+    bb_direction = indicator_bundle["bb_direction"]
     bb_direction_view = bb_direction.loc[df_view.index]
     bb_trades, bb_summary, bb_equity_curve = backtest_direction(
         df_view, bb_direction_view, start_in_position=_starts_long(bb_direction, df.index, df_view.index)
     )
 
-    kelt_upper, kelt_mid, kelt_lower, kelt_direction = compute_keltner_breakout(df)
+    kelt_upper = indicator_bundle["kelt_upper"]
+    kelt_mid = indicator_bundle["kelt_mid"]
+    kelt_lower = indicator_bundle["kelt_lower"]
+    kelt_direction = indicator_bundle["kelt_direction"]
     kelt_direction_view = kelt_direction.loc[df_view.index]
     kelt_trades, kelt_summary, kelt_equity_curve = backtest_direction(
         df_view, kelt_direction_view, start_in_position=_starts_long(kelt_direction, df.index, df_view.index)
     )
 
-    psar_line, psar_direction = compute_parabolic_sar(df)
+    psar_line = indicator_bundle["psar_line"]
+    psar_direction = indicator_bundle["psar_direction"]
     psar_direction_view = psar_direction.loc[df_view.index]
     psar_trades, psar_summary, psar_equity_curve = backtest_direction(
         df_view, psar_direction_view, start_in_position=_starts_long(psar_direction, df.index, df_view.index)
     )
 
-    cci_val, cci_direction = compute_cci_trend(df)
+    cci_val = indicator_bundle["cci_val"]
+    cci_direction = indicator_bundle["cci_direction"]
     cci_direction_view = cci_direction.loc[df_view.index]
     cci_trades, cci_summary, cci_equity_curve = backtest_direction(
         df_view, cci_direction_view, start_in_position=_starts_long(cci_direction, df.index, df_view.index)
     )
 
-    _regime, rr_direction = compute_regime_router(df)
+    rr_direction = indicator_bundle["rr_direction"]
     rr_direction_view = rr_direction.loc[df_view.index]
     rr_trades, rr_summary, rr_equity_curve = backtest_direction(
         df_view, rr_direction_view, start_in_position=_starts_long(rr_direction, df.index, df_view.index)
     )
 
-    ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(df)
+    ribbon_center = indicator_bundle["ribbon_center"]
+    ribbon_upper = indicator_bundle["ribbon_upper"]
+    ribbon_lower = indicator_bundle["ribbon_lower"]
+    ribbon_strength = indicator_bundle["ribbon_strength"]
+    ribbon_dir = indicator_bundle["ribbon_dir"]
     mark_phase("indicators_ms")
 
     # --- Daily flips ---
     if interval == "1d":
-        daily_flips = {}
-        for key, dir_series in [
-            ("supertrend", direction), ("ema_crossover", ema_direction),
-            ("macd", macd_direction), ("ma_confirm", ma_conf_direction),
-            ("donchian", donch_direction), ("adx_trend", adx_direction),
-            ("bb_breakout", bb_direction), ("keltner", kelt_direction),
-            ("parabolic_sar", psar_direction), ("cci_trend", cci_direction),
-            ("regime_router", rr_direction),
-            ("ribbon", ribbon_dir.where(ribbon_dir != 0, 1)),
-        ]:
-            date, d = last_trend_flip(dir_series)
-            daily_flips[key] = {"date": date, "dir": d}
+        daily_flips = indicator_bundle["daily_flips"]
     else:
         try:
             if is_treasury_yield_ticker(ticker):
@@ -437,8 +594,14 @@ def chart_data():
             if df_w.index.duplicated().any():
                 df_w = df_w[~df_w.index.duplicated(keep="last")]
             df_w_view = df_w.loc[_visible_mask(df_w.index, start, end)]
-            sma_w50 = df_w["Close"].rolling(window=50).mean()
-            sma_w200 = df_w["Close"].rolling(window=200).mean()
+            weekly_bundle, weekly_bundle_hit = _get_weekly_bundle(
+                ticker,
+                df_w,
+                period_val,
+                multiplier_val,
+            )
+            sma_w50 = weekly_bundle["sma_w50"]
+            sma_w200 = weekly_bundle["sma_w200"]
             sma_w50_view = sma_w50.loc[df_w_view.index]
             sma_w200_view = sma_w200.loc[df_w_view.index]
             for i in range(len(df_w_view)):
@@ -448,21 +611,9 @@ def chart_data():
                 if not pd.isna(sma_w200_view.iloc[i]):
                     sma_200w.append({"time": ts, "value": round(float(sma_w200_view.iloc[i]), 2)})
             if interval == "1wk":
-                for key, dir_series in [
-                    ("supertrend", direction), ("ema_crossover", ema_direction),
-                    ("macd", macd_direction), ("ma_confirm", ma_conf_direction),
-                    ("donchian", donch_direction), ("adx_trend", adx_direction),
-                    ("bb_breakout", bb_direction), ("keltner", kelt_direction),
-                    ("parabolic_sar", psar_direction), ("cci_trend", cci_direction),
-                    ("regime_router", rr_direction),
-                    ("ribbon", ribbon_dir.where(ribbon_dir != 0, 1)),
-                ]:
-                    date, d = last_trend_flip(dir_series)
-                    weekly_flips[key] = {"date": date, "dir": d}
+                weekly_flips = indicator_bundle["daily_flips"]
             else:
-                weekly_flips = compute_all_trend_flips(
-                    df_w, period_val=period_val, multiplier_val=multiplier_val
-                )
+                weekly_flips = weekly_bundle["weekly_flips"]
     except Exception:
         pass
     mark_phase("weekly_ms")
@@ -623,13 +774,15 @@ def chart_data():
     mark_phase("payload_ms")
     _cache_set(chart_cache_key, payload, ttl=_CHART_CACHE_TTL)
     current_app.logger.info(
-        "chart_data timings ticker=%s interval=%s range=%s..%s rows=%s view_rows=%s metadata_ms=%s fetch_ms=%s frame_ms=%s indicators_ms=%s daily_flips_ms=%s weekly_ms=%s support_resistance_ms=%s payload_ms=%s total_ms=%s",
+        "chart_data timings ticker=%s interval=%s range=%s..%s rows=%s view_rows=%s indicator_bundle_hit=%s weekly_bundle_hit=%s metadata_ms=%s fetch_ms=%s frame_ms=%s indicators_ms=%s daily_flips_ms=%s weekly_ms=%s support_resistance_ms=%s payload_ms=%s total_ms=%s",
         ticker,
         interval,
         start,
         end or "latest",
         len(df),
         len(df_view),
+        indicator_bundle_hit,
+        weekly_bundle_hit,
         timings_ms.get("metadata_ms", 0),
         timings_ms.get("fetch_ms", 0),
         timings_ms.get("frame_ms", 0),
