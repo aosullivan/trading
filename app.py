@@ -47,19 +47,61 @@ from technical_indicators import (
 # ---------------------------------------------------------------------------
 _cache: dict[str, tuple[float, object]] = {}
 _CACHE_TTL = 300  # seconds (5 minutes)
+_TICKER_INFO_CACHE_TTL = 3600  # seconds (1 hour)
+_FINANCIALS_CACHE_TTL = 3600  # seconds (1 hour)
+_FRED_CACHE_TTL = 900  # seconds (15 minutes)
 _yf_lock = threading.Lock()  # serialize yfinance calls to prevent cross-ticker contamination
+_yf_last_call = 0.0  # timestamp of last yfinance API call
+_YF_RATE_DELAY = 1.5  # seconds between yfinance calls to avoid rate limiting
 
 
 def _cache_get(key: str):
     """Return cached value if still fresh, else None."""
     entry = _cache.get(key)
-    if entry and (_time.time() - entry[0]) < _CACHE_TTL:
+    if entry and _time.time() < entry[0]:
         return entry[1]
+    if entry:
+        _cache.pop(key, None)
     return None
 
 
-def _cache_set(key: str, value):
-    _cache[key] = (_time.time(), value)
+def _cache_set(key: str, value, ttl: int = _CACHE_TTL):
+    _cache[key] = (_time.time() + ttl, value)
+
+
+def _yf_rate_limited_download(tickers, **kwargs):
+    """Call yf.download with rate limiting to avoid 429s from Yahoo Finance."""
+    global _yf_last_call
+    with _yf_lock:
+        elapsed = _time.time() - _yf_last_call
+        if elapsed < _YF_RATE_DELAY:
+            _time.sleep(_YF_RATE_DELAY - elapsed)
+        result = yf.download(tickers, **kwargs)
+        _yf_last_call = _time.time()
+    return result
+
+
+def _yf_rate_limited_info(ticker: str):
+    """Fetch yf.Ticker(...).info with the same rate limiting as downloads."""
+    global _yf_last_call
+    with _yf_lock:
+        elapsed = _time.time() - _yf_last_call
+        if elapsed < _YF_RATE_DELAY:
+            _time.sleep(_YF_RATE_DELAY - elapsed)
+        result = yf.Ticker(ticker).info
+        _yf_last_call = _time.time()
+    return result
+
+
+def _get_cached_ticker_info(ticker: str) -> dict:
+    """Return cached ticker info so chart loads and financials don't spam Yahoo."""
+    cache_key = f"info:{ticker}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    info = _yf_rate_limited_info(ticker)
+    _cache_set(cache_key, info, ttl=_TICKER_INFO_CACHE_TTL)
+    return info
 
 
 # ---------------------------------------------------------------------------
@@ -149,8 +191,7 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
             return cached
         download_kwargs = dict(kwargs)
         download_kwargs.setdefault("threads", False)
-        with _yf_lock:
-            df = yf.download(ticker, **download_kwargs)
+        df = _yf_rate_limited_download(ticker, **download_kwargs)
         _cache_set(key, df)
         return df
 
@@ -204,8 +245,7 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
     fetch_kwargs["progress"] = False
     fetch_kwargs.setdefault("threads", False)
     try:
-        with _yf_lock:
-            new_df = yf.download(ticker, **fetch_kwargs)
+        new_df = _yf_rate_limited_download(ticker, **fetch_kwargs)
     except Exception:
         # Network error — return whatever we have cached
         if cached_df is not None:
@@ -280,6 +320,18 @@ _INDEX_SYMBOLS = {
     "SPX",  # Alias: redirect to GSPC
 }
 
+_TREASURY_YIELD_SERIES = {
+    "UST1Y": {"fred_id": "DGS1", "name": "1-Year Treasury Yield"},
+    "UST2Y": {"fred_id": "DGS2", "name": "2-Year Treasury Yield"},
+    "UST3Y": {"fred_id": "DGS3", "name": "3-Year Treasury Yield"},
+    "UST5Y": {"fred_id": "DGS5", "name": "5-Year Treasury Yield"},
+    "UST7Y": {"fred_id": "DGS7", "name": "7-Year Treasury Yield"},
+    "UST10Y": {"fred_id": "DGS10", "name": "10-Year Treasury Yield"},
+    "UST20Y": {"fred_id": "DGS20", "name": "20-Year Treasury Yield"},
+    "UST30Y": {"fred_id": "DGS30", "name": "30-Year Treasury Yield"},
+}
+
+
 def normalize_ticker(ticker: str) -> str:
     """Add ^ prefix for known index symbols if user forgot it."""
     t = ticker.upper().strip()
@@ -320,8 +372,45 @@ def _parse_end_date(end):
 
 
 def _warmup_start(start, interval):
-    lookback_days = WEEKLY_WARMUP_DAYS if interval == "1wk" else DAILY_WARMUP_DAYS
+    lookback_days = WEEKLY_WARMUP_DAYS if interval in {"1wk", "1mo"} else DAILY_WARMUP_DAYS
     return (_parse_start_date(start) - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+
+
+def _source_interval(interval: str) -> str:
+    return "1wk" if interval == "1mo" else interval
+
+
+def _resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+    resampled = (
+        df.sort_index()
+        .resample(rule)
+        .agg(
+            {
+                "Open": "first",
+                "High": "max",
+                "Low": "min",
+                "Close": "last",
+                "Volume": "sum",
+            }
+        )
+    )
+    return resampled.dropna(subset=["Open", "High", "Low", "Close"])
+
+
+def _derive_chart_frame(df: pd.DataFrame, interval: str) -> pd.DataFrame:
+    if interval == "1mo":
+        return _resample_ohlcv(df, "ME")
+    return df
+
+
+def _derive_treasury_chart_frame(df: pd.DataFrame, interval: str) -> pd.DataFrame:
+    if interval == "1wk":
+        return _resample_ohlcv(df, "W-FRI")
+    if interval == "1mo":
+        return _resample_ohlcv(df, "ME")
+    return df
 
 
 def _visible_mask(index, start, end):
@@ -340,6 +429,175 @@ def _starts_long(direction, full_index, view_index):
     if first_visible_loc == 0:
         return False
     return direction.iloc[first_visible_loc - 1] == 1
+
+
+def is_treasury_yield_ticker(ticker: str) -> bool:
+    return ticker.upper() in _TREASURY_YIELD_SERIES
+
+
+def _fetch_treasury_yield_history(ticker: str, start=None, end=None) -> pd.DataFrame:
+    """Fetch and cache Treasury yield history from FRED without an API key."""
+    meta = _TREASURY_YIELD_SERIES.get(ticker.upper())
+    if meta is None:
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+
+    cache_key = f"fred:{meta['fred_id']}"
+    cached = _cache_get(cache_key)
+    if cached is None:
+        import io, urllib.request
+        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={meta['fred_id']}"
+        req = urllib.request.urlopen(url, timeout=5)
+        source = pd.read_csv(io.StringIO(req.read().decode("utf-8")))
+        if source.empty or "DATE" not in source.columns or meta["fred_id"] not in source.columns:
+            return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+        source["DATE"] = pd.to_datetime(source["DATE"], errors="coerce")
+        source[meta["fred_id"]] = pd.to_numeric(source[meta["fred_id"]], errors="coerce")
+        source = source.dropna(subset=["DATE", meta["fred_id"]]).set_index("DATE").sort_index()
+        cached = source.rename(columns={meta["fred_id"]: "Close"})[["Close"]]
+        cached["Open"] = cached["Close"]
+        cached["High"] = cached["Close"]
+        cached["Low"] = cached["Close"]
+        cached["Volume"] = 0
+        cached = cached[["Open", "High", "Low", "Close", "Volume"]]
+        _cache_set(cache_key, cached, ttl=_FRED_CACHE_TTL)
+
+    df = cached.copy()
+    if start:
+        df = df[df.index >= pd.Timestamp(start)]
+    if end:
+        df = df[df.index <= pd.Timestamp(end)]
+    return df
+
+
+def _quote_from_frame(ticker: str, df: pd.DataFrame) -> dict:
+    df = df.dropna(subset=["Close"])
+    if len(df) < 2:
+        return {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
+    last = round(float(df["Close"].iloc[-1]), 2)
+    prev = round(float(df["Close"].iloc[-2]), 2)
+    chg = round(last - prev, 2)
+    chg_pct = round((chg / prev) * 100, 2) if prev else 0
+    return {"ticker": ticker, "last": last, "chg": chg, "chg_pct": chg_pct}
+
+
+def _compact_number(value) -> str:
+    value = float(value)
+    abs_value = abs(value)
+    suffixes = [
+        (1_000_000_000_000, "T"),
+        (1_000_000_000, "B"),
+        (1_000_000, "M"),
+        (1_000, "K"),
+    ]
+    for divisor, suffix in suffixes:
+        if abs_value >= divisor:
+            return f"{value / divisor:.2f}{suffix}"
+    if value.is_integer():
+        return f"{int(value):,}"
+    return f"{value:,.2f}"
+
+
+def _money_display(value, currency: str | None = None) -> str:
+    prefix = "$" if not currency or currency.upper() == "USD" else f"{currency.upper()} "
+    return f"{prefix}{_compact_number(value)}"
+
+
+def _multiple_display(value) -> str:
+    return f"{float(value):.2f}x"
+
+
+def _percent_display(value) -> str:
+    return f"{float(value) * 100:.2f}%"
+
+
+def _plain_number_display(value) -> str:
+    value = float(value)
+    if value.is_integer():
+        return f"{int(value):,}"
+    return f"{value:,.2f}"
+
+
+def _metric(label: str, value, formatter):
+    if value is None or value == "":
+        return None
+    try:
+        return {"label": label, "value": value, "display": formatter(value)}
+    except Exception:
+        return None
+
+
+def _metric_list(*items):
+    return [item for item in items if item is not None]
+
+
+def _build_financials_payload(display_ticker: str, normalized_ticker: str, info: dict) -> dict:
+    ticker_name = info.get("shortName") or info.get("longName") or display_ticker
+    currency = info.get("currency") or "USD"
+    quote_type = str(info.get("quoteType") or "").lower()
+
+    valuation = _metric_list(
+        _metric("Trailing P/E", info.get("trailingPE"), _multiple_display),
+        _metric("Forward P/E", info.get("forwardPE"), _multiple_display),
+        _metric("PEG Ratio", info.get("pegRatio"), _plain_number_display),
+        _metric("Price/Sales", info.get("priceToSalesTrailing12Months"), _multiple_display),
+        _metric("EV/EBITDA", info.get("enterpriseToEbitda"), _multiple_display),
+    )
+    scale = _metric_list(
+        _metric("Market Cap", info.get("marketCap"), lambda v: _money_display(v, currency)),
+        _metric("Enterprise Value", info.get("enterpriseValue"), lambda v: _money_display(v, currency)),
+        _metric("Revenue", info.get("totalRevenue"), lambda v: _money_display(v, currency)),
+        _metric("Operating Cash Flow", info.get("operatingCashflow"), lambda v: _money_display(v, currency)),
+        _metric("Free Cash Flow", info.get("freeCashflow"), lambda v: _money_display(v, currency)),
+    )
+    quality = _metric_list(
+        _metric("Gross Margin", info.get("grossMargins"), _percent_display),
+        _metric("Operating Margin", info.get("operatingMargins"), _percent_display),
+        _metric("Profit Margin", info.get("profitMargins"), _percent_display),
+        _metric("ROE", info.get("returnOnEquity"), _percent_display),
+        _metric("ROA", info.get("returnOnAssets"), _percent_display),
+    )
+    balance = _metric_list(
+        _metric("Revenue Growth", info.get("revenueGrowth"), _percent_display),
+        _metric("Earnings Growth", info.get("earningsGrowth"), _percent_display),
+        _metric("Current Ratio", info.get("currentRatio"), _plain_number_display),
+        _metric("Quick Ratio", info.get("quickRatio"), _plain_number_display),
+        _metric("Debt/Equity", info.get("debtToEquity"), _plain_number_display),
+        _metric("Beta", info.get("beta"), _plain_number_display),
+    )
+
+    sections = [
+        {"title": "Valuation", "metrics": valuation},
+        {"title": "Scale", "metrics": scale},
+        {"title": "Quality", "metrics": quality},
+        {"title": "Growth & Balance Sheet", "metrics": balance},
+    ]
+    sections = [section for section in sections if section["metrics"]]
+
+    company_bits = [bit for bit in [info.get("sector"), info.get("industry")] if bit]
+    overview = {
+        "ticker": display_ticker,
+        "yf_ticker": normalized_ticker,
+        "ticker_name": ticker_name,
+        "currency": currency,
+        "quote_type": quote_type or None,
+        "company_line": " • ".join(company_bits) if company_bits else None,
+        "website": info.get("website") or None,
+        "summary": info.get("longBusinessSummary") or None,
+    }
+
+    has_financial_content = bool(sections)
+    available = has_financial_content or bool(overview["company_line"] or overview["summary"])
+    message = None
+    if not available:
+        asset_type = quote_type or "this instrument"
+        message = f"Detailed company financials are not available for {asset_type}."
+
+    return {
+        "available": available,
+        "message": message,
+        "overview": overview,
+        "sections": sections,
+    }
 
 
 def compute_supertrend(df, period=10, multiplier=3):
@@ -395,14 +653,18 @@ def compute_cci_trend(df, period=20, threshold=100):
 
 
 def compute_trend_ribbon(df, ema_period=21, atr_period=14, adx_period=14,
-                          min_width=0.5, max_width=3.0):
+                          min_width=0.5, max_width=3.0, fast_period=8,
+                          slow_period=34, smooth_period=5):
     return _compute_trend_ribbon_impl(
         df,
         ema_period=ema_period,
         atr_period=atr_period,
-        adx_period=adx_period,
-        min_width=min_width,
+        fast_period=fast_period,
+        slow_period=slow_period,
+        smooth_period=smooth_period,
         max_width=max_width,
+        min_width=min_width,
+        adx_period=adx_period,
     )
 
 
@@ -439,27 +701,51 @@ def index():
 def chart_data():
     ticker = normalize_ticker(request.args.get("ticker", "TSLA"))
     interval = request.args.get("interval", "1d")
-    start = request.args.get("start", "2023-01-01")
+    source_interval = _source_interval(interval)
+    start = request.args.get("start", "2015-01-01")
     end = request.args.get("end", "")
     period_val = int(request.args.get("period", 10))
     multiplier_val = float(request.args.get("multiplier", 3))
 
+    # Fetch full name for display
+    ticker_name = ""
+    if is_treasury_yield_ticker(ticker):
+        ticker_name = _TREASURY_YIELD_SERIES[ticker]["name"]
+    else:
+        try:
+            info = _get_cached_ticker_info(ticker)
+            ticker_name = info.get("shortName") or info.get("longName") or ""
+        except Exception:
+            pass
+
     try:
-        kwargs = {"start": _warmup_start(start, interval), "interval": interval, "progress": False}
-        if end:
-            kwargs["end"] = end
-        df = cached_download(ticker, **kwargs)
+        warmup_start = _warmup_start(start, interval)
+        if is_treasury_yield_ticker(ticker):
+            source_df = _fetch_treasury_yield_history(ticker, start=warmup_start, end=end or None)
+        else:
+            kwargs = {
+                "start": warmup_start,
+                "interval": source_interval,
+                "progress": False,
+            }
+            if end:
+                kwargs["end"] = end
+            source_df = cached_download(ticker, **kwargs)
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
-    if df.empty:
+    if source_df.empty:
         return jsonify({"error": f"No data for {ticker}"}), 400
 
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    if isinstance(source_df.columns, pd.MultiIndex):
+        source_df.columns = source_df.columns.get_level_values(0)
 
     # Remove duplicate index entries (can occur from cache merges)
-    df = df[~df.index.duplicated(keep="last")]
+    source_df = source_df[~source_df.index.duplicated(keep="last")]
+    if is_treasury_yield_ticker(ticker):
+        df = _derive_treasury_chart_frame(source_df, interval)
+    else:
+        df = _derive_chart_frame(source_df, interval)
 
     view_mask = _visible_mask(df.index, start, end)
     df_view = df.loc[view_mask].copy()
@@ -547,16 +833,24 @@ def chart_data():
             ("donchian", donch_direction), ("adx_trend", adx_direction),
             ("bb_breakout", bb_direction), ("keltner", kelt_direction),
             ("parabolic_sar", psar_direction), ("cci_trend", cci_direction),
-            ("regime_router", rr_direction), ("ribbon", ribbon_dir),
+            ("regime_router", rr_direction),
+            ("ribbon", ribbon_dir.where(ribbon_dir != 0, 1)),
         ]:
             date, d = last_trend_flip(dir_series)
             daily_flips[key] = {"date": date, "dir": d}
     else:
         try:
-            kwargs_d = {"start": _warmup_start(start, "1d"), "interval": "1d", "progress": False}
-            if end:
-                kwargs_d["end"] = end
-            df_d = cached_download(ticker, **kwargs_d)
+            if is_treasury_yield_ticker(ticker):
+                df_d = _fetch_treasury_yield_history(
+                    ticker,
+                    start=_warmup_start(start, "1d"),
+                    end=end or None,
+                )
+            else:
+                kwargs_d = {"start": _warmup_start(start, "1d"), "interval": "1d", "progress": False}
+                if end:
+                    kwargs_d["end"] = end
+                df_d = cached_download(ticker, **kwargs_d)
             if isinstance(df_d.columns, pd.MultiIndex):
                 df_d.columns = df_d.columns.get_level_values(0)
             if df_d.index.duplicated().any():
@@ -641,10 +935,22 @@ def chart_data():
     sma_200w = []
     weekly_flips = {}
     try:
-        kwargs_w = {"start": _warmup_start(start, "1wk"), "interval": "1wk", "progress": False}
-        if end:
-            kwargs_w["end"] = end
-        df_w = cached_download(ticker, **kwargs_w)
+        if is_treasury_yield_ticker(ticker):
+            df_w = _derive_treasury_chart_frame(
+                _fetch_treasury_yield_history(
+                    ticker,
+                    start=_warmup_start(start, "1wk"),
+                    end=end or None,
+                ),
+                "1wk",
+            )
+        elif source_interval == "1wk":
+            df_w = source_df.copy()
+        else:
+            kwargs_w = {"start": _warmup_start(start, "1wk"), "interval": "1wk", "progress": False}
+            if end:
+                kwargs_w["end"] = end
+            df_w = cached_download(ticker, **kwargs_w)
         if not df_w.empty:
             if isinstance(df_w.columns, pd.MultiIndex):
                 df_w.columns = df_w.columns.get_level_values(0)
@@ -670,7 +976,8 @@ def chart_data():
                     ("donchian", donch_direction), ("adx_trend", adx_direction),
                     ("bb_breakout", bb_direction), ("keltner", kelt_direction),
                     ("parabolic_sar", psar_direction), ("cci_trend", cci_direction),
-                    ("regime_router", rr_direction), ("ribbon", ribbon_dir),
+                    ("regime_router", rr_direction),
+                    ("ribbon", ribbon_dir.where(ribbon_dir != 0, 1)),
                 ]:
                     date, d = last_trend_flip(dir_series)
                     weekly_flips[key] = {"date": date, "dir": d}
@@ -793,6 +1100,7 @@ def chart_data():
 
     return jsonify(
         {
+            "ticker_name": ticker_name,
             "candles": candles,
             "supertrend_up": st_up,
             "supertrend_down": st_down,
@@ -880,42 +1188,56 @@ def watchlist_quotes():
     if cached is not None:
         return jsonify(cached)
 
-    # Map display names to yfinance symbols (e.g. IXIC -> ^IXIC)
-    yf_tickers = [normalize_ticker(t) for t in tickers]
+    treasury_tickers = [t for t in tickers if is_treasury_yield_ticker(t)]
+    market_tickers = [t for t in tickers if not is_treasury_yield_ticker(t)]
+    results_by_ticker = {}
 
-    results = []
-    try:
-        # Bulk download last 5 trading days — enough to get prev close
-        with _yf_lock:
-            df = yf.download(
-                yf_tickers,
-                period="5d",
-                interval="1d",
-                progress=False,
-                group_by="ticker",
-                threads=False,
-            )
-        for yf_ticker, display_ticker in zip(yf_tickers, tickers):
-            try:
-                if len(yf_tickers) == 1:
-                    tdf = df
-                else:
-                    tdf = df[yf_ticker]
-                if isinstance(tdf.columns, pd.MultiIndex):
-                    tdf.columns = tdf.columns.get_level_values(0)
-                tdf = tdf.dropna(subset=["Close"])
-                if len(tdf) < 2:
-                    raise ValueError("not enough data")
-                last = round(float(tdf["Close"].iloc[-1]), 2)
-                prev = round(float(tdf["Close"].iloc[-2]), 2)
-                chg = round(last - prev, 2)
-                chg_pct = round((chg / prev) * 100, 2) if prev else 0
-                results.append({"ticker": display_ticker, "last": last, "chg": chg, "chg_pct": chg_pct})
-            except Exception:
-                results.append({"ticker": display_ticker, "last": None, "chg": None, "chg_pct": None})
-    except Exception:
-        # Fallback: return empty quotes rather than error
-        results = [{"ticker": t, "last": None, "chg": None, "chg_pct": None} for t in tickers]
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _fetch_treasury_quote(ticker):
+        try:
+            history = _fetch_treasury_yield_history(ticker)
+            return ticker, _quote_from_frame(ticker, history)
+        except Exception:
+            return ticker, {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for ticker, quote in pool.map(_fetch_treasury_quote, treasury_tickers):
+            results_by_ticker[ticker] = quote
+
+    if market_tickers:
+        yf_tickers = [normalize_ticker(t) for t in market_tickers]
+        try:
+            # Bulk download last 5 trading days — enough to get prev close
+            df = _yf_rate_limited_download(
+                    yf_tickers,
+                    period="5d",
+                    interval="1d",
+                    progress=False,
+                    group_by="ticker",
+                    threads=False,
+                )
+            for yf_ticker, display_ticker in zip(yf_tickers, market_tickers):
+                try:
+                    if len(yf_tickers) == 1:
+                        tdf = df
+                    else:
+                        tdf = df[yf_ticker]
+                    if isinstance(tdf.columns, pd.MultiIndex):
+                        tdf.columns = tdf.columns.get_level_values(0)
+                    results_by_ticker[display_ticker] = _quote_from_frame(display_ticker, tdf)
+                except Exception:
+                    results_by_ticker[display_ticker] = {
+                        "ticker": display_ticker,
+                        "last": None,
+                        "chg": None,
+                        "chg_pct": None,
+                    }
+        except Exception:
+            for ticker in market_tickers:
+                results_by_ticker[ticker] = {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
+
+    results = [results_by_ticker.get(t, {"ticker": t, "last": None, "chg": None, "chg_pct": None}) for t in tickers]
 
     # Only cache if all quotes succeeded
     if all(r["last"] is not None for r in results):
@@ -926,6 +1248,7 @@ def watchlist_quotes():
 @app.route("/api/watchlist/quote/<ticker>")
 def watchlist_quote(ticker):
     """Get latest price for a single ticker."""
+    ticker = ticker.upper().strip()
     yf_ticker = normalize_ticker(ticker)
     cache_key = f"quote:{ticker}"
     cached = _cache_get(cache_key)
@@ -933,24 +1256,19 @@ def watchlist_quote(ticker):
         return jsonify(cached)
 
     try:
-        with _yf_lock:
-            df = yf.download(
-                yf_ticker,
-                period="5d",
-                interval="1d",
-                progress=False,
-                threads=False,
-            )
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-        df = df.dropna(subset=["Close"])
-        if len(df) < 2:
-            raise ValueError("not enough data")
-        last = round(float(df["Close"].iloc[-1]), 2)
-        prev = round(float(df["Close"].iloc[-2]), 2)
-        chg = round(last - prev, 2)
-        chg_pct = round((chg / prev) * 100, 2) if prev else 0
-        result = {"ticker": ticker, "last": last, "chg": chg, "chg_pct": chg_pct}
+        if is_treasury_yield_ticker(ticker):
+            df = _fetch_treasury_yield_history(ticker)
+        else:
+            df = _yf_rate_limited_download(
+                    yf_ticker,
+                    period="5d",
+                    interval="1d",
+                    progress=False,
+                    threads=False,
+                )
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+        result = _quote_from_frame(ticker, df)
     except Exception:
         result = {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
 
@@ -958,6 +1276,62 @@ def watchlist_quote(ticker):
     if result["last"] is not None:
         _cache_set(cache_key, result)
     return jsonify(result)
+
+
+@app.route("/api/financials")
+def financials_data():
+    ticker = request.args.get("ticker", "").upper().strip()
+    if not ticker:
+        return jsonify({"error": "No ticker provided"}), 400
+
+    if is_treasury_yield_ticker(ticker):
+        meta = _TREASURY_YIELD_SERIES[ticker]
+        return jsonify(
+            {
+                "available": False,
+                "message": "Detailed company financials are not available for Treasury yield series.",
+                "overview": {
+                    "ticker": ticker,
+                    "yf_ticker": ticker,
+                    "ticker_name": meta["name"],
+                    "currency": None,
+                    "quote_type": "treasury_yield",
+                    "company_line": None,
+                    "website": None,
+                    "summary": None,
+                },
+                "sections": [],
+            }
+        )
+
+    normalized_ticker = normalize_ticker(ticker)
+    cache_key = f"financials:{normalized_ticker}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return jsonify(cached)
+
+    try:
+        info = _get_cached_ticker_info(normalized_ticker)
+        payload = _build_financials_payload(ticker, normalized_ticker, info)
+    except Exception as exc:
+        payload = {
+            "available": False,
+            "message": f"Financial data is unavailable right now: {exc}",
+            "overview": {
+                "ticker": ticker,
+                "yf_ticker": normalized_ticker,
+                "ticker_name": ticker,
+                "currency": None,
+                "quote_type": None,
+                "company_line": None,
+                "website": None,
+                "summary": None,
+            },
+            "sections": [],
+        }
+
+    _cache_set(cache_key, payload, ttl=_FINANCIALS_CACHE_TTL)
+    return jsonify(payload)
 
 
 def detect_regime(df, ema_period=21, atr_period=10, adx_period=14, confirm_bars=3):

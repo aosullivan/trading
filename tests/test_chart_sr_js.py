@@ -74,7 +74,7 @@ return helpers.selectVisibleLevels(levels, 'support', candles, { from: 0, to: 3 
         )
         assert [level["price"] for level in result] == [6127.27]
 
-    def test_select_visible_levels_orders_by_recent_touch_before_window_end(self):
+    def test_select_visible_levels_prefers_nearer_levels_when_strength_is_similar(self):
         result = run_js(
             """
 const candles = [
@@ -91,6 +91,25 @@ return helpers.selectVisibleLevels(levels, 'support', candles, { from: 0, to: 3 
 """
         )
         assert [level["price"] for level in result] == [6127.27, 5900]
+
+    def test_select_visible_levels_prefers_nearby_structural_support_over_lower_fresher_shelf(self):
+        result = run_js(
+            """
+const candles = [
+  { time: 100, low: 15000, high: 20500 },
+  { time: 200, low: 16000, high: 21500 },
+  { time: 300, low: 17000, high: 23500 },
+  { time: 400, low: 16500, high: 22500 },
+];
+const levels = [
+  { type: 'support', price: 20050.01, zone_low: 19877.43, zone_high: 20222.60, touches: 5, respect: 1.0, touch_times: [180, 220, 260, 300, 320], pivot_times: [220, 320] },
+  { type: 'support', price: 18717.71, zone_low: 18545.13, zone_high: 18890.29, touches: 4, respect: 0.67, touch_times: [240, 260, 360, 390], pivot_times: [] },
+  { type: 'support', price: 15501.81, zone_low: 15329.23, zone_high: 15674.40, touches: 10, respect: 0.62, touch_times: [120, 150, 180, 210, 240, 270, 300, 330, 340, 350], pivot_times: [150] },
+];
+return helpers.selectVisibleLevels(levels, 'support', candles, { from: 0, to: 3 }, 21746.96, { bufferRatio: 0.12, maxVisible: 2 });
+"""
+        )
+        assert [level["price"] for level in result] == [20050.01, 18717.71]
 
     def test_get_level_render_start_time_prefers_latest_pivot_before_visible_end(self):
         result = run_js(

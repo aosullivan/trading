@@ -4,6 +4,13 @@ from scipy.signal import find_peaks
 from scipy.stats import gaussian_kde
 
 
+def body_extremes(df):
+    """Return candle-body highs/lows, ignoring wick extremes."""
+    opens = df["Open"].to_numpy(dtype=float)
+    closes = df["Close"].to_numpy(dtype=float)
+    return np.maximum(opens, closes), np.minimum(opens, closes)
+
+
 def classify_level_type(level_price, current_price, zone_width, sup_bounces, res_bounces):
     """Classify a level relative to current price and recent bounce behavior."""
     if abs(level_price - current_price) <= zone_width:
@@ -16,19 +23,19 @@ def classify_level_type(level_price, current_price, zone_width, sup_bounces, res
 
 
 def compute_support_resistance(df, max_levels=8):
-    """Detect support/resistance levels using KDE on swing pivots."""
-    highs = df["High"].values
-    lows = df["Low"].values
+    """Detect support/resistance levels using KDE on candle-body swing pivots."""
+    body_highs, body_lows = body_extremes(df)
     closes = df["Close"].values
     volumes = df["Volume"].values if "Volume" in df.columns else np.ones(len(df))
     timestamps = [int(t.timestamp()) for t in df.index]
-    n = len(highs)
+    n = len(body_highs)
     if n < 30:
         return []
 
     current_price = float(closes[-1])
 
-    atr_series = (df["High"] - df["Low"]).rolling(14).mean()
+    body_range = pd.Series(body_highs - body_lows, index=df.index)
+    atr_series = body_range.rolling(14).mean()
     atr = float(atr_series.iloc[-1]) if not pd.isna(atr_series.iloc[-1]) else 0
     if atr == 0:
         atr = current_price * 0.02
@@ -37,12 +44,12 @@ def compute_support_resistance(df, max_levels=8):
     pivots = []
     pivot_details = []
     for i in range(window, n - window):
-        if highs[i] == max(highs[i - window : i + window + 1]):
-            pivots.append(highs[i])
-            pivot_details.append((highs[i], i))
-        if lows[i] == min(lows[i - window : i + window + 1]):
-            pivots.append(lows[i])
-            pivot_details.append((lows[i], i))
+        if body_highs[i] == max(body_highs[i - window : i + window + 1]):
+            pivots.append(body_highs[i])
+            pivot_details.append((body_highs[i], i))
+        if body_lows[i] == min(body_lows[i - window : i + window + 1]):
+            pivots.append(body_lows[i])
+            pivot_details.append((body_lows[i], i))
 
     if len(pivots) < 4:
         return []
@@ -70,21 +77,21 @@ def compute_support_resistance(df, max_levels=8):
         breaks = 0
 
         for i in range(1, n - 1):
-            in_zone_low = abs(lows[i] - level_price) < zone_width
-            in_zone_high = abs(highs[i] - level_price) < zone_width
+            in_zone_low = abs(body_lows[i] - level_price) < zone_width
+            in_zone_high = abs(body_highs[i] - level_price) < zone_width
 
             if not (in_zone_low or in_zone_high):
                 continue
 
             if in_zone_low and closes[i] >= level_price - zone_width:
-                next_reversed = closes[i + 1] >= closes[i] or lows[i + 1] > lows[i]
+                next_reversed = closes[i + 1] >= closes[i] or body_lows[i + 1] > body_lows[i]
                 if next_reversed:
                     sup_bounces.append(i)
                 else:
                     breaks += 1
 
             if in_zone_high and closes[i] <= level_price + zone_width:
-                next_reversed = closes[i + 1] <= closes[i] or highs[i + 1] < highs[i]
+                next_reversed = closes[i + 1] <= closes[i] or body_highs[i + 1] < body_highs[i]
                 if next_reversed:
                     res_bounces.append(i)
                 else:

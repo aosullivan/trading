@@ -97,6 +97,10 @@ class TestWatchlistUI:
         items = browser_page.locator(".wl-row")
         assert items.count() > 0
 
+    def test_treasury_tab_visible(self, browser_page):
+        tab = browser_page.locator(".wl-tab", has_text="Treasury")
+        expect(tab).to_be_visible()
+
     def test_add_ticker_input_exists(self, browser_page):
         inp = browser_page.locator("#wl-input")
         expect(inp).to_be_visible()
@@ -165,7 +169,7 @@ class TestToolbarControls:
         select = browser_page.locator("#interval")
         expect(select).to_be_visible()
         options = select.locator("option")
-        assert options.count() == 2
+        assert options.count() == 3
 
     def test_supertrend_param_inputs(self, browser_page):
         period = browser_page.locator("#period")
@@ -179,3 +183,35 @@ class TestToolbarControls:
         btn = browser_page.locator("#load-btn")
         expect(btn).to_be_visible()
         expect(btn).to_have_text("Load")
+
+    def test_financials_button_visible(self, browser_page):
+        btn = browser_page.locator("#financials-btn")
+        expect(btn).to_be_visible()
+        expect(btn).to_have_text("Financials")
+
+    def test_financials_modal_opens(self, browser_page):
+        btn = browser_page.locator("#financials-btn")
+        btn.click()
+        modal = browser_page.locator("#financials-modal")
+        expect(modal).to_have_class(re.compile(r"\bopen\b"))
+        expect(browser_page.locator("#financials-title")).to_contain_text("TSLA")
+        browser_page.locator(".fin-close").click()
+        expect(modal).not_to_have_class(re.compile(r"\bopen\b"))
+
+
+class TestTrendFlipPulse:
+    def test_trend_flip_pulse_opens(self, browser_page):
+        st_chip = browser_page.locator(".chip", has_text="Supertrend")
+        if "on" not in (st_chip.get_attribute("class") or ""):
+            st_chip.click()
+
+        btn = browser_page.locator("#trend-flip-aggregate-btn")
+        expect(btn).to_be_visible()
+        expect(btn).to_contain_text("Pulse")
+
+        btn.click()
+        pop = browser_page.locator("#trend-flip-aggregate-popover")
+        expect(pop).to_have_class(re.compile(r"\bopen\b"))
+        expect(pop).to_contain_text("Signal Pulse")
+        expect(pop).to_contain_text("Daily")
+        expect(pop).to_contain_text("Weekly")

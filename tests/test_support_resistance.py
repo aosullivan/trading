@@ -1,6 +1,8 @@
+import numpy as np
+import pandas as pd
 from unittest.mock import patch
 
-from support_resistance import classify_level_type, compute_support_resistance
+from support_resistance import body_extremes, classify_level_type, compute_support_resistance
 
 
 class TestSupportResistanceClassification:
@@ -36,6 +38,21 @@ class TestSupportResistanceClassification:
 
 
 class TestSupportResistanceDetection:
+    def test_body_extremes_ignore_wicks(self):
+        df = pd.DataFrame(
+            {
+                "Open": [100, 108],
+                "High": [115, 118],
+                "Low": [90, 92],
+                "Close": [105, 102],
+            }
+        )
+
+        body_highs, body_lows = body_extremes(df)
+
+        assert list(body_highs) == [105, 108]
+        assert list(body_lows) == [100, 102]
+
     def test_returns_zone_bounds_and_respects_limit(self, sample_df):
         levels = compute_support_resistance(sample_df, max_levels=4)
         assert len(levels) == 4
@@ -48,6 +65,64 @@ class TestSupportResistanceDetection:
 
     def test_returns_empty_for_short_series(self, small_df):
         assert compute_support_resistance(small_df.head(25), max_levels=5) == []
+
+    def test_support_levels_anchor_to_candle_bodies_not_long_lower_wicks(self):
+        dates = pd.date_range("2023-01-06", periods=60, freq="W-FRI")
+        rows = []
+        support_touch_indices = {10, 20, 30, 40, 50}
+        resistance_touch_indices = {15, 25, 35, 45, 55}
+
+        for i, dt in enumerate(dates):
+            base = 111 + np.sin(i / 5) * 3
+            open_price = base - 0.6
+            close_price = base + 0.6
+            low = min(open_price, close_price) - 1.2
+            high = max(open_price, close_price) + 1.2
+
+            if i in support_touch_indices:
+                open_price = 101.8
+                close_price = 100.6
+                low = 89.5
+                high = 108.5
+            elif i - 1 in support_touch_indices or i + 1 in support_touch_indices:
+                open_price = 106.5
+                close_price = 105.2
+                low = 103.8
+                high = 110.5
+
+            if i in resistance_touch_indices:
+                open_price = 118.2
+                close_price = 119.4
+                low = 112.0
+                high = 131.0
+            elif i - 1 in resistance_touch_indices or i + 1 in resistance_touch_indices:
+                open_price = 113.8
+                close_price = 115.1
+                low = 111.5
+                high = 117.5
+
+            rows.append(
+                {
+                    "Open": open_price,
+                    "High": high,
+                    "Low": low,
+                    "Close": close_price,
+                    "Volume": 1_000_000 + i * 10_000,
+                }
+            )
+
+        df = pd.DataFrame(rows, index=dates)
+
+        levels = compute_support_resistance(df, max_levels=8)
+        supports = [level for level in levels if level["type"] == "support"]
+
+        assert supports, "Expected to detect at least one support level"
+        nearest_support = max(
+            (level for level in supports if level["price"] < float(df["Close"].iloc[-1])),
+            key=lambda level: level["price"],
+        )
+        assert nearest_support["price"] > 97
+        assert nearest_support["price"] < 106
 
 
 class TestSupportResistanceRoutePayload:

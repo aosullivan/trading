@@ -63,6 +63,9 @@ def compute_all_trend_flips(src_df, period_val=10, multiplier_val=3):
     for key, compute_dir in computations:
         try:
             dir_series = compute_dir(src_df)
+            # Ribbon uses d>=0 as bullish visually; remap 0→1 to match
+            if key == "ribbon":
+                dir_series = dir_series.where(dir_series != 0, 1)
             date, direction = last_trend_flip(dir_series)
             flips[key] = {"date": date, "dir": direction}
         except Exception:

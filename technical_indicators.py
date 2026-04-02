@@ -274,50 +274,61 @@ def compute_trend_ribbon(
     df,
     ema_period=21,
     atr_period=14,
-    adx_period=14,
-    min_width=0.5,
+    fast_period=8,
+    slow_period=34,
+    smooth_period=5,
     max_width=3.0,
+    min_width=0.5,
+    adx_period=14,
 ):
-    """Compute a trend-strength ribbon."""
+    """Compute a trend-strength ribbon that tapers before flipping direction.
+
+    Uses the normalized distance between fast and slow EMAs as a continuous
+    trend score.  The ribbon width is proportional to ``|trend_score|``, so
+    it naturally narrows to zero before the colour changes — the direction
+    can only flip *after* the trend has weakened to nothing.
+    """
     close = df["Close"]
     high = df["High"]
     low = df["Low"]
 
     center = close.ewm(span=ema_period, adjust=False).mean()
 
+    # ATR for normalisation and band sizing
     hl = high - low
     hc = (high - close.shift(1)).abs()
     lc = (low - close.shift(1)).abs()
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
     atr = tr.ewm(alpha=1 / atr_period, min_periods=atr_period, adjust=False).mean()
 
-    plus_dm = high.diff()
-    minus_dm = -low.diff()
-    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
-    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
-    atr_adx = tr.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-    plus_di = 100 * (
-        plus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-        / atr_adx
-    )
-    minus_di = 100 * (
-        minus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-        / atr_adx
-    )
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
+    # Continuous trend score: normalized fast/slow EMA separation
+    fast_ema = close.ewm(span=fast_period, adjust=False).mean()
+    slow_ema = close.ewm(span=slow_period, adjust=False).mean()
+    raw_trend = (fast_ema - slow_ema) / atr  # positive = bullish, negative = bearish
 
-    strength = (adx / 60).clip(0, 1)
-    width_mult = min_width + (max_width - min_width) * strength
+    # Smooth to prevent whipsaws — trend must genuinely reverse
+    trend_score = raw_trend.ewm(span=smooth_period, adjust=False).mean()
+
+    # Normalize to [-1, 1] using a rolling window of the max absolute value
+    lookback = max(slow_period * 4, 100)
+    rolling_max = trend_score.abs().rolling(window=lookback, min_periods=1).max()
+    rolling_max = rolling_max.replace(0, 1)  # avoid division by zero
+    strength = (trend_score / rolling_max).clip(-1, 1)
+
+    # Direction only flips when trend_score crosses zero — cannot flip
+    # while ribbon is still wide
+    direction = pd.Series(0, index=df.index, dtype=int)
+    direction[strength > 0] = 1
+    direction[strength < 0] = -1
+
+    # Ribbon width proportional to |strength| — tapers to zero at crossover
+    abs_strength = strength.abs()
+    width_mult = min_width + (max_width - min_width) * abs_strength
     half_width = atr * width_mult / 2
     upper = center + half_width
     lower = center - half_width
 
-    direction = pd.Series(0, index=df.index, dtype=int)
-    direction[center > center.shift(1)] = 1
-    direction[center < center.shift(1)] = -1
-
-    return center, upper, lower, strength, direction
+    return center, upper, lower, abs_strength, direction
 
 
 def detect_regime(df, ema_period=21, atr_period=10, adx_period=14, confirm_bars=3):

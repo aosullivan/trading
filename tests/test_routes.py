@@ -63,6 +63,31 @@ class TestWatchlistAPI:
         resp = client.delete("/api/watchlist", json={"ticker": "ZZZZ"})
         assert resp.status_code == 200
 
+    @patch("app._fetch_treasury_yield_history")
+    def test_watchlist_quotes_support_treasury_yields(self, mock_history, client):
+        import app as app_module
+
+        with open(app_module.WATCHLIST_FILE, "w") as f:
+            json.dump(["UST10Y"], f)
+
+        dates = pd.bdate_range("2024-01-01", periods=5)
+        values = np.array([4.1, 4.15, 4.08, 4.12, 4.2])
+        mock_history.return_value = pd.DataFrame(
+            {
+                "Open": values,
+                "High": values,
+                "Low": values,
+                "Close": values,
+                "Volume": np.zeros(len(values)),
+            },
+            index=dates,
+        )
+
+        resp = client.get("/api/watchlist/quotes")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data == [{"ticker": "UST10Y", "last": 4.2, "chg": 0.08, "chg_pct": 1.94}]
+
 
 class TestChartAPI:
     @patch("app.yf.download")
@@ -131,6 +156,148 @@ class TestChartAPI:
             assert key in strategies, f"Missing strategy: {key}"
             assert "trades" in strategies[key]
             assert "summary" in strategies[key]
+
+    @patch("app.yf.Ticker")
+    @patch("app.yf.download")
+    def test_chart_monthly_view_derives_from_weekly_data(self, mock_download, mock_ticker, client):
+        weekly_dates = pd.date_range("2023-09-01", periods=40, freq="W-FRI")
+        weekly_close = np.linspace(100, 140, len(weekly_dates))
+        weekly_df = pd.DataFrame(
+            {
+                "Open": weekly_close - 1,
+                "High": weekly_close + 2,
+                "Low": weekly_close - 3,
+                "Close": weekly_close,
+                "Volume": np.full(len(weekly_dates), 2_000_000),
+            },
+            index=weekly_dates,
+        )
+        daily_dates = pd.bdate_range("2023-09-01", periods=180)
+        daily_close = np.linspace(95, 145, len(daily_dates))
+        daily_df = pd.DataFrame(
+            {
+                "Open": daily_close - 0.5,
+                "High": daily_close + 1.5,
+                "Low": daily_close - 1.5,
+                "Close": daily_close,
+                "Volume": np.full(len(daily_dates), 1_500_000),
+            },
+            index=daily_dates,
+        )
+
+        def download_side_effect(*args, **kwargs):
+            interval = kwargs.get("interval")
+            if interval == "1wk":
+                return weekly_df
+            if interval == "1d":
+                return daily_df
+            raise AssertionError(f"Unexpected download interval: {interval}")
+
+        mock_download.side_effect = download_side_effect
+        mock_ticker.return_value.info = {}
+
+        resp = client.get("/api/chart?ticker=TSLA&interval=1mo&start=2023-09-01")
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+        expected_monthly = (
+            weekly_df.resample("ME")
+            .agg({"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"})
+            .dropna(subset=["Open", "High", "Low", "Close"])
+        )
+        assert len(data["candles"]) == len(expected_monthly)
+        assert data["candles"][0]["open"] == round(float(expected_monthly["Open"].iloc[0]), 2)
+        assert data["candles"][0]["close"] == round(float(expected_monthly["Close"].iloc[0]), 2)
+
+        requested_intervals = [call.kwargs.get("interval") for call in mock_download.call_args_list]
+        assert "1mo" not in requested_intervals
+        assert "1wk" in requested_intervals
+
+    @patch("app._fetch_treasury_yield_history")
+    def test_chart_supports_treasury_yield_series(self, mock_history, client):
+        dates = pd.bdate_range("2023-01-01", periods=260)
+        values = np.linspace(3.5, 4.5, len(dates))
+        mock_history.return_value = pd.DataFrame(
+            {
+                "Open": values,
+                "High": values,
+                "Low": values,
+                "Close": values,
+                "Volume": np.zeros(len(values)),
+            },
+            index=dates,
+        )
+
+        resp = client.get("/api/chart?ticker=UST10Y&start=2023-01-01")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ticker_name"] == "10-Year Treasury Yield"
+        assert len(data["candles"]) == len(dates)
+        assert data["candles"][0]["close"] == round(float(values[0]), 2)
+
+
+class TestFinancialsAPI:
+    @patch("app._get_cached_ticker_info")
+    def test_financials_returns_sections(self, mock_info, client):
+        mock_info.return_value = {
+            "shortName": "Tesla, Inc.",
+            "currency": "USD",
+            "quoteType": "EQUITY",
+            "sector": "Consumer Cyclical",
+            "industry": "Auto Manufacturers",
+            "website": "https://www.tesla.com",
+            "longBusinessSummary": "Tesla designs and sells EVs.",
+            "trailingPE": 61.2,
+            "forwardPE": 54.4,
+            "marketCap": 900_000_000_000,
+            "enterpriseValue": 925_000_000_000,
+            "totalRevenue": 98_000_000_000,
+            "freeCashflow": 6_000_000_000,
+            "grossMargins": 0.18,
+            "operatingMargins": 0.11,
+            "profitMargins": 0.09,
+            "returnOnEquity": 0.22,
+            "returnOnAssets": 0.08,
+            "revenueGrowth": 0.17,
+            "earningsGrowth": 0.14,
+            "currentRatio": 1.8,
+            "quickRatio": 1.3,
+            "debtToEquity": 17.5,
+            "beta": 2.1,
+        }
+
+        resp = client.get("/api/financials?ticker=TSLA")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["available"] is True
+        assert data["overview"]["ticker_name"] == "Tesla, Inc."
+        section_titles = [section["title"] for section in data["sections"]]
+        assert "Valuation" in section_titles
+        assert "Scale" in section_titles
+        assert any(metric["label"] == "Trailing P/E" for metric in data["sections"][0]["metrics"])
+
+    @patch("app._get_cached_ticker_info")
+    def test_financials_endpoint_uses_cache(self, mock_info, client):
+        mock_info.return_value = {
+            "shortName": "Tesla, Inc.",
+            "currency": "USD",
+            "quoteType": "EQUITY",
+            "trailingPE": 61.2,
+        }
+
+        first = client.get("/api/financials?ticker=TSLA")
+        second = client.get("/api/financials?ticker=TSLA")
+
+        assert first.status_code == 200
+        assert second.status_code == 200
+        mock_info.assert_called_once_with("TSLA")
+
+    def test_financials_unavailable_for_treasury_series(self, client):
+        resp = client.get("/api/financials?ticker=UST10Y")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["available"] is False
+        assert "Treasury yield series" in data["message"]
 
 
 class TestChartOverlays:
@@ -352,3 +519,40 @@ class TestHelperFunctions:
         result = _warmup_start("2024-06-01", "1wk")
         expected = pd.Timestamp("2024-06-01") - pd.Timedelta(days=WEEKLY_WARMUP_DAYS)
         assert result == expected.strftime("%Y-%m-%d")
+
+    def test_warmup_start_monthly_uses_weekly_warmup(self):
+        from app import _warmup_start, WEEKLY_WARMUP_DAYS
+        result = _warmup_start("2024-06-01", "1mo")
+        expected = pd.Timestamp("2024-06-01") - pd.Timedelta(days=WEEKLY_WARMUP_DAYS)
+        assert result == expected.strftime("%Y-%m-%d")
+
+    def test_source_interval_maps_monthly_to_weekly(self):
+        from app import _source_interval
+
+        assert _source_interval("1mo") == "1wk"
+        assert _source_interval("1d") == "1d"
+
+    def test_derive_chart_frame_monthly_resamples_ohlcv(self):
+        from app import _derive_chart_frame
+
+        weekly_dates = pd.to_datetime(
+            ["2024-01-05", "2024-01-12", "2024-01-19", "2024-02-02", "2024-02-09"]
+        )
+        weekly_df = pd.DataFrame(
+            {
+                "Open": [10, 11, 12, 20, 21],
+                "High": [15, 16, 18, 25, 27],
+                "Low": [9, 10, 11, 18, 19],
+                "Close": [11, 12, 13, 21, 22],
+                "Volume": [100, 110, 120, 200, 210],
+            },
+            index=weekly_dates,
+        )
+
+        monthly_df = _derive_chart_frame(weekly_df, "1mo")
+
+        assert list(monthly_df["Open"]) == [10, 20]
+        assert list(monthly_df["High"]) == [18, 27]
+        assert list(monthly_df["Low"]) == [9, 18]
+        assert list(monthly_df["Close"]) == [13, 22]
+        assert list(monthly_df["Volume"]) == [330, 410]

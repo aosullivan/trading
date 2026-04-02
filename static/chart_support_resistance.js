@@ -110,6 +110,40 @@
     return priorTimes.length ? Math.max(...priorTimes) : Math.max(...times);
   }
 
+  function getLevelBounds(level) {
+    const low = Number.isFinite(level == null ? void 0 : level.zone_low) ? level.zone_low : level == null ? void 0 : level.price;
+    const high = Number.isFinite(level == null ? void 0 : level.zone_high) ? level.zone_high : level == null ? void 0 : level.price;
+    return {
+      low,
+      high,
+      center: Number.isFinite(level == null ? void 0 : level.price) ? level.price : (low + high) / 2,
+    };
+  }
+
+  function levelDistanceFromCurrent(level, type, currentPrice) {
+    const { low, high, center } = getLevelBounds(level);
+    if (!Number.isFinite(currentPrice)) {
+      return Number.POSITIVE_INFINITY;
+    }
+    if (type === "support") {
+      const anchor = Number.isFinite(high) ? high : center;
+      return Math.max(0, currentPrice - anchor);
+    }
+    if (type === "resistance") {
+      const anchor = Number.isFinite(low) ? low : center;
+      return Math.max(0, anchor - currentPrice);
+    }
+    return Math.abs(currentPrice - center);
+  }
+
+  function levelStrength(level) {
+    const { pivotTimes, touchTimes } = getLevelEventTimes(level);
+    const touches = Number(level == null ? void 0 : level.touches) || 0;
+    const respect = Number.isFinite(level == null ? void 0 : level.respect) ? level.respect : 0.5;
+    const pivotBonus = Math.min(pivotTimes.length, 4) * 0.35;
+    return Math.max(touches, touchTimes.length) * Math.max(0.25, respect) + pivotBonus;
+  }
+
   function selectVisibleLevels(levels, type, candles, logicalRange, currentPrice, options) {
     const resolvedOptions = options || {};
     const bufferRatio = resolvedOptions.bufferRatio ?? 0.12;
@@ -121,6 +155,14 @@
       .filter((level) => levelIsOnExpectedSide(level, type, currentPrice))
       .filter((level) => levelAffectsAutoscale(level, visibleRange, bufferRatio))
       .sort((left, right) => {
+        const distanceDelta = levelDistanceFromCurrent(left, type, currentPrice) - levelDistanceFromCurrent(right, type, currentPrice);
+        if (distanceDelta !== 0) {
+          return distanceDelta;
+        }
+        const strengthDelta = levelStrength(right) - levelStrength(left);
+        if (strengthDelta !== 0) {
+          return strengthDelta;
+        }
         const recencyDelta = recencyBeforeVisible(left, bounds) - recencyBeforeVisible(right, bounds);
         if (recencyDelta !== 0) {
           return recencyDelta;
