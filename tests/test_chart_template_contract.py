@@ -116,7 +116,11 @@ def test_backtest_equity_chart_renders_buy_hold_comparison_series():
     assert "btHoldSeries.setData(holdPoints||[]);" in panel_source
     assert "btEquitySeries.setMarkers(buildBTTradeMarkers(trades));" in panel_source
     assert "Buy &amp; Hold" in partial_source
-    assert "renderEquityCurve(s.equity_curve||[],lastData.buy_hold_equity_curve||[],s.trades||[]);" in load_source
+    compact_load_source = "".join(load_source.split())
+    assert (
+        "renderEquityCurve(s.equity_curve||[],lastData.buy_hold_equity_curve||[],s.trades||[]);"
+        in compact_load_source
+    )
 
 
 def test_moving_average_legend_exposes_auto_and_100w_options():

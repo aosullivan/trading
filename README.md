@@ -5,7 +5,7 @@ Local backtesting and charting tool for stocks, crypto, and ETFs. Built with Fla
 ## Setup
 
 ```bash
-python -m venv venv
+python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -14,10 +14,23 @@ pip install -r requirements.txt
 
 ```bash
 source venv/bin/activate
-python app.py
+python3 app.py
 ```
 
 Opens at http://localhost:5050
+
+## macOS App
+
+Build a local `.app` bundle:
+
+```bash
+./scripts/build_macos_app.sh
+```
+
+Then open `dist/TriedingView.app` from Finder.
+
+The desktop build stores watchlist and cache files in
+`~/Library/Application Support/TriedingView`.
 
 ## Features
 
@@ -25,7 +38,7 @@ Opens at http://localhost:5050
 
 - Interactive candlestick charts with TradingView's Lightweight Charts
 - Daily, weekly, and monthly intervals
-- Overlay toggles: Supertrend, Auto MA, SMA 50/100/200, 50W/100W/200W MA, EMA 9/21, MACD
+- Overlay toggles: Supertrend, Auto MA, SMA 50/100/200, 50W/100W/200W MA, EMA 5/20, MACD
 - Backtest panel with full trade history, metrics, and strategy comparison
 - Watchlist with live quotes, sorting, and click-to-load
 
@@ -33,16 +46,16 @@ Opens at http://localhost:5050
 
 | # | Strategy | Description |
 |---|----------|-------------|
-| 1 | Supertrend | ATR-based trend bands (period=10, multiplier=3) |
-| 2 | EMA 9/21 Cross | Fast/slow EMA crossover |
-| 3 | MACD Signal | MACD/signal line crossover (12/26/9) |
-| 4 | MA Confirm (200/3) | Price above 200 SMA for 3 consecutive candles |
-| 5 | Donchian (20) | 20-period high/low channel breakout |
+| 1 | MA Confirm (180/1 up/5 down) | 1 close above 180 SMA to enter; 5 consecutive closes below 180 SMA to exit |
+| 2 | Supertrend (10/2.5) | ATR-based trend bands (period=10, multiplier=2.5) |
+| 3 | EMA 5/20 Cross | Fast/slow EMA crossover |
+| 4 | MACD Signal (16/32/9) | MACD/signal line crossover |
+| 5 | Donchian (10) | 10-period high/low channel breakout |
 | 6 | ADX Trend (14/25) | +DI/-DI direction when ADX > 25 |
-| 7 | Bollinger Breakout | Close breaks above upper Bollinger Band (20/2) |
-| 8 | Keltner Breakout | Close breaks above upper Keltner Channel (EMA 20, ATR 10, mult 1.5) |
-| 9 | Parabolic SAR | Classic SAR flip (af=0.02, max=0.2) |
-| 10 | CCI Trend (20/100) | CCI above +100 = long, below -100 = short |
+| 7 | Bollinger Breakout (30/1.5) | Close breaks above upper Bollinger Band |
+| 8 | Keltner Breakout (30/10/1.5) | Close breaks above upper Keltner Channel |
+| 9 | Parabolic SAR (0.01/0.01/0.1) | SAR flip with smoother AF settings |
+| 10 | CCI Trend (30/80) | CCI above +80 = long, below -80 = short |
 
 All strategies output a direction signal (1=long, -1=short/flat) and use the same `backtest_direction()` engine.
 

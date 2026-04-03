@@ -6,6 +6,7 @@ import pytest
 
 from lib.backtesting import (
     backtest_direction,
+    backtest_ribbon_accumulation,
     backtest_supertrend,
     build_buy_hold_equity_curve,
     build_equity_curve,
@@ -130,6 +131,102 @@ class TestBacktestSupertrend:
         trades2, summary2, eq2 = backtest_direction(sample_df, direction)
         assert trades1 == trades2
         assert summary1 == summary2
+
+
+class TestBacktestRibbonAccumulation:
+    def test_daily_then_weekly_bullish_flips_add_capital(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 100, 100, 100],
+                "High": [101, 101, 101, 101],
+                "Low": [99, 99, 99, 99],
+                "Close": [100, 100, 100, 100],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        daily = pd.Series([1, 1, 1, 1], index=idx)
+        weekly = pd.Series([1, 1, 1, 1], index=idx)
+
+        trades, summary, equity, hold_equity = backtest_ribbon_accumulation(
+            df,
+            daily,
+            weekly,
+            prior_daily_direction=-1,
+            prior_weekly_direction=-1,
+        )
+
+        assert summary["initial_capital"] == 19000.0
+        assert summary["ending_equity"] == 19000.0
+        assert summary["total_trades"] == 0
+        assert summary["open_trades"] == 3
+        assert len(equity) == len(df)
+        assert hold_equity[-1]["value"] == 19000.0
+        assert sorted(t["quantity"] for t in trades if t.get("open")) == [30.0, 60.0, 100.0]
+
+    def test_bearish_daily_then_weekly_flips_scale_out(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 100, 100, 100],
+                "High": [101, 101, 101, 101],
+                "Low": [99, 99, 99, 99],
+                "Close": [100, 100, 100, 100],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        daily = pd.Series([-1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, -1, -1, -1], index=idx)
+
+        trades, summary, equity, hold_equity = backtest_ribbon_accumulation(
+            df,
+            daily,
+            weekly,
+            prior_daily_direction=1,
+            prior_weekly_direction=1,
+        )
+
+        closed_qty = sum(t["quantity"] for t in trades if not t.get("open"))
+        open_qty = sum(t["quantity"] for t in trades if t.get("open"))
+
+        assert summary["initial_capital"] == 10000.0
+        assert summary["total_trades"] == 2
+        assert summary["open_trades"] == 1
+        assert closed_qty == pytest.approx(62.5)
+        assert open_qty == pytest.approx(37.5)
+        assert equity[-1]["value"] == 10000.0
+        assert hold_equity[-1]["value"] == 10000.0
+
+    def test_external_adds_stop_at_max_capital(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 100, 100, 100],
+                "High": [101, 101, 101, 101],
+                "Low": [99, 99, 99, 99],
+                "Close": [100, 100, 100, 100],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        daily = pd.Series([1, 1, 1, 1], index=idx)
+        weekly = pd.Series([1, 1, 1, 1], index=idx)
+
+        trades, summary, equity, hold_equity = backtest_ribbon_accumulation(
+            df,
+            daily,
+            weekly,
+            prior_daily_direction=-1,
+            prior_weekly_direction=-1,
+            max_capital=16000,
+        )
+
+        assert summary["initial_capital"] == 16000.0
+        assert summary["ending_equity"] == 16000.0
+        assert sum(t["quantity"] for t in trades if t.get("open")) == pytest.approx(160.0)
+        assert hold_equity[-1]["value"] == 16000.0
 
 
 class TestEquityCurve:

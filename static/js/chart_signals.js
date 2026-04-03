@@ -50,7 +50,7 @@ document.addEventListener('click',()=>{
 });
 
 const activeSignals=new Set();
-const flipOrder=['ribbon','supertrend','ema_crossover','macd','ma_confirm','donchian','adx_trend','bb_breakout','keltner','parabolic_sar','cci_trend','regime_router'];
+const flipOrder=['ribbon','ma_confirm','supertrend','ema_crossover','macd','donchian','adx_trend','bb_breakout','keltner','parabolic_sar','cci_trend','regime_router'];
 const flipOrderRank=Object.fromEntries(flipOrder.map((key,idx)=>[key,idx]));
 const flipLabels={pulse:'Pulse',supertrend:'ST',ema_crossover:'EMA',macd:'MACD',ma_confirm:'MA',donchian:'Donch',adx_trend:'ADX',bb_breakout:'BB',keltner:'Kelt',parabolic_sar:'SAR',cci_trend:'CCI',regime_router:'RR',ribbon:'Trend'};
 const flipNames={supertrend:'Supertrend',ema_crossover:'EMA Cross',macd:'MACD',ma_confirm:'MA Confirm',donchian:'Donchian',adx_trend:'ADX',bb_breakout:'BB Breakout',keltner:'Keltner',parabolic_sar:'Parabolic SAR',cci_trend:'CCI',regime_router:'Regime Router',ribbon:'Trend-Driven'};
@@ -58,39 +58,39 @@ const flipDateFormatter=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'sh
 let trendPulseMode='equal';
 const trendPulseProfiles={
   default:{
-    ribbon:24,supertrend:15,ema_crossover:12,macd:10,ma_confirm:9,donchian:8,
+    ribbon:24,ma_confirm:16,supertrend:12,ema_crossover:12,macd:10,donchian:8,
     adx_trend:7,bb_breakout:5,keltner:4,parabolic_sar:3,cci_trend:2,regime_router:1
   },
   tech:{
-    ribbon:24,supertrend:15,ema_crossover:13,macd:12,ma_confirm:9,donchian:8,
+    ribbon:24,ma_confirm:15,supertrend:12,ema_crossover:13,macd:12,donchian:8,
     adx_trend:7,bb_breakout:4,keltner:3,parabolic_sar:3,cci_trend:1,regime_router:1
   },
   semis:{
-    ribbon:25,supertrend:15,ema_crossover:12,macd:12,ma_confirm:8,donchian:10,
+    ribbon:25,ma_confirm:14,supertrend:12,ema_crossover:12,macd:12,donchian:10,
     adx_trend:8,bb_breakout:3,keltner:2,parabolic_sar:3,cci_trend:1,regime_router:1
   },
   software:{
-    ribbon:24,supertrend:14,ema_crossover:13,macd:12,ma_confirm:9,donchian:7,
+    ribbon:24,ma_confirm:15,supertrend:11,ema_crossover:13,macd:12,donchian:7,
     adx_trend:7,bb_breakout:5,keltner:3,parabolic_sar:3,cci_trend:2,regime_router:1
   },
   crypto:{
-    ribbon:26,supertrend:16,ema_crossover:12,macd:10,ma_confirm:7,donchian:10,
+    ribbon:26,ma_confirm:15,supertrend:13,ema_crossover:12,macd:10,donchian:10,
     adx_trend:8,bb_breakout:4,keltner:3,parabolic_sar:2,cci_trend:1,regime_router:1
   },
   indexes:{
-    ribbon:22,supertrend:12,ema_crossover:10,macd:8,ma_confirm:15,donchian:6,
+    ribbon:22,ma_confirm:18,supertrend:10,ema_crossover:10,macd:8,donchian:6,
     adx_trend:7,bb_breakout:8,keltner:4,parabolic_sar:2,cci_trend:3,regime_router:3
   },
   etfs:{
-    ribbon:22,supertrend:12,ema_crossover:10,macd:8,ma_confirm:15,donchian:6,
+    ribbon:22,ma_confirm:18,supertrend:10,ema_crossover:10,macd:8,donchian:6,
     adx_trend:7,bb_breakout:8,keltner:4,parabolic_sar:2,cci_trend:3,regime_router:3
   },
   treasuries:{
-    ribbon:24,supertrend:11,ema_crossover:8,macd:7,ma_confirm:17,donchian:5,
+    ribbon:24,ma_confirm:20,supertrend:9,ema_crossover:8,macd:7,donchian:5,
     adx_trend:9,bb_breakout:7,keltner:4,parabolic_sar:2,cci_trend:2,regime_router:4
   },
   misc:{
-    ribbon:24,supertrend:14,ema_crossover:11,macd:10,ma_confirm:10,donchian:8,
+    ribbon:24,ma_confirm:15,supertrend:11,ema_crossover:11,macd:10,donchian:8,
     adx_trend:7,bb_breakout:5,keltner:4,parabolic_sar:3,cci_trend:2,regime_router:2
   }
 };

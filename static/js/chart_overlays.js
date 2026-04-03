@@ -4,7 +4,7 @@ const overlayMap={
   supertrend:[()=>stUpSeries,()=>stDownSeries],
   ema_crossover:[()=>ema9Series,()=>ema21Series],
   macd:[()=>macdLineSeries,()=>macdSignalSeries,()=>macdHistSeries],
-  ma_confirm:[()=>sma200Series],
+  ma_confirm:[()=>sma180Series],
   donchian:[()=>donchUpperSeries,()=>donchLowerSeries],
   adx_trend:[()=>adxLineSeries,()=>plusDiSeries,()=>minusDiSeries],
   bb_breakout:[()=>bbUpperSeries,()=>bbMidSeries,()=>bbLowerSeries],

@@ -1,11 +1,23 @@
 from flask import Flask
 
+from lib.paths import get_resource_path
 from routes import ALL_BLUEPRINTS
 
-app = Flask(__name__)
 
-for bp in ALL_BLUEPRINTS:
-    app.register_blueprint(bp)
+def create_app() -> Flask:
+    flask_app = Flask(
+        __name__,
+        template_folder=get_resource_path("templates"),
+        static_folder=get_resource_path("static"),
+    )
+
+    for bp in ALL_BLUEPRINTS:
+        flask_app.register_blueprint(bp)
+
+    return flask_app
+
+
+app = create_app()
 
 
 if __name__ == "__main__":

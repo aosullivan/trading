@@ -11,16 +11,16 @@
       </div>
       <select id="strategy-select" class="inp" style="font-size:11px;padding:4px 8px;border-radius:20px" onchange="switchStrategy(this.value)">
         <option value="ribbon">Trend-Driven</option>
-        <option value="supertrend">Supertrend</option>
-        <option value="ema_crossover">EMA 9/21 Cross</option>
-        <option value="macd">MACD Signal</option>
-        <option value="ma_confirm">MA Confirmation (200/3)</option>
-        <option value="donchian">Donchian Breakout (20)</option>
+        <option value="ma_confirm">MA Confirmation (180/1 up/5 down)</option>
+        <option value="supertrend">Supertrend (10/2.5)</option>
+        <option value="ema_crossover">EMA 5/20 Cross</option>
+        <option value="macd">MACD Signal (16/32/9)</option>
+        <option value="donchian">Donchian Breakout (10)</option>
         <option value="adx_trend">ADX Trend (14/25)</option>
-        <option value="bb_breakout">Bollinger Breakout (20/2)</option>
-        <option value="keltner">Keltner Breakout (20/10)</option>
-        <option value="parabolic_sar">Parabolic SAR</option>
-        <option value="cci_trend">CCI Trend (20/100)</option>
+        <option value="bb_breakout">Bollinger Breakout (30/1.5)</option>
+        <option value="keltner">Keltner Breakout (30/10/1.5)</option>
+        <option value="parabolic_sar">Parabolic SAR (0.01/0.01/0.1)</option>
+        <option value="cci_trend">CCI Trend (30/80)</option>
         <option value="regime_router">Regime Router</option>
       </select>
       <button class="bt-close" onclick="closeBacktestView()">&times;</button>

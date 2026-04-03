@@ -8,6 +8,8 @@ import pandas as pd
 import numpy as np
 import pytest
 
+from routes.chart import _carry_neutral_direction
+
 
 class TestIndexRoute:
     def test_index_returns_html(self, client):
@@ -20,6 +22,15 @@ class TestIndexRoute:
         assert resp.status_code == 200
         assert b"Backtest Report" in resp.data
         assert b"strategy-select" in resp.data
+
+
+class TestChartHelpers:
+    def test_carry_neutral_direction_holds_last_nonzero_state(self):
+        direction = pd.Series([0, 1, 0, 0, -1, 0, 1, 0])
+
+        carried = _carry_neutral_direction(direction)
+
+        assert carried.tolist() == [0, 1, 1, 1, -1, -1, 1, 1]
 
 
 class TestWatchlistAPI:

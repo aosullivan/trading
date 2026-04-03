@@ -53,7 +53,8 @@ async function loadChart(){
     stDownMid.setData(stDownData);
     volumeSeries.setData(data.volumes);
     sma50Series.setData(data.sma_50||[]);sma100Series.setData(data.sma_100||[]);
-    sma200Series.setData(data.sma_200||[]);sma50wSeries.setData(data.sma_50w||[]);sma100wSeries.setData(data.sma_100w||[]);sma200wSeries.setData(data.sma_200w||[]);
+    sma180Series.setData(data.sma_180||[]);sma200Series.setData(data.sma_200||[]);
+    sma50wSeries.setData(data.sma_50w||[]);sma100wSeries.setData(data.sma_100w||[]);sma200wSeries.setData(data.sma_200w||[]);
     ema9Series.setData(data.ema9||[]);ema21Series.setData(data.ema21||[]);
     // Indicator overlays
     const ov=data.overlays||{};
@@ -128,7 +129,11 @@ function switchStrategy(name){
   if(btOpen){
     ensureBTChart();
   }
-  renderEquityCurve(s.equity_curve||[],lastData.buy_hold_equity_curve||[],s.trades||[]);
+  renderEquityCurve(
+    s.equity_curve||[],
+    s.buy_hold_equity_curve||lastData.buy_hold_equity_curve||[],
+    s.trades||[]
+  );
   renderStats(s.summary);
   renderTrades(s.trades);
 }

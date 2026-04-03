@@ -6,6 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+os.environ.setdefault("TRIEDINGVIEW_USER_DATA_DIR", tempfile.mkdtemp())
+
 from app import app as flask_app
 
 

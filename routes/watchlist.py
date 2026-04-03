@@ -31,16 +31,18 @@ from lib.data_fetching import (
     _fetch_market_quote,
     resolve_treasury_price_proxy_ticker,
 )
+from lib.paths import get_resource_path, get_user_data_path
+from lib.technical_indicators import SUPERTREND_MULTIPLIER, SUPERTREND_PERIOD
 
 bp = Blueprint("watchlist", __name__)
 
-_APP_DIR = os.path.dirname(os.path.dirname(__file__))
-WATCHLIST_FILE = os.path.join(_APP_DIR, "watchlist.json")
-_TRENDS_CACHE_DIR = os.path.join(_APP_DIR, "data_cache", "watchlist_trends")
+DEFAULT_WATCHLIST_FILE = get_resource_path("watchlist.json")
+WATCHLIST_FILE = get_user_data_path("watchlist.json")
+_TRENDS_CACHE_DIR = get_user_data_path("data_cache", "watchlist_trends")
 _TRENDS_START_DATE = "2015-01-01"
-_TRENDS_PERIOD = 10
-_TRENDS_MULTIPLIER = 3
-_TRENDS_CACHE_VERSION = 1
+_TRENDS_PERIOD = SUPERTREND_PERIOD
+_TRENDS_MULTIPLIER = SUPERTREND_MULTIPLIER
+_TRENDS_CACHE_VERSION = 2
 _TRENDS_REFRESH_BATCH_SIZE = 6
 _TRENDS_REFRESH_BATCH_PAUSE = 0.25
 
@@ -49,6 +51,11 @@ def load_watchlist():
     if os.path.exists(WATCHLIST_FILE):
         with open(WATCHLIST_FILE) as f:
             return json.load(f)
+    if os.path.exists(DEFAULT_WATCHLIST_FILE):
+        with open(DEFAULT_WATCHLIST_FILE) as f:
+            tickers = json.load(f)
+        save_watchlist(tickers)
+        return tickers
     return []
 
 

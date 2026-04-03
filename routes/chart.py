@@ -20,6 +20,25 @@ from lib.data_fetching import (
     resolve_treasury_price_proxy_ticker,
 )
 from lib.technical_indicators import (
+    ADX_PERIOD,
+    ADX_THRESHOLD,
+    BOLLINGER_PERIOD,
+    BOLLINGER_STD_DEV,
+    DONCHIAN_PERIOD,
+    EMA_FAST_PERIOD,
+    EMA_SLOW_PERIOD,
+    MA_CONFIRM_BEAR_CANDLES,
+    MA_CONFIRM_BULL_CANDLES,
+    MA_CONFIRM_PERIOD,
+    RIBBON_ATR_PERIOD,
+    RIBBON_COLLAPSE_THRESHOLD,
+    RIBBON_EMA_PERIOD,
+    RIBBON_EXPAND_THRESHOLD,
+    RIBBON_FAST_PERIOD,
+    RIBBON_SLOW_PERIOD,
+    RIBBON_SMOOTH_PERIOD,
+    SUPERTREND_MULTIPLIER,
+    SUPERTREND_PERIOD,
     compute_supertrend,
     compute_ema_crossover,
     compute_ma_confirmation,
@@ -33,7 +52,11 @@ from lib.technical_indicators import (
     compute_trend_ribbon,
     compute_regime_router,
 )
-from lib.backtesting import backtest_direction, build_buy_hold_equity_curve
+from lib.backtesting import (
+    backtest_direction,
+    backtest_ribbon_accumulation,
+    build_buy_hold_equity_curve,
+)
 from lib.chart_serialization import (
     build_volume_profile,
     compute_all_trend_flips,
@@ -138,6 +161,51 @@ def _run_direction_backtest(df_view, direction, full_index, view_index):
     )
 
 
+def _run_ribbon_accumulation_backtest(
+    df_view,
+    daily_direction,
+    weekly_direction,
+    full_index,
+    view_index,
+):
+    prior_daily_direction = _prior_direction(daily_direction, full_index, view_index)
+    prior_weekly_direction = _prior_direction(weekly_direction, full_index, view_index)
+    return backtest_ribbon_accumulation(
+        df_view,
+        daily_direction.loc[view_index],
+        weekly_direction.loc[view_index],
+        prior_daily_direction=prior_daily_direction,
+        prior_weekly_direction=prior_weekly_direction,
+    )
+
+
+def _carry_neutral_direction(direction: pd.Series) -> pd.Series:
+    """Carry the prior non-zero state through neutral bridge bars."""
+    return direction.replace(0, pd.NA).ffill().fillna(0).astype(int)
+
+
+def _align_weekly_direction_to_daily(
+    weekly_direction: pd.Series,
+    daily_index: pd.Index,
+) -> pd.Series:
+    return weekly_direction.reindex(daily_index).ffill().bfill().fillna(0).astype(int)
+
+
+def _trend_ribbon_kwargs(ticker: str) -> dict:
+    """Use the tuned ribbon profile for crypto trend flips too."""
+    if ticker.upper().endswith("-USD"):
+        return {
+            "ema_period": RIBBON_EMA_PERIOD,
+            "atr_period": RIBBON_ATR_PERIOD,
+            "fast_period": RIBBON_FAST_PERIOD,
+            "slow_period": RIBBON_SLOW_PERIOD,
+            "smooth_period": RIBBON_SMOOTH_PERIOD,
+            "collapse_threshold": RIBBON_COLLAPSE_THRESHOLD,
+            "expand_threshold": RIBBON_EXPAND_THRESHOLD,
+        }
+    return {}
+
+
 def _frame_signature(df: pd.DataFrame) -> str:
     if df is None or df.empty:
         return "empty"
@@ -175,23 +243,46 @@ def _get_indicator_bundle(
         return cached, True
 
     supertrend, direction = compute_supertrend(df, period_val, multiplier_val)
-    ema_fast, ema_slow, ema_direction = compute_ema_crossover(df, 9, 21)
-    ma_conf, ma_conf_direction = compute_ma_confirmation(df, 200, 3)
+    ema_fast, ema_slow, ema_direction = compute_ema_crossover(
+        df,
+        EMA_FAST_PERIOD,
+        EMA_SLOW_PERIOD,
+    )
+    ma_conf, ma_conf_direction = compute_ma_confirmation(
+        df,
+        MA_CONFIRM_PERIOD,
+        MA_CONFIRM_BULL_CANDLES,
+        MA_CONFIRM_BEAR_CANDLES,
+    )
     macd_line, signal_line, macd_hist, macd_direction = compute_macd_crossover(df)
-    donch_upper, donch_lower, donch_direction = compute_donchian_breakout(df, 20)
-    adx_val, plus_di, minus_di, adx_direction = compute_adx_trend(df, 14, 25)
-    bb_upper, bb_mid, bb_lower, bb_direction = compute_bollinger_breakout(df, 20, 2)
+    donch_upper, donch_lower, donch_direction = compute_donchian_breakout(
+        df,
+        DONCHIAN_PERIOD,
+    )
+    adx_val, plus_di, minus_di, adx_direction = compute_adx_trend(
+        df,
+        ADX_PERIOD,
+        ADX_THRESHOLD,
+    )
+    bb_upper, bb_mid, bb_lower, bb_direction = compute_bollinger_breakout(
+        df,
+        BOLLINGER_PERIOD,
+        BOLLINGER_STD_DEV,
+    )
     kelt_upper, kelt_mid, kelt_lower, kelt_direction = compute_keltner_breakout(df)
     psar_line, psar_direction = compute_parabolic_sar(df)
     cci_val, cci_direction = compute_cci_trend(df)
     regime, rr_direction = compute_regime_router(df)
-    ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(df)
+    ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(
+        df,
+        **_trend_ribbon_kwargs(ticker),
+    )
 
     direction_map = {
+        "ma_confirm": ma_conf_direction,
         "supertrend": direction,
         "ema_crossover": ema_direction,
         "macd": macd_direction,
-        "ma_confirm": ma_conf_direction,
         "donchian": donch_direction,
         "adx_trend": adx_direction,
         "bb_breakout": bb_direction,
@@ -199,7 +290,7 @@ def _get_indicator_bundle(
         "parabolic_sar": psar_direction,
         "cci_trend": cci_direction,
         "regime_router": rr_direction,
-        "ribbon": ribbon_dir.where(ribbon_dir != 0, 1),
+        "ribbon": ribbon_dir,
     }
     bundle = {
         "supertrend": supertrend,
@@ -262,14 +353,20 @@ def _get_weekly_bundle(
     sma_w50 = df_w["Close"].rolling(window=50).mean()
     sma_w100 = df_w["Close"].rolling(window=100).mean()
     sma_w200 = df_w["Close"].rolling(window=200).mean()
+    _ribbon_center, _ribbon_upper, _ribbon_lower, _ribbon_strength, ribbon_dir = compute_trend_ribbon(
+        df_w,
+        **_trend_ribbon_kwargs(ticker),
+    )
     bundle = {
         "sma_w50": sma_w50,
         "sma_w100": sma_w100,
         "sma_w200": sma_w200,
+        "ribbon_dir": ribbon_dir,
         "weekly_flips": compute_all_trend_flips(
             df_w,
             period_val=period_val,
             multiplier_val=multiplier_val,
+            ribbon_kwargs=_trend_ribbon_kwargs(ticker),
         ),
     }
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
@@ -309,8 +406,8 @@ def chart_data():
     source_interval = _source_interval(interval)
     start = request.args.get("start", "2015-01-01")
     end = request.args.get("end", "")
-    period_val = int(request.args.get("period", 10))
-    multiplier_val = float(request.args.get("multiplier", 3))
+    period_val = int(request.args.get("period", SUPERTREND_PERIOD))
+    multiplier_val = float(request.args.get("multiplier", SUPERTREND_MULTIPLIER))
     chart_cache_key = (
         f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}"
     )
@@ -485,8 +582,9 @@ def chart_data():
     ribbon_strength = indicator_bundle["ribbon_strength"]
     ribbon_dir = indicator_bundle["ribbon_dir"]
     ribbon_trades, ribbon_summary, ribbon_equity_curve = _run_direction_backtest(
-        df_view, ribbon_dir, df.index, df_view.index
+        df_view, _carry_neutral_direction(ribbon_dir), df.index, df_view.index
     )
+    ribbon_hold_equity_curve = None
     mark_phase("indicators_ms")
 
     # --- Daily flips ---
@@ -503,7 +601,10 @@ def chart_data():
             if df_d.index.duplicated().any():
                 df_d = df_d[~df_d.index.duplicated(keep="last")]
             daily_flips = compute_all_trend_flips(
-                df_d, period_val=period_val, multiplier_val=multiplier_val
+                df_d,
+                period_val=period_val,
+                multiplier_val=multiplier_val,
+                ribbon_kwargs=_trend_ribbon_kwargs(ticker),
             )
         except Exception:
             daily_flips = {}
@@ -570,7 +671,7 @@ def chart_data():
 
     # --- SMAs ---
     smas = {}
-    for sma_period in [50, 100, 200]:
+    for sma_period in [50, 100, 180, 200]:
         sma = df["Close"].rolling(window=sma_period).mean()
         sma_view = sma.loc[df_view.index]
         sma_data = []
@@ -625,6 +726,24 @@ def chart_data():
                 weekly_flips = indicator_bundle["daily_flips"]
             else:
                 weekly_flips = weekly_bundle["weekly_flips"]
+            if interval == "1d":
+                daily_ribbon_direction = _carry_neutral_direction(ribbon_dir)
+                weekly_ribbon_direction = _align_weekly_direction_to_daily(
+                    _carry_neutral_direction(weekly_bundle["ribbon_dir"]),
+                    df.index,
+                )
+                (
+                    ribbon_trades,
+                    ribbon_summary,
+                    ribbon_equity_curve,
+                    ribbon_hold_equity_curve,
+                ) = _run_ribbon_accumulation_backtest(
+                    df_view,
+                    daily_ribbon_direction,
+                    weekly_ribbon_direction,
+                    df.index,
+                    df_view.index,
+                )
     except Exception:
         pass
     mark_phase("weekly_ms")
@@ -754,11 +873,16 @@ def chart_data():
         "sma_100w": sma_100w,
         "sma_200w": sma_200w,
         "strategies": {
-            "ribbon": {"trades": ribbon_trades, "summary": ribbon_summary, "equity_curve": ribbon_equity_curve},
+            "ribbon": {
+                "trades": ribbon_trades,
+                "summary": ribbon_summary,
+                "equity_curve": ribbon_equity_curve,
+                "buy_hold_equity_curve": ribbon_hold_equity_curve or buy_hold_equity_curve,
+            },
+            "ma_confirm": {"trades": ma_conf_trades, "summary": ma_conf_summary, "equity_curve": ma_conf_equity_curve},
             "supertrend": {"trades": trades, "summary": summary, "equity_curve": equity_curve},
             "ema_crossover": {"trades": ema_trades, "summary": ema_summary, "equity_curve": ema_equity_curve},
             "macd": {"trades": macd_trades, "summary": macd_summary, "equity_curve": macd_equity_curve},
-            "ma_confirm": {"trades": ma_conf_trades, "summary": ma_conf_summary, "equity_curve": ma_conf_equity_curve},
             "donchian": {"trades": donch_trades, "summary": donch_summary, "equity_curve": donch_equity_curve},
             "adx_trend": {"trades": adx_trades, "summary": adx_summary, "equity_curve": adx_equity_curve},
             "bb_breakout": {"trades": bb_trades, "summary": bb_summary, "equity_curve": bb_equity_curve},

@@ -23,7 +23,7 @@ function pushURLParams(){
   if(ticker&&ticker!=='TSLA')p.set('ticker',ticker);
   if(interval&&interval!=='1d')p.set('interval',interval);
   if(period&&period!=='10')p.set('period',period);
-  if(mult&&mult!=='3')p.set('multiplier',mult);
+  if(mult&&mult!=='2.5')p.set('multiplier',mult);
   if(activeSignals.size)p.set('signals',[...activeSignals].join(','));
   // Legend chips (only write if non-default)
   const defaultChips=['vol'];

@@ -5,14 +5,16 @@ import threading
 
 import yfinance as yf
 
-_APP_DIR = os.path.dirname(os.path.dirname(__file__))
-_PROJECT_CACHE_ROOT = os.path.join(_APP_DIR, "data_cache")
+from lib.paths import get_resource_path, get_user_data_path
+
+_APP_DIR = get_resource_path()
+_PROJECT_CACHE_ROOT = get_user_data_path("data_cache")
 _TICKER_INFO_CACHE_DIR = os.path.join(_PROJECT_CACHE_ROOT, "ticker_info")
 _YF_CACHE_DIR = os.path.join(_PROJECT_CACHE_ROOT, "yfinance")
 
 
 def _configure_yfinance_cache(cache_dir: str | None = None) -> str:
-    """Pin yfinance's SQLite-backed caches to a writable project-local folder."""
+    """Pin yfinance's SQLite-backed caches to a writable per-user folder."""
     resolved_dir = cache_dir or _YF_CACHE_DIR
     os.makedirs(resolved_dir, exist_ok=True)
     yf.set_tz_cache_location(resolved_dir)

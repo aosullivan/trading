@@ -1,4 +1,6 @@
 flask
+pyinstaller
+pywebview
 yfinance
 pandas
 numpy

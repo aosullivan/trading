@@ -56,6 +56,32 @@ class TestMAConfirmation:
         ma, _ = compute_ma_confirmation(sample_df, ma_period=200)
         assert pd.isna(ma.iloc[0])
 
+    def test_exit_confirm_can_be_slower_than_entry_confirm(self):
+        dates = pd.date_range("2024-01-01", periods=7, freq="D")
+        close = [10, 10, 9, 11, 12, 9, 8]
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close,
+                "Low": close,
+                "Close": close,
+                "Volume": [100] * len(close),
+            },
+            index=dates,
+        )
+
+        _, direction = compute_ma_confirmation(
+            df,
+            ma_period=2,
+            confirm_candles=1,
+            exit_confirm_candles=2,
+        )
+
+        assert direction.iloc[3] == 1
+        assert direction.iloc[4] == 1
+        assert direction.iloc[5] == 1
+        assert direction.iloc[6] == -1
+
 
 class TestEMACrossover:
     def test_returns_three_series(self, sample_df):
@@ -219,3 +245,24 @@ class TestTrendRibbon:
         """Should have NaN values at the start during warmup period."""
         _, upper, lower, strength, _ = compute_trend_ribbon(small_df)
         assert pd.isna(upper.iloc[0]) or pd.isna(strength.iloc[0])
+
+    def test_flip_passes_through_zero_width_neutral(self, sample_df):
+        _, upper, lower, _, direction = compute_trend_ribbon(sample_df)
+        width = (upper - lower).fillna(0)
+
+        nonzero = direction[direction != 0]
+        prev_dir = None
+        for idx, curr_dir in nonzero.items():
+            if prev_dir is not None and curr_dir != prev_dir:
+                between = direction.loc[prev_idx:idx].iloc[1:-1]
+                assert (between == 0).any(), "Direction flip must pass through neutral"
+                zero_width = width.loc[between.index[between == 0]]
+                assert (zero_width == 0).any(), "Neutral transition must collapse band width to zero"
+            prev_dir = curr_dir
+            prev_idx = idx
+
+    def test_neutral_direction_has_zero_width(self, sample_df):
+        _, upper, lower, _, direction = compute_trend_ribbon(sample_df)
+        neutral = direction == 0
+        width = (upper - lower).fillna(0)
+        assert (width[neutral] == 0).all()

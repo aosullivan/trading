@@ -25,7 +25,7 @@ const legendItems=[
   {key:'sma50w',label:'50W MA',color:'#e8b839',on:false,dataKey:'sma_50w',section:'ma'},
   {key:'sma100w',label:'100W MA',color:'#f59f00',on:false,dataKey:'sma_100w',section:'ma'},
   {key:'sma200w',label:'200W MA',color:'#ffd644',on:false,dataKey:'sma_200w',section:'ma'},
-  {key:'emaCross',label:'EMA 9/21',color:'#ff9800',on:false,dataKey:'ema9',section:'ma'},
+  {key:'emaCross',label:'EMA 5/20',color:'#ff9800',on:false,dataKey:'ema9',section:'ma'},
 ];
 
 function latestDataValue(dataKey){

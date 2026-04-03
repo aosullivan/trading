@@ -48,7 +48,7 @@ function openBacktestTab(){
   const ticker=document.getElementById('ticker')?.value?.toUpperCase()||'TSLA';
   const interval=document.getElementById('interval')?.value||'1d';
   const period=document.getElementById('period')?.value||'10';
-  const mult=document.getElementById('multiplier')?.value||'3';
+  const mult=document.getElementById('multiplier')?.value||'2.5';
   const strategy=document.getElementById('strategy-select')?.value||activeBacktestStrat||BT_DEFAULT_STRATEGY;
   const ranges=getBTLaunchRanges();
   p.set('ticker',ticker);

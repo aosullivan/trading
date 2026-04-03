@@ -4,7 +4,7 @@ const btReportState={
   ticker:'TSLA',
   interval:'1d',
   period:'10',
-  multiplier:'3',
+  multiplier:'2.5',
   domainStart:'',
   domainEnd:'',
 };
@@ -39,7 +39,7 @@ function readBacktestReportParams(){
   btReportState.ticker=(p.get('ticker')||'TSLA').toUpperCase();
   btReportState.interval=p.get('interval')||'1d';
   btReportState.period=p.get('period')||'10';
-  btReportState.multiplier=p.get('multiplier')||'3';
+  btReportState.multiplier=p.get('multiplier')||'2.5';
   chartStart=p.get('start')||defaultStart(btReportState.interval);
   chartEnd=p.get('end')||'';
   btReportState.domainStart=p.get('domain_start')||chartStart;
@@ -107,7 +107,11 @@ function switchStrategy(name){
   if(!s)return;
   activeBacktestStrat=resolved;
   document.getElementById('strategy-select').value=resolved;
-  renderEquityCurve(s.equity_curve||[],lastData.buy_hold_equity_curve||[],s.trades||[]);
+  renderEquityCurve(
+    s.equity_curve||[],
+    s.buy_hold_equity_curve||lastData.buy_hold_equity_curve||[],
+    s.trades||[]
+  );
   renderStats(s.summary||{});
   renderTrades(s.trades||[]);
   syncBacktestReportURL();

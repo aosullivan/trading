@@ -2,7 +2,43 @@ import numpy as np
 import pandas as pd
 
 
-def compute_supertrend(df, period=10, multiplier=3):
+MA_CONFIRM_PERIOD = 180
+MA_CONFIRM_BULL_CANDLES = 1
+MA_CONFIRM_BEAR_CANDLES = 5
+SUPERTREND_PERIOD = 10
+SUPERTREND_MULTIPLIER = 2.5
+EMA_FAST_PERIOD = 5
+EMA_SLOW_PERIOD = 20
+MACD_FAST_PERIOD = 16
+MACD_SLOW_PERIOD = 32
+MACD_SIGNAL_PERIOD = 9
+DONCHIAN_PERIOD = 10
+ADX_PERIOD = 14
+ADX_THRESHOLD = 25
+BOLLINGER_PERIOD = 30
+BOLLINGER_STD_DEV = 1.5
+KELTNER_EMA_PERIOD = 30
+KELTNER_ATR_PERIOD = 10
+KELTNER_MULTIPLIER = 1.5
+PSAR_AF_START = 0.01
+PSAR_AF_INCREMENT = 0.01
+PSAR_AF_MAX = 0.1
+CCI_PERIOD = 30
+CCI_THRESHOLD = 80
+RIBBON_EMA_PERIOD = 20
+RIBBON_ATR_PERIOD = 10
+RIBBON_FAST_PERIOD = 8
+RIBBON_SLOW_PERIOD = 21
+RIBBON_SMOOTH_PERIOD = 5
+RIBBON_COLLAPSE_THRESHOLD = 0.08
+RIBBON_EXPAND_THRESHOLD = 0.12
+
+
+def compute_supertrend(
+    df,
+    period=SUPERTREND_PERIOD,
+    multiplier=SUPERTREND_MULTIPLIER,
+):
     """Compute Supertrend indicator using TradingView's band and flip rules."""
     high = df["High"]
     low = df["Low"]
@@ -63,23 +99,33 @@ def compute_supertrend(df, period=10, multiplier=3):
     return supertrend, direction
 
 
-def compute_ma_confirmation(df, ma_period=200, confirm_candles=3):
-    """Compute MA confirmation direction."""
+def compute_ma_confirmation(
+    df,
+    ma_period=200,
+    confirm_candles=3,
+    exit_confirm_candles=None,
+):
+    """Compute MA confirmation direction with optional asymmetric exit confirmation."""
     close = df["Close"]
     ma = close.rolling(window=ma_period).mean()
     above = (close > ma).astype(int)
-    direction = pd.Series(0, index=df.index)
-    for i in range(ma_period + confirm_candles - 1, len(df)):
-        if all(above.iloc[i - j] == 1 for j in range(confirm_candles)):
+    bullish_candles = confirm_candles
+    bearish_candles = (
+        confirm_candles if exit_confirm_candles is None else exit_confirm_candles
+    )
+    direction = pd.Series(0, index=df.index, dtype=int)
+    start = ma_period + max(bullish_candles, bearish_candles) - 1
+    for i in range(start, len(df)):
+        if all(above.iloc[i - j] == 1 for j in range(bullish_candles)):
             direction.iloc[i] = 1
-        elif all(above.iloc[i - j] == 0 for j in range(confirm_candles)):
+        elif all(above.iloc[i - j] == 0 for j in range(bearish_candles)):
             direction.iloc[i] = -1
         else:
             direction.iloc[i] = direction.iloc[i - 1]
     return ma, direction
 
 
-def compute_ema_crossover(df, fast=9, slow=21):
+def compute_ema_crossover(df, fast=EMA_FAST_PERIOD, slow=EMA_SLOW_PERIOD):
     """Compute EMA crossover direction."""
     close = df["Close"]
     ema_fast = close.ewm(span=fast, adjust=False).mean()
@@ -90,7 +136,12 @@ def compute_ema_crossover(df, fast=9, slow=21):
     return ema_fast, ema_slow, direction
 
 
-def compute_macd_crossover(df, fast=12, slow=26, signal=9):
+def compute_macd_crossover(
+    df,
+    fast=MACD_FAST_PERIOD,
+    slow=MACD_SLOW_PERIOD,
+    signal=MACD_SIGNAL_PERIOD,
+):
     """Compute MACD signal line crossover direction."""
     close = df["Close"]
     ema_fast = close.ewm(span=fast, adjust=False).mean()
@@ -105,7 +156,7 @@ def compute_macd_crossover(df, fast=12, slow=26, signal=9):
     return macd_line, signal_line, histogram, direction
 
 
-def compute_donchian_breakout(df, period=20):
+def compute_donchian_breakout(df, period=DONCHIAN_PERIOD):
     """Compute Donchian breakout direction."""
     high = df["High"]
     low = df["Low"]
@@ -123,7 +174,7 @@ def compute_donchian_breakout(df, period=20):
     return upper, lower, direction
 
 
-def compute_adx_trend(df, period=14, adx_threshold=25):
+def compute_adx_trend(df, period=ADX_PERIOD, adx_threshold=ADX_THRESHOLD):
     """Compute ADX-based trend direction."""
     high = df["High"]
     low = df["Low"]
@@ -159,7 +210,11 @@ def compute_adx_trend(df, period=14, adx_threshold=25):
     return adx, plus_di, minus_di, direction
 
 
-def compute_bollinger_breakout(df, period=20, std_dev=2):
+def compute_bollinger_breakout(
+    df,
+    period=BOLLINGER_PERIOD,
+    std_dev=BOLLINGER_STD_DEV,
+):
     """Compute Bollinger Band breakout direction."""
     close = df["Close"]
     middle = close.rolling(window=period).mean()
@@ -177,7 +232,12 @@ def compute_bollinger_breakout(df, period=20, std_dev=2):
     return upper, middle, lower, direction
 
 
-def compute_keltner_breakout(df, ema_period=20, atr_period=10, multiplier=1.5):
+def compute_keltner_breakout(
+    df,
+    ema_period=KELTNER_EMA_PERIOD,
+    atr_period=KELTNER_ATR_PERIOD,
+    multiplier=KELTNER_MULTIPLIER,
+):
     """Compute Keltner Channel breakout direction."""
     close = df["Close"]
     high = df["High"]
@@ -204,7 +264,12 @@ def compute_keltner_breakout(df, ema_period=20, atr_period=10, multiplier=1.5):
     return upper, middle, lower, direction
 
 
-def compute_parabolic_sar(df, af_start=0.02, af_increment=0.02, af_max=0.2):
+def compute_parabolic_sar(
+    df,
+    af_start=PSAR_AF_START,
+    af_increment=PSAR_AF_INCREMENT,
+    af_max=PSAR_AF_MAX,
+):
     """Compute Parabolic SAR trend direction."""
     high = df["High"]
     low = df["Low"]
@@ -254,7 +319,7 @@ def compute_parabolic_sar(df, af_start=0.02, af_increment=0.02, af_max=0.2):
     return sar, direction
 
 
-def compute_cci_trend(df, period=20, threshold=100):
+def compute_cci_trend(df, period=CCI_PERIOD, threshold=CCI_THRESHOLD):
     """Compute CCI trend direction."""
     close = df["Close"]
     high = df["High"]
@@ -277,14 +342,16 @@ def compute_cci_trend(df, period=20, threshold=100):
 
 def compute_trend_ribbon(
     df,
-    ema_period=21,
-    atr_period=14,
-    fast_period=8,
-    slow_period=34,
-    smooth_period=5,
+    ema_period=RIBBON_EMA_PERIOD,
+    atr_period=RIBBON_ATR_PERIOD,
+    fast_period=RIBBON_FAST_PERIOD,
+    slow_period=RIBBON_SLOW_PERIOD,
+    smooth_period=RIBBON_SMOOTH_PERIOD,
     max_width=3.0,
-    min_width=0.5,
+    min_width=0.0,
     adx_period=14,
+    collapse_threshold=RIBBON_COLLAPSE_THRESHOLD,
+    expand_threshold=RIBBON_EXPAND_THRESHOLD,
 ):
     """Compute a trend-strength ribbon that tapers before flipping direction.
 
@@ -320,14 +387,34 @@ def compute_trend_ribbon(
     rolling_max = rolling_max.replace(0, 1)  # avoid division by zero
     strength = (trend_score / rolling_max).clip(-1, 1)
 
-    # Direction only flips when trend_score crosses zero — cannot flip
-    # while ribbon is still wide
+    if expand_threshold < collapse_threshold:
+        raise ValueError("expand_threshold must be >= collapse_threshold")
+
+    # Direction changes pass through a neutral collapsed state first:
+    # +1 -> 0 -> -1 or -1 -> 0 -> +1.
     direction = pd.Series(0, index=df.index, dtype=int)
-    direction[strength > 0] = 1
-    direction[strength < 0] = -1
+    state = 0
+    for i in range(len(strength)):
+        score = strength.iloc[i]
+        if pd.isna(score):
+            direction.iloc[i] = 0
+            state = 0
+            continue
+
+        if state == 0:
+            if score >= expand_threshold:
+                state = 1
+            elif score <= -expand_threshold:
+                state = -1
+        elif state == 1 and score <= collapse_threshold:
+            state = 0
+        elif state == -1 and score >= -collapse_threshold:
+            state = 0
+
+        direction.iloc[i] = state
 
     # Ribbon width proportional to |strength| — tapers to zero at crossover
-    abs_strength = strength.abs()
+    abs_strength = strength.abs().where(direction != 0, 0.0)
     width_mult = min_width + (max_width - min_width) * abs_strength
     half_width = atr * width_mult / 2
     upper = center + half_width
@@ -424,15 +511,20 @@ def compute_regime_router(df):
 
 
 STRATEGIES = {
-    "Supertrend": lambda df: compute_supertrend(df)[1],
-    "EMA 9/21 Cross": lambda df: compute_ema_crossover(df)[2],
-    "MACD Signal": lambda df: compute_macd_crossover(df)[3],
-    "MA Confirm (200/3)": lambda df: compute_ma_confirmation(df)[1],
-    "Donchian (20)": lambda df: compute_donchian_breakout(df)[2],
+    "MA Confirm (180/1 up/5 down)": lambda df: compute_ma_confirmation(
+        df,
+        MA_CONFIRM_PERIOD,
+        MA_CONFIRM_BULL_CANDLES,
+        MA_CONFIRM_BEAR_CANDLES,
+    )[1],
+    "Supertrend (10/2.5)": lambda df: compute_supertrend(df)[1],
+    "EMA 5/20 Cross": lambda df: compute_ema_crossover(df)[2],
+    "MACD Signal (16/32/9)": lambda df: compute_macd_crossover(df)[3],
+    "Donchian (10)": lambda df: compute_donchian_breakout(df)[2],
     "ADX Trend (14/25)": lambda df: compute_adx_trend(df)[3],
-    "Bollinger Breakout": lambda df: compute_bollinger_breakout(df)[3],
-    "Keltner Breakout": lambda df: compute_keltner_breakout(df)[3],
-    "Parabolic SAR": lambda df: compute_parabolic_sar(df)[1],
-    "CCI Trend (20/100)": lambda df: compute_cci_trend(df)[1],
+    "Bollinger Breakout (30/1.5)": lambda df: compute_bollinger_breakout(df)[3],
+    "Keltner Breakout (30/10/1.5)": lambda df: compute_keltner_breakout(df)[3],
+    "Parabolic SAR (0.01/0.01/0.1)": lambda df: compute_parabolic_sar(df)[1],
+    "CCI Trend (30/80)": lambda df: compute_cci_trend(df)[1],
     "Regime Router": lambda df: compute_regime_router(df)[1],
 }
