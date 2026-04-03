@@ -163,41 +163,101 @@ class TestBacktestRibbonAccumulation:
         assert summary["open_trades"] == 3
         assert len(equity) == len(df)
         assert hold_equity[-1]["value"] == 19000.0
+        assert sorted(t["sleeve"] for t in trades if t.get("open")) == [
+            "core",
+            "tactical",
+            "tactical",
+        ]
         assert sorted(t["quantity"] for t in trades if t.get("open")) == [30.0, 60.0, 100.0]
 
-    def test_bearish_daily_then_weekly_flips_scale_out(self):
-        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+    def test_bearish_flips_scale_out_tactical_sleeve_but_keep_core(self):
+        idx = pd.date_range("2024-01-01", periods=5, freq="D")
         df = pd.DataFrame(
             {
-                "Open": [100, 100, 100, 100],
-                "High": [101, 101, 101, 101],
-                "Low": [99, 99, 99, 99],
-                "Close": [100, 100, 100, 100],
-                "Volume": [1, 1, 1, 1],
+                "Open": [100, 100, 100, 100, 100],
+                "High": [101, 101, 101, 101, 101],
+                "Low": [99, 99, 99, 99, 99],
+                "Close": [100, 100, 100, 100, 100],
+                "Volume": [1, 1, 1, 1, 1],
             },
             index=idx,
         )
-        daily = pd.Series([-1, -1, -1, -1], index=idx)
-        weekly = pd.Series([1, -1, -1, -1], index=idx)
+        daily = pd.Series([1, -1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, -1, -1, -1], index=idx)
 
         trades, summary, equity, hold_equity = backtest_ribbon_accumulation(
             df,
             daily,
             weekly,
-            prior_daily_direction=1,
-            prior_weekly_direction=1,
+            prior_daily_direction=-1,
+            prior_weekly_direction=-1,
+            daily_sell_fraction=0.25,
+            weekly_sell_fraction=0.5,
         )
 
         closed_qty = sum(t["quantity"] for t in trades if not t.get("open"))
-        open_qty = sum(t["quantity"] for t in trades if t.get("open"))
+        open_core_qty = sum(
+            t["quantity"]
+            for t in trades
+            if t.get("open") and t.get("sleeve") == "core"
+        )
+        open_tactical_qty = sum(
+            t["quantity"]
+            for t in trades
+            if t.get("open") and t.get("sleeve") == "tactical"
+        )
 
-        assert summary["initial_capital"] == 10000.0
-        assert summary["total_trades"] == 2
-        assert summary["open_trades"] == 1
-        assert closed_qty == pytest.approx(62.5)
-        assert open_qty == pytest.approx(37.5)
-        assert equity[-1]["value"] == 10000.0
-        assert hold_equity[-1]["value"] == 10000.0
+        assert summary["initial_capital"] == 19000.0
+        assert summary["total_trades"] == 3
+        assert summary["open_trades"] == 2
+        assert closed_qty == pytest.approx(56.25)
+        assert open_core_qty == pytest.approx(100.0)
+        assert open_tactical_qty == pytest.approx(33.75)
+        assert equity[-1]["value"] == 19000.0
+        assert hold_equity[-1]["value"] == 19000.0
+
+    def test_default_ribbon_settings_trim_tactical_sleeve_but_keep_core(self):
+        idx = pd.date_range("2024-01-01", periods=5, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 100, 100, 100, 100],
+                "High": [101, 101, 101, 101, 101],
+                "Low": [99, 99, 99, 99, 99],
+                "Close": [100, 100, 100, 100, 100],
+                "Volume": [1, 1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        daily = pd.Series([1, -1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, -1, -1, -1], index=idx)
+
+        trades, summary, equity, hold_equity = backtest_ribbon_accumulation(
+            df,
+            daily,
+            weekly,
+            prior_daily_direction=-1,
+            prior_weekly_direction=-1,
+        )
+
+        assert summary["initial_capital"] == 19000.0
+        closed_qty = sum(t["quantity"] for t in trades if not t.get("open"))
+        open_core_qty = sum(
+            t["quantity"]
+            for t in trades
+            if t.get("open") and t.get("sleeve") == "core"
+        )
+        open_tactical_qty = sum(
+            t["quantity"]
+            for t in trades
+            if t.get("open") and t.get("sleeve") == "tactical"
+        )
+
+        assert summary["total_trades"] == 3
+        assert summary["open_trades"] == 2
+        assert closed_qty == pytest.approx(47.25)
+        assert open_core_qty == pytest.approx(100.0)
+        assert open_tactical_qty == pytest.approx(42.75)
+        assert equity[-1]["value"] == hold_equity[-1]["value"] == 19000.0
 
     def test_external_adds_stop_at_max_capital(self):
         idx = pd.date_range("2024-01-01", periods=4, freq="D")

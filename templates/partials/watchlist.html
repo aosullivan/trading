@@ -6,7 +6,10 @@
       <button class="wl-view-tab active" type="button" data-view="watchlist" onclick="switchWLView('watchlist')">Watchlist</button>
       <button class="wl-view-tab" type="button" data-view="trends" onclick="switchWLView('trends')">Trends</button>
     </div>
-    <span class="wl-cnt" id="wl-count">0</span>
+    <div class="wl-head-meta">
+      <span class="wl-refresh-state live" id="wl-refresh-state" title="Watchlist refresh is live">LIVE</span>
+      <span class="wl-cnt" id="wl-count">0</span>
+    </div>
   </div>
   <div class="wl-add" id="wl-add-row">
     <input type="text" id="wl-input" placeholder="Add ticker..." onkeydown="if(event.key==='Enter')addWL()">

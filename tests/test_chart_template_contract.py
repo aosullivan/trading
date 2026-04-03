@@ -118,7 +118,7 @@ def test_backtest_equity_chart_renders_buy_hold_comparison_series():
     assert "Buy &amp; Hold" in partial_source
     compact_load_source = "".join(load_source.split())
     assert (
-        "renderEquityCurve(s.equity_curve||[],lastData.buy_hold_equity_curve||[],s.trades||[]);"
+        "renderEquityCurve(s.equity_curve||[],s.buy_hold_equity_curve||lastData.buy_hold_equity_curve||[],s.trades||[]);"
         in compact_load_source
     )
 

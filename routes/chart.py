@@ -30,13 +30,6 @@ from lib.technical_indicators import (
     MA_CONFIRM_BEAR_CANDLES,
     MA_CONFIRM_BULL_CANDLES,
     MA_CONFIRM_PERIOD,
-    RIBBON_ATR_PERIOD,
-    RIBBON_COLLAPSE_THRESHOLD,
-    RIBBON_EMA_PERIOD,
-    RIBBON_EXPAND_THRESHOLD,
-    RIBBON_FAST_PERIOD,
-    RIBBON_SLOW_PERIOD,
-    RIBBON_SMOOTH_PERIOD,
     SUPERTREND_MULTIPLIER,
     SUPERTREND_PERIOD,
     compute_supertrend,
@@ -192,17 +185,7 @@ def _align_weekly_direction_to_daily(
 
 
 def _trend_ribbon_kwargs(ticker: str) -> dict:
-    """Use the tuned ribbon profile for crypto trend flips too."""
-    if ticker.upper().endswith("-USD"):
-        return {
-            "ema_period": RIBBON_EMA_PERIOD,
-            "atr_period": RIBBON_ATR_PERIOD,
-            "fast_period": RIBBON_FAST_PERIOD,
-            "slow_period": RIBBON_SLOW_PERIOD,
-            "smooth_period": RIBBON_SMOOTH_PERIOD,
-            "collapse_threshold": RIBBON_COLLAPSE_THRESHOLD,
-            "expand_threshold": RIBBON_EXPAND_THRESHOLD,
-        }
+    """Use the Trend Ribbon baseline profile for every ticker."""
     return {}
 
 

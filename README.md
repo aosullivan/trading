@@ -32,6 +32,11 @@ Then open `dist/TriedingView.app` from Finder.
 The desktop build stores watchlist and cache files in
 `~/Library/Application Support/TriedingView`.
 
+## Trend-Driven Optimizer
+
+See [scripts/README.md](scripts/README.md) for the manifest, overnight run,
+resume, and export workflow for `scripts/optimize_trend_ribbon.py`.
+
 ## Features
 
 ### Chart View (`/`)

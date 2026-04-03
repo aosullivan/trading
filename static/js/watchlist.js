@@ -9,6 +9,11 @@ const WL_TREND_SORT_KEYS=['ticker','flip','score'];
 const WL_PANEL_DEFAULT_WIDTH=352;
 const WL_PANEL_MIN_WIDTH=320;
 const WL_PANEL_MAX_WIDTH=540;
+const WL_QUOTES_REFRESH_MS=300000;
+const WL_TRENDS_REFRESH_MS=300000;
+const WL_TRENDS_POLL_MS=4000;
+const WL_IDLE_PAUSE_MS=300000;
+const WL_MOUSEMOVE_ACTIVITY_MS=1000;
 
 function toggleWatchlist(){
   wlPanelCollapsed=!wlPanelCollapsed;
@@ -152,7 +157,10 @@ function switchWLView(view,{syncURL=true}={}){
     switchWLTrendFrame(wlTrendFrame,{syncURL:false});
     switchWLTrendSide(wlTrendSide,{syncURL:false});
     fetchTrends();
+  }else{
+    stopWLTrendTimers();
   }
+  syncWLRefreshTimers();
   renderWL(wlList);
   if(syncURL)syncWatchlistURLState();
 }
@@ -232,18 +240,134 @@ let wlRefreshTimer=null;
 let wlTrendRefreshTimer=null;
 let wlTrendPollTimer=null;
 let wlTrendPreloadTimer=null;
+let wlIdlePauseTimer=null;
+let wlLastActivityAt=Date.now();
+let wlLastMouseMoveAt=0;
+let wlLifecycleBound=false;
+let wlRefreshState='live';
+
+function wlRefreshAllowed(){
+  return document.visibilityState!=='hidden'&&(Date.now()-wlLastActivityAt)<WL_IDLE_PAUSE_MS;
+}
+
+function setWLRefreshState(state){
+  if(wlRefreshState===state)return;
+  wlRefreshState=state;
+  const el=document.getElementById('wl-refresh-state');
+  if(!el)return;
+  el.textContent=state==='paused'?'PAUSED':state==='syncing'?'SYNCING':'LIVE';
+  el.classList.toggle('paused',state==='paused');
+  el.classList.toggle('syncing',state==='syncing');
+  el.classList.toggle('live',state==='live');
+  el.title=state==='paused'
+    ?'Watchlist refresh is paused. Move the mouse or press a key to resume.'
+    :state==='syncing'
+      ?'Watchlist refresh is resuming...'
+      :'Watchlist refresh is live';
+}
+
+function syncWLRefreshStateBadge(){
+  if(!wlRefreshAllowed()){
+    setWLRefreshState('paused');
+  }else if(wlView==='trends'&&(wlTrendsLoading||wlTrendsStale)){
+    setWLRefreshState('syncing');
+  }else{
+    setWLRefreshState('live');
+  }
+}
+
+function stopWLTrendTimers(){
+  if(wlTrendRefreshTimer)clearInterval(wlTrendRefreshTimer);
+  if(wlTrendPollTimer)clearTimeout(wlTrendPollTimer);
+  if(wlTrendPreloadTimer)clearTimeout(wlTrendPreloadTimer);
+  wlTrendRefreshTimer=null;
+  wlTrendPollTimer=null;
+  wlTrendPreloadTimer=null;
+}
+
+function stopWLRefreshTimers(){
+  if(wlRefreshTimer)clearInterval(wlRefreshTimer);
+  wlRefreshTimer=null;
+  stopWLTrendTimers();
+  setWLRefreshState('paused');
+}
+
+function scheduleWLIdlePause(){
+  if(wlIdlePauseTimer)clearTimeout(wlIdlePauseTimer);
+  wlIdlePauseTimer=setTimeout(()=>{
+    wlIdlePauseTimer=null;
+    stopWLRefreshTimers();
+  },WL_IDLE_PAUSE_MS);
+}
+
+function syncWLRefreshTimers({forceRefresh=false}={}){
+  if(!wlRefreshAllowed()){
+    stopWLRefreshTimers();
+    return;
+  }
+  scheduleWLIdlePause();
+  if(!wlRefreshTimer){
+    wlRefreshTimer=setInterval(fetchQuotes,WL_QUOTES_REFRESH_MS);
+  }
+  if(wlView==='trends'){
+    if(!wlTrendRefreshTimer){
+      wlTrendRefreshTimer=setInterval(fetchTrends,WL_TRENDS_REFRESH_MS);
+    }
+    if(forceRefresh)fetchTrends();
+  }else if(wlTrendRefreshTimer){
+    clearInterval(wlTrendRefreshTimer);
+    wlTrendRefreshTimer=null;
+  }
+  if(forceRefresh)setWLRefreshState('syncing');
+  else syncWLRefreshStateBadge();
+  if(forceRefresh){
+    fetchQuotes();
+    if(wlView!=='trends')queueWatchlistTrendPreload();
+  }
+}
+
+function markWLActivity({forceRefresh=false}={}){
+  const shouldRefresh=forceRefresh||!wlRefreshTimer||(wlView==='trends'&&!wlTrendRefreshTimer);
+  wlLastActivityAt=Date.now();
+  if(document.visibilityState==='hidden'){
+    stopWLRefreshTimers();
+    return;
+  }
+  syncWLRefreshTimers({forceRefresh:shouldRefresh});
+}
+
+function bindWLLifecycle(){
+  if(wlLifecycleBound)return;
+  wlLifecycleBound=true;
+  ['pointerdown','keydown','wheel','touchstart'].forEach(evt=>{
+    document.addEventListener(evt,()=>markWLActivity(),{passive:true});
+  });
+  document.addEventListener('mousemove',()=>{
+    const now=Date.now();
+    if((now-wlLastMouseMoveAt)<WL_MOUSEMOVE_ACTIVITY_MS)return;
+    wlLastMouseMoveAt=now;
+    markWLActivity();
+  },{passive:true});
+  window.addEventListener('focus',()=>markWLActivity({forceRefresh:true}));
+  document.addEventListener('visibilitychange',()=>{
+    if(document.visibilityState==='hidden'){
+      stopWLRefreshTimers();
+    }else{
+      markWLActivity({forceRefresh:true});
+    }
+  });
+  scheduleWLIdlePause();
+}
+
 async function loadWL(){
+  bindWLLifecycle();
   try{
     const r=await fetch('/api/watchlist');
     const list=await r.json();
     wlList=list;
     ensureVisibleWLTab(list);
     renderWL(list);
-    fetchQuotes();
-    if(wlRefreshTimer) clearInterval(wlRefreshTimer);
-    wlRefreshTimer=setInterval(fetchQuotes,300000);
-    if(wlTrendRefreshTimer) clearInterval(wlTrendRefreshTimer);
-    wlTrendRefreshTimer=setInterval(fetchTrends,300000);
+    markWLActivity({forceRefresh:true});
   }catch(err){
     document.getElementById('wl-count').textContent='0';
     document.getElementById('wl-items').innerHTML='<div class="wl-trend-msg">Unable to load watchlist.</div>';
@@ -251,27 +375,36 @@ async function loadWL(){
 }
 
 function queueWatchlistTrendPreload(delayMs=1500){
-  if(wlView==='trends'||wlTrendRows.length||wlTrendsLoading)return;
+  if(!wlRefreshAllowed()||wlView==='trends'||wlTrendRows.length||wlTrendsLoading)return;
   if(wlTrendPreloadTimer) clearTimeout(wlTrendPreloadTimer);
   wlTrendPreloadTimer=setTimeout(()=>{
     wlTrendPreloadTimer=null;
-    if(wlView!=='trends'&&!wlTrendRows.length&&!wlTrendsLoading){
+    if(wlRefreshAllowed()&&wlView!=='trends'&&!wlTrendRows.length&&!wlTrendsLoading){
       fetchTrends();
     }
   },delayMs);
 }
 
 function fetchQuotes(){
+  if(!wlRefreshAllowed()){
+    stopWLRefreshTimers();
+    return;
+  }
   fetch('/api/watchlist/quotes')
     .then(r=>r.json())
     .then(quotes=>{
       quotes.forEach(q=>{wlQuotes[q.ticker]=q});
       renderWL(wlList);
+      syncWLRefreshStateBadge();
     })
-    .catch(()=>{});
+    .catch(()=>syncWLRefreshStateBadge());
 }
 
 function fetchTrends(){
+  if(!wlRefreshAllowed()){
+    stopWLRefreshTimers();
+    return;
+  }
   fetch('/api/watchlist/trends')
     .then(r=>r.json())
     .then(payload=>{
@@ -280,11 +413,13 @@ function fetchTrends(){
       wlTrendsStale=!!payload.stale;
       renderWL(wlList);
       if(wlTrendPollTimer) clearTimeout(wlTrendPollTimer);
-      if(wlTrendsLoading||wlTrendsStale){
-        wlTrendPollTimer=setTimeout(fetchTrends,4000);
+      wlTrendPollTimer=null;
+      if(wlView==='trends'&&wlRefreshAllowed()&&(wlTrendsLoading||wlTrendsStale)){
+        wlTrendPollTimer=setTimeout(fetchTrends,WL_TRENDS_POLL_MS);
       }
+      syncWLRefreshStateBadge();
     })
-    .catch(()=>{});
+    .catch(()=>syncWLRefreshStateBadge());
 }
 
 function wlTrendFrameFlip(frameFlips,keys,weights,summary){

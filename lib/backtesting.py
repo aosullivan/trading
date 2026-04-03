@@ -235,11 +235,15 @@ def _direction_at(series, idx, fallback):
     return int(value)
 
 
-def _position_quantity(open_lots):
-    return sum(lot["quantity"] for lot in open_lots)
+def _position_quantity(open_lots, sleeve=None):
+    return sum(
+        lot["quantity"]
+        for lot in open_lots
+        if sleeve is None or lot.get("sleeve") == sleeve
+    )
 
 
-def _buy_lot(open_lots, date, price, amount):
+def _buy_lot(open_lots, date, price, amount, sleeve="tactical"):
     if amount <= 0 or price <= 0:
         return
     open_lots.append(
@@ -247,6 +251,7 @@ def _buy_lot(open_lots, date, price, amount):
             "entry_date": str(date.date()),
             "entry_price": round(float(price), 2),
             "quantity": amount / float(price),
+            "sleeve": sleeve,
             "type": "long",
         }
     )
@@ -259,11 +264,11 @@ def _buy_budget(open_lots, price, cash, total_contributed, add_amount, max_capit
     return min(add_amount, capacity_by_position, capacity_by_funding)
 
 
-def _sell_fraction(open_lots, trades, date, price, fraction):
+def _sell_fraction(open_lots, trades, date, price, fraction, sleeve=None):
     if fraction <= 0 or price <= 0:
         return 0.0
 
-    target_qty = _position_quantity(open_lots) * fraction
+    target_qty = _position_quantity(open_lots, sleeve=sleeve) * fraction
     if target_qty <= 0:
         return 0.0
 
@@ -274,6 +279,10 @@ def _sell_fraction(open_lots, trades, date, price, fraction):
     exit_date = str(date.date())
 
     for lot in open_lots:
+        if sleeve is not None and lot.get("sleeve") != sleeve:
+            new_open_lots.append(lot)
+            continue
+
         if remaining_qty <= 1e-12:
             new_open_lots.append(lot)
             continue
@@ -294,6 +303,7 @@ def _sell_fraction(open_lots, trades, date, price, fraction):
                 "entry_price": lot["entry_price"],
                 "exit_date": exit_date,
                 "exit_price": exit_price,
+                "sleeve": lot.get("sleeve"),
                 "type": "long",
                 "quantity": round(sold_qty, 8),
                 "pnl": round(pnl, 2),
@@ -326,6 +336,7 @@ def _mark_open_lots_to_market(open_lots, close_date, close_price):
                 "entry_price": lot["entry_price"],
                 "exit_date": exit_date,
                 "exit_price": exit_price,
+                "sleeve": lot.get("sleeve"),
                 "type": "long",
                 "quantity": round(lot["quantity"], 8),
                 "pnl": round(pnl, 2),
@@ -367,7 +378,7 @@ def backtest_ribbon_accumulation(
     open_prices = df["Open"]
     close_prices = df["Close"]
 
-    _buy_lot(open_lots, dates[0], open_prices.iloc[0], initial_capital)
+    _buy_lot(open_lots, dates[0], open_prices.iloc[0], initial_capital, sleeve="core")
     cash -= initial_capital
 
     prev_daily = (
@@ -434,6 +445,7 @@ def backtest_ribbon_accumulation(
                     execution_date,
                     execution_price,
                     daily_sell_fraction,
+                    sleeve="tactical",
                 )
 
             if prev_weekly != -1 and curr_weekly == -1 and curr_daily == -1:
@@ -443,6 +455,7 @@ def backtest_ribbon_accumulation(
                     execution_date,
                     execution_price,
                     weekly_sell_fraction,
+                    sleeve="tactical",
                 )
 
             prev_daily = curr_daily
