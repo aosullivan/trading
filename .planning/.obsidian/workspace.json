@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "phases/01-build-trend-following-knowledge-base/01-CONTEXT.md",
+                "file": "phases/01-build-trend-following-knowledge-base/01-RESEARCH.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "01-CONTEXT"
+              "title": "01-RESEARCH"
             }
           }
         ]
@@ -94,7 +94,7 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "phases/01-build-trend-following-knowledge-base/01-CONTEXT.md",
+                "file": "phases/01-build-trend-following-knowledge-base/01-RESEARCH.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +104,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for 01-CONTEXT"
+              "title": "Backlinks for 01-RESEARCH"
             }
           },
           {
@@ -113,12 +113,12 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "phases/01-build-trend-following-knowledge-base/01-CONTEXT.md",
+                "file": "phases/01-build-trend-following-knowledge-base/01-RESEARCH.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from 01-CONTEXT"
+              "title": "Outgoing links from 01-RESEARCH"
             }
           },
           {
@@ -156,13 +156,13 @@
             "state": {
               "type": "outline",
               "state": {
-                "file": "phases/01-build-trend-following-knowledge-base/01-CONTEXT.md",
+                "file": "phases/01-build-trend-following-knowledge-base/01-RESEARCH.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of 01-CONTEXT"
+              "title": "Outline of 01-RESEARCH"
             }
           }
         ]
@@ -185,11 +185,17 @@
   },
   "active": "0e3bcedc7290c06f",
   "lastOpenFiles": [
+    "phases/02-implement-corpus-derived-strategy/02-CONTEXT.md",
+    "phases/01-build-trend-following-knowledge-base/01-CONTEXT.md",
+    "phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.md",
+    "phases/02-implement-corpus-derived-strategy",
+    "phases/01-build-trend-following-knowledge-base/01-02-SUMMARY.md",
+    "phases/01-build-trend-following-knowledge-base/01-01-SUMMARY.md",
+    "phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.json",
     "phases/01-build-trend-following-knowledge-base/01-02-PLAN.md",
     "phases/01-build-trend-following-knowledge-base/01-01-PLAN.md",
     "phases/01-build-trend-following-knowledge-base/01-RESEARCH.md",
     "REQUIREMENTS.md",
-    "phases/01-build-trend-following-knowledge-base/01-CONTEXT.md",
     "phases/01-build-trend-following-knowledge-base",
     "phases",
     "STATE.md",
