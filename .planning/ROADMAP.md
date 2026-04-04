@@ -44,7 +44,7 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01: Derive a strategy spec from the knowledge base and map it onto indicator/backtesting code changes.
+- [x] 02-01: Derive a strategy spec from the knowledge base and map it onto indicator/backtesting code changes.
 - [ ] 02-02: Implement backend/UI integration, add tests, and run regression checks.
 
 ## Progress
@@ -55,4 +55,4 @@ Phases execute in numeric order: 1 -> 2
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Build Trend-Following Knowledge Base | 2/2 | Complete | 2026-04-04 |
-| 2. Implement Corpus-Derived Strategy | 0/2 | Not started | - |
+| 2. Implement Corpus-Derived Strategy | 1/2 | In Progress | - |
