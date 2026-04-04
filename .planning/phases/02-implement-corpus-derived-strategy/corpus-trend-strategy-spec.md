@@ -68,3 +68,30 @@ Drawdown discipline:
 - Append `<option value="corpus_trend">Corpus Trend (Donchian/ATR)</option>` as a non-default strategy choice.
 
 No changes are required to `static/js/backtest_panel.js` for default selection behavior, because it already reads the selected `<option>` value and keeps `BT_DEFAULT_STRATEGY='ribbon'`.
+
+## Phase 1 Traceability
+
+| Spec decision | Phase 1 principle IDs | Source artifact |
+|---------------|-----------------------|-----------------|
+| Price-only breakout entries over prediction-driven entries | `entry-001`, `trend-001`, `regime-001` | `.planning/phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.md` |
+| Systematic trailing/channel exits and ATR stops | `exit-001`, `whipsaw-001`, `drawdown-001` | `.planning/phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.md` |
+| 1.0% risk-budget sizing with ATR-scaled quantities and idle cash allowed | `sizing-001`, `risk-001`, `portfolio-001` | `.planning/phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.json` |
+| Fixed 55/20/14/2.0 defaults with no drawdown-triggered parameter adaptation | `drawdown-001`, `trend-001`, `whipsaw-001` | `.planning/phases/01-build-trend-following-knowledge-base/01-02-SUMMARY.md` |
+| Single-ticker long/cash implementation in v1, reusable across tickers but not yet a true basket allocator | `portfolio-001`, `risk-001` | `.planning/phases/02-implement-corpus-derived-strategy/02-CONTEXT.md` |
+
+## Implementation File Map for 02-02
+
+| File | Contract to implement |
+|------|-----------------------|
+| `lib/technical_indicators.py` | Add `compute_corpus_trend_signal(...)` and constants for Donchian entry/exit lookbacks, ATR period, stop multiple, and risk budget defaults. |
+| `lib/backtesting.py` | Add `backtest_corpus_trend(...)` with ATR-sized long/cash entries, next-open fills, channel/stop exits, open-trade marking, and `compute_summary(...)` compatibility. |
+| `routes/chart.py` | Compute corpus-trend signal outputs in `_get_indicator_bundle(...)`, run the new backtest over `df_view`, and expose `payload["strategies"]["corpus_trend"]`. |
+| `templates/partials/backtest_panel.html` | Add `<option value="corpus_trend">Corpus Trend (Donchian/ATR)</option>` after the existing `ribbon` option without changing the first/default strategy. |
+| `tests/test_indicators.py` | Cover warmup behavior, breakout entries, channel/stop exits, and non-decreasing trailing stops for `compute_corpus_trend_signal(...)`. |
+| `tests/test_backtest.py` | Cover ATR-sized quantity math, idle cash behavior, closed/open trade semantics, empty-frame handling, and summary compatibility for `backtest_corpus_trend(...)`. |
+| `tests/test_routes.py` | Verify `corpus_trend` appears in `payload["strategies"]` with `trades`, `summary`, `equity_curve`, and `buy_hold_equity_curve`, while existing strategy keys remain present. |
+| `tests/test_ui.py` | Verify the strategy select still has `ribbon` first and now includes `corpus_trend` with the expected display label. |
+
+## Caveat from Phase 1 Extraction
+
+The Phase 1 KB is a deterministic first pass built from curated `PRINCIPLE_BLUEPRINTS` plus substring term matching in `scripts/build_trend_following_kb.py`, not a sentence-level semantic parser over every transcript line. Phase 2 should preserve the principle IDs and citations above for traceability, but treat the exact 55/20/14/2.0/1.0% defaults as an implementation starting point derived from the KB's directionally consistent rules, not as book-proven optimal parameters.
