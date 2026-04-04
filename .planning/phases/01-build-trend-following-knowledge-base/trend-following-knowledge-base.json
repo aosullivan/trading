@@ -1,0 +1,774 @@
+{
+  "corpus": [
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 01 - Opening Credits.txt",
+      "sequence": 1,
+      "chapter_label": "Opening Credits",
+      "chapter": null,
+      "mode": "credits",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Low-signal audiobook credits retained for coverage."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 02 - Chapter 1.txt",
+      "sequence": 2,
+      "chapter_label": "Chapter 1",
+      "chapter": 1,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 03 - Chapter 2.txt",
+      "sequence": 3,
+      "chapter_label": "Chapter 2",
+      "chapter": 2,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 04 - Chapter 3.txt",
+      "sequence": 4,
+      "chapter_label": "Chapter 3",
+      "chapter": 3,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 05 - Chapter 4.txt",
+      "sequence": 5,
+      "chapter_label": "Chapter 4",
+      "chapter": 4,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 06 - Chapter 5.txt",
+      "sequence": 6,
+      "chapter_label": "Chapter 5",
+      "chapter": 5,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 07 - Chapter 6.txt",
+      "sequence": 7,
+      "chapter_label": "Chapter 6",
+      "chapter": 6,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 08 - Chapter 7.txt",
+      "sequence": 8,
+      "chapter_label": "Chapter 7",
+      "chapter": 7,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 09 - Chapter 8.txt",
+      "sequence": 9,
+      "chapter_label": "Chapter 8",
+      "chapter": 8,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 10 - Chapter 9.txt",
+      "sequence": 10,
+      "chapter_label": "Chapter 9",
+      "chapter": 9,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 11 - Chapter 10.txt",
+      "sequence": 11,
+      "chapter_label": "Chapter 10",
+      "chapter": 10,
+      "mode": "margin-quotes",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Quote-heavy chapter supplement retained for citation context."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 12 - Chapter 11.txt",
+      "sequence": 12,
+      "chapter_label": "Chapter 11",
+      "chapter": 11,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 13 - Chapter 12.txt",
+      "sequence": 13,
+      "chapter_label": "Chapter 12",
+      "chapter": 12,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 14 - Chapter 13.txt",
+      "sequence": 14,
+      "chapter_label": "Chapter 13",
+      "chapter": 13,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 15 - Chapter 14.txt",
+      "sequence": 15,
+      "chapter_label": "Chapter 14",
+      "chapter": 14,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 16 - Chapter 15.txt",
+      "sequence": 16,
+      "chapter_label": "Chapter 15",
+      "chapter": 15,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 17 - Chapter 16.txt",
+      "sequence": 17,
+      "chapter_label": "Chapter 16",
+      "chapter": 16,
+      "mode": "margin-quotes",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Quote-heavy chapter supplement retained for citation context."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 18 - Chapter 17.txt",
+      "sequence": 18,
+      "chapter_label": "Chapter 17",
+      "chapter": 17,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 19 - Chapter 18.txt",
+      "sequence": 19,
+      "chapter_label": "Chapter 18",
+      "chapter": 18,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 20 - Chapter 19.txt",
+      "sequence": 20,
+      "chapter_label": "Chapter 19",
+      "chapter": 19,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 21 - Chapter 20.txt",
+      "sequence": 21,
+      "chapter_label": "Chapter 20",
+      "chapter": 20,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 22 - Chapter 21.txt",
+      "sequence": 22,
+      "chapter_label": "Chapter 21",
+      "chapter": 21,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 23 - Chapter 22.txt",
+      "sequence": 23,
+      "chapter_label": "Chapter 22",
+      "chapter": 22,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 24 - Chapter 23.txt",
+      "sequence": 24,
+      "chapter_label": "Chapter 23",
+      "chapter": 23,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 25 - Chapter 24.txt",
+      "sequence": 25,
+      "chapter_label": "Chapter 24",
+      "chapter": 24,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 26 - Chapter 25.txt",
+      "sequence": 26,
+      "chapter_label": "Chapter 25",
+      "chapter": 25,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 27 - Chapter 26.txt",
+      "sequence": 27,
+      "chapter_label": "Chapter 26",
+      "chapter": 26,
+      "mode": "margin-quotes",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Quote-heavy chapter supplement retained for citation context."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 28 - Chapter 27.txt",
+      "sequence": 28,
+      "chapter_label": "Chapter 27",
+      "chapter": 27,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 29 - Chapter 28.txt",
+      "sequence": 29,
+      "chapter_label": "Chapter 28",
+      "chapter": 28,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 30 - Chapter 29.txt",
+      "sequence": 30,
+      "chapter_label": "Chapter 29",
+      "chapter": 29,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 31 - Chapter 30.txt",
+      "sequence": 31,
+      "chapter_label": "Chapter 30",
+      "chapter": 30,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 32 - Chapter 31.txt",
+      "sequence": 32,
+      "chapter_label": "Chapter 31",
+      "chapter": 31,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 33 - Chapter 32.txt",
+      "sequence": 33,
+      "chapter_label": "Chapter 32",
+      "chapter": 32,
+      "mode": "margin-quotes",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Quote-heavy chapter supplement retained for citation context."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 34 - Chapter 33.txt",
+      "sequence": 34,
+      "chapter_label": "Chapter 33",
+      "chapter": 33,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 35 - Chapter 34.txt",
+      "sequence": 35,
+      "chapter_label": "Chapter 34",
+      "chapter": 34,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 36 - Chapter 35.txt",
+      "sequence": 36,
+      "chapter_label": "Chapter 35",
+      "chapter": 35,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 37 - Chapter 36.txt",
+      "sequence": 37,
+      "chapter_label": "Chapter 36",
+      "chapter": 36,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 38 - Chapter 37.txt",
+      "sequence": 38,
+      "chapter_label": "Chapter 37",
+      "chapter": 37,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 39 - Chapter 38.txt",
+      "sequence": 39,
+      "chapter_label": "Chapter 38",
+      "chapter": 38,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 40 - Chapter 39.txt",
+      "sequence": 40,
+      "chapter_label": "Chapter 39",
+      "chapter": 39,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 41 - Chapter 40.txt",
+      "sequence": 41,
+      "chapter_label": "Chapter 40",
+      "chapter": 40,
+      "mode": "margin-quotes",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Quote-heavy chapter supplement retained for citation context."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 42 - Chapter 41.txt",
+      "sequence": 42,
+      "chapter_label": "Chapter 41",
+      "chapter": 41,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 43 - Chapter 42.txt",
+      "sequence": 43,
+      "chapter_label": "Chapter 42",
+      "chapter": 42,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 44 - Chapter 43.txt",
+      "sequence": 44,
+      "chapter_label": "Chapter 43",
+      "chapter": 43,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 45 - Chapter 44.txt",
+      "sequence": 45,
+      "chapter_label": "Chapter 44",
+      "chapter": 44,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 46 - Chapter 45.txt",
+      "sequence": 46,
+      "chapter_label": "Chapter 45",
+      "chapter": 45,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 47 - Chapter 46.txt",
+      "sequence": 47,
+      "chapter_label": "Chapter 46",
+      "chapter": 46,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 48 - Chapter 47.txt",
+      "sequence": 48,
+      "chapter_label": "Chapter 47",
+      "chapter": 47,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 49 - Chapter 48.txt",
+      "sequence": 49,
+      "chapter_label": "Chapter 48",
+      "chapter": 48,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 50 - Chapter 49.txt",
+      "sequence": 50,
+      "chapter_label": "Chapter 49",
+      "chapter": 49,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 51 - Chapter 50.txt",
+      "sequence": 51,
+      "chapter_label": "Chapter 50",
+      "chapter": 50,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 52 - Chapter 51.txt",
+      "sequence": 52,
+      "chapter_label": "Chapter 51",
+      "chapter": 51,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 53 - Chapter 52.txt",
+      "sequence": 53,
+      "chapter_label": "Chapter 52",
+      "chapter": 52,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 54 - Chapter 53.txt",
+      "sequence": 54,
+      "chapter_label": "Chapter 53",
+      "chapter": 53,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 55 - Chapter 54.txt",
+      "sequence": 55,
+      "chapter_label": "Chapter 54",
+      "chapter": 54,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 56 - Chapter 55.txt",
+      "sequence": 56,
+      "chapter_label": "Chapter 55",
+      "chapter": 55,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 57 - Chapter 56.txt",
+      "sequence": 57,
+      "chapter_label": "Chapter 56",
+      "chapter": 56,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 58 - Chapter 57.txt",
+      "sequence": 58,
+      "chapter_label": "Chapter 57",
+      "chapter": 57,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 59 - Chapter 58.txt",
+      "sequence": 59,
+      "chapter_label": "Chapter 58",
+      "chapter": 58,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 60 - Chapter 59.txt",
+      "sequence": 60,
+      "chapter_label": "Chapter 59",
+      "chapter": 59,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 61 - Chapter 60.txt",
+      "sequence": 61,
+      "chapter_label": "Chapter 60",
+      "chapter": 60,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 62 - Chapter 61.txt",
+      "sequence": 62,
+      "chapter_label": "Chapter 61",
+      "chapter": 61,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 63 - Chapter 62.txt",
+      "sequence": 63,
+      "chapter_label": "Chapter 62",
+      "chapter": 62,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 64 - Chapter 63.txt",
+      "sequence": 64,
+      "chapter_label": "Chapter 63",
+      "chapter": 63,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 65 - Chapter 64.txt",
+      "sequence": 65,
+      "chapter_label": "Chapter 64",
+      "chapter": 64,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 66 - Chapter 65.txt",
+      "sequence": 66,
+      "chapter_label": "Chapter 65",
+      "chapter": 65,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 67 - Chapter 66.txt",
+      "sequence": 67,
+      "chapter_label": "Chapter 66",
+      "chapter": 66,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 68 - Chapter 67.txt",
+      "sequence": 68,
+      "chapter_label": "Chapter 67",
+      "chapter": 67,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 69 - Chapter 68.txt",
+      "sequence": 69,
+      "chapter_label": "Chapter 68",
+      "chapter": 68,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 70 - Chapter 69.txt",
+      "sequence": 70,
+      "chapter_label": "Chapter 69",
+      "chapter": 69,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 71 - Chapter 70.txt",
+      "sequence": 71,
+      "chapter_label": "Chapter 70",
+      "chapter": 70,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 72 - Chapter 71.txt",
+      "sequence": 72,
+      "chapter_label": "Chapter 71",
+      "chapter": 71,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 73 - Chapter 72.txt",
+      "sequence": 73,
+      "chapter_label": "Chapter 72",
+      "chapter": 72,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 74 - Chapter 73.txt",
+      "sequence": 74,
+      "chapter_label": "Chapter 73",
+      "chapter": 73,
+      "mode": "narrative",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Narrative transcript available for principle extraction."
+    },
+    {
+      "file": "audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 75 - End Credits.txt",
+      "sequence": 75,
+      "chapter_label": "End Credits",
+      "chapter": null,
+      "mode": "credits",
+      "processed": true,
+      "skip_reason": null,
+      "extraction_notes": "Low-signal audiobook credits retained for coverage."
+    }
+  ],
+  "principles": [],
+  "category_notes": {
+    "entries": "no strong evidence found yet - scaffold awaiting 01-02 extraction",
+    "exits": "no strong evidence found yet - scaffold awaiting 01-02 extraction",
+    "position_sizing": "no strong evidence found yet - scaffold awaiting 01-02 extraction",
+    "risk_control": "no strong evidence found yet - scaffold awaiting 01-02 extraction",
+    "drawdown_discipline": "no strong evidence found yet - scaffold awaiting 01-02 extraction",
+    "trend_persistence": "no strong evidence found yet - scaffold awaiting 01-02 extraction",
+    "whipsaw_handling": "no strong evidence found yet - scaffold awaiting 01-02 extraction",
+    "portfolio_market_selection": "no strong evidence found yet - scaffold awaiting 01-02 extraction",
+    "regime_assumptions": "no strong evidence found yet - scaffold awaiting 01-02 extraction"
+  },
+  "strategy_handoff": {
+    "candidate_rule_families": [],
+    "risk_constraints": [],
+    "open_questions": [
+      "Populate this section in 01-02 after transcript principles are extracted."
+    ],
+    "principle_ids": []
+  }
+}
