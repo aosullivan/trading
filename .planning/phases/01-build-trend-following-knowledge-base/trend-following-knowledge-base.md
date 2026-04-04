@@ -92,43 +92,94 @@ Generated from transcript files in `audio/`.
 
 ### entries
 
-- Status: no strong evidence found yet - scaffold awaiting 01-02 extraction
+- Status: Corpus-backed principle extracted.
+- entry-001: Use objective price action to enter in the direction of strength, with breakouts, moving-average confirmation, or direct momentum signals preferred over opinion-driven entries.
+  - Evidence: `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 02 - Chapter 1.txt` (Chapter 1, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 04 - Chapter 3.txt` (Chapter 3, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 05 - Chapter 4.txt` (Chapter 4, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 08 - Chapter 7.txt` (Chapter 7, narrative)
+  - Strategy implication: Phase 2 should start with long/short breakout or moving-average entry rules driven only by price and trend confirmation.
+  - Confidence: high
+  - Alternatives: Moving-average and breakout families both appear in the corpus; Phase 2 can compare those implementations while keeping the signal price-based.
 
 ### exits
 
-- Status: no strong evidence found yet - scaffold awaiting 01-02 extraction
+- Status: Corpus-backed principle extracted.
+- exit-001: Let winning trends continue, but define systematic sell/stop rules so exits are triggered by the same rule set rather than discretionary forecast changes.
+  - Evidence: `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 03 - Chapter 2.txt` (Chapter 2, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 04 - Chapter 3.txt` (Chapter 3, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 05 - Chapter 4.txt` (Chapter 4, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 06 - Chapter 5.txt` (Chapter 5, narrative)
+  - Strategy implication: Use deterministic trailing-stop, channel-break, or moving-average exit logic that can hold a trend while cutting reversals mechanically.
+  - Confidence: medium
+  - Alternatives: The transcripts emphasize staying with a system, but do not mandate one single stop formula; Phase 2 should choose a concrete exit family and test it.
 
 ### position_sizing
 
-- Status: no strong evidence found yet - scaffold awaiting 01-02 extraction
+- Status: Corpus-backed principle extracted.
+- sizing-001: Position sizing and money management are core parts of the edge; trade size should be adjusted to risk/volatility instead of treating every signal equally.
+  - Evidence: `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 03 - Chapter 2.txt` (Chapter 2, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 07 - Chapter 6.txt` (Chapter 6, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 08 - Chapter 7.txt` (Chapter 7, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 09 - Chapter 8.txt` (Chapter 8, narrative)
+  - Strategy implication: Include a volatility-scaled or fixed-risk sizing layer so position size is derived from market risk and account limits, not arbitrary share counts.
+  - Confidence: high
+  - Alternatives: The corpus supports risk-budgeted sizing, but the exact unit size and portfolio-level cap should be selected during Phase 2 implementation.
 
 ### risk_control
 
-- Status: no strong evidence found yet - scaffold awaiting 01-02 extraction
+- Status: Corpus-backed principle extracted.
+- risk-001: Trend followers accept that losses are unavoidable, so risk management must be built into the system and focused on controlling downside rather than predicting what happens next.
+  - Evidence: `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 02 - Chapter 1.txt` (Chapter 1, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 03 - Chapter 2.txt` (Chapter 2, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 07 - Chapter 6.txt` (Chapter 6, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 08 - Chapter 7.txt` (Chapter 7, narrative)
+  - Strategy implication: Add explicit per-trade and portfolio-level loss controls and evaluate strategy quality through drawdown-aware metrics, not hit-rate alone.
+  - Confidence: high
 
 ### drawdown_discipline
 
-- Status: no strong evidence found yet - scaffold awaiting 01-02 extraction
+- Status: Corpus-backed principle extracted.
+- drawdown-001: The book repeatedly warns against changing a sound system during drawdowns; discipline means continuing to follow the rules through losses, boredom, and slow recoveries.
+  - Evidence: `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 02 - Chapter 1.txt` (Chapter 1, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 05 - Chapter 4.txt` (Chapter 4, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 07 - Chapter 6.txt` (Chapter 6, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 08 - Chapter 7.txt` (Chapter 7, narrative)
+  - Strategy implication: Phase 2 should avoid adaptive parameter tweaks triggered by recent drawdowns and should report drawdown depth/duration so discipline costs are visible up front.
+  - Confidence: high
+  - Alternatives: Some interview chapters discuss risk-awareness, but the clearest corpus constraint is to avoid abandoning rules purely because performance recently hurt.
 
 ### trend_persistence
 
-- Status: no strong evidence found yet - scaffold awaiting 01-02 extraction
+- Status: Corpus-backed principle extracted.
+- trend-001: Trend following is built on the premise that trends persist across time, asset classes, and market history more than news narratives explain them.
+  - Evidence: `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 02 - Chapter 1.txt` (Chapter 1, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 07 - Chapter 6.txt` (Chapter 6, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 09 - Chapter 8.txt` (Chapter 8, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 13 - Chapter 12.txt` (Chapter 12, narrative)
+  - Strategy implication: Use medium/long lookbacks and evaluate whether the chosen signal captures persistent trend continuation across bull, bear, and crisis periods.
+  - Confidence: high
 
 ### whipsaw_handling
 
-- Status: no strong evidence found yet - scaffold awaiting 01-02 extraction
+- Status: Corpus-backed principle extracted.
+- whipsaw-001: Whipsaws and flat periods are treated as a cost of doing business; the discipline is to wait through neutral markets and avoid overreacting to short-term chop.
+  - Evidence: `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 02 - Chapter 1.txt` (Chapter 1, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 07 - Chapter 6.txt` (Chapter 6, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 08 - Chapter 7.txt` (Chapter 7, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 11 - Chapter 10.txt` (Chapter 10, margin-quotes)
+  - Strategy implication: Expect false starts in sideways regimes, keep trade frequency controlled, and prefer exits/re-entries that reduce churn without losing the next major trend.
+  - Confidence: medium
+  - Alternatives: The transcripts accept whipsaw as unavoidable; Phase 2 can compare faster versus slower signals to trade off responsiveness against churn.
 
 ### portfolio_market_selection
 
-- Status: no strong evidence found yet - scaffold awaiting 01-02 extraction
+- Status: Corpus-backed principle extracted.
+- portfolio-001: Trend following should be diversified across many markets and asset classes, with portfolio and risk management doing much of the work once a common signal family is in place.
+  - Evidence: `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 02 - Chapter 1.txt` (Chapter 1, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 07 - Chapter 6.txt` (Chapter 6, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 08 - Chapter 7.txt` (Chapter 7, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 09 - Chapter 8.txt` (Chapter 8, narrative)
+  - Strategy implication: Design the strategy so the same rules can run across broad market groups and do not tie the logic to one ticker, one asset class, or a stock-only assumption.
+  - Confidence: high
 
 ### regime_assumptions
 
-- Status: no strong evidence found yet - scaffold awaiting 01-02 extraction
+- Status: Corpus-backed principle extracted.
+- regime-001: The corpus argues that trend systems should not depend on macro forecasting, fundamental narratives, or claims that 'this time is different'; price is treated as the reliable input across regimes.
+  - Evidence: `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 02 - Chapter 1.txt` (Chapter 1, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 11 - Chapter 10.txt` (Chapter 10, margin-quotes), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 22 - Chapter 21.txt` (Chapter 21, narrative), `audio/Trend Following, 5th Edition: How to Make a Fortune in Bull, Bear and Black Swan Markets [B072VV9HMJ] - 43 - Chapter 42.txt` (Chapter 42, narrative)
+  - Strategy implication: Keep Phase 2 rules price-only by default, avoid macro/fundamental filters as hard requirements, and explicitly test crisis and quiet regimes.
+  - Confidence: high
+  - Alternatives: Interview chapters discuss market structure changes, but the book's strongest repeated stance is to keep the system robust without macro prediction.
 
 ## Strategy Design Implications
 
-- Candidate rule families: to be extracted in 01-02
-- Risk constraints: to be extracted in 01-02
+- Candidate rule families:
+  - Breakout or moving-average entries that act only on price-confirmed trend direction.
+  - Systematic trailing-stop or channel/moving-average exits that let winners run while cutting reversals.
+  - A diversified cross-market implementation so one signal family can trade multiple asset classes.
+- Risk constraints:
+  - Use explicit volatility- or risk-budget-based position sizing and cap per-trade and portfolio losses.
+  - Do not change parameters just because the system is in drawdown; report drawdown depth and recovery time instead.
+  - Avoid macro prediction or discretionary fundamental overrides as required inputs to the first strategy spec.
+- Principle IDs referenced: entry-001, exit-001, sizing-001, risk-001, drawdown-001, trend-001, whipsaw-001, portfolio-001, regime-001
 - Open questions:
-  - Populate this section in 01-02 after transcript principles are extracted.
+  - Which entry/exit family should be implemented first: breakout channels, moving-average trend confirmation, or a hybrid?
+  - What lookback horizon best matches the corpus preference for longer-term trend capture while limiting whipsaw?
+  - What initial volatility/risk budget should be used per position and across the portfolio?
