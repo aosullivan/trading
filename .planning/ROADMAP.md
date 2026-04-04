@@ -29,7 +29,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: Design the transcript ingestion and knowledge-base schema/output format, including source citation and chapter ordering.
+- [x] 01-01: Design the transcript ingestion and knowledge-base schema/output format, including source citation and chapter ordering.
 - [ ] 01-02: Read the `audio/` transcript files, extract the trend-following concepts into the knowledge base, and verify the artifact is complete enough for strategy synthesis.
 
 ### Phase 2: Implement Corpus-Derived Strategy
