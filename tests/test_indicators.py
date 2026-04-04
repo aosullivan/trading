@@ -251,7 +251,7 @@ class TestTrendRibbon:
         _, upper, lower, strength, _ = compute_trend_ribbon(small_df)
         assert pd.isna(upper.iloc[0]) or pd.isna(strength.iloc[0])
 
-    def test_flip_passes_through_zero_width_neutral(self, sample_df):
+    def test_active_trend_persists_until_opposite_confirmation(self, sample_df):
         _, upper, lower, _, direction = compute_trend_ribbon(sample_df)
         width = (upper - lower).fillna(0)
 
@@ -260,9 +260,8 @@ class TestTrendRibbon:
         for idx, curr_dir in nonzero.items():
             if prev_dir is not None and curr_dir != prev_dir:
                 between = direction.loc[prev_idx:idx].iloc[1:-1]
-                assert (between == 0).any(), "Direction flip must pass through neutral"
-                zero_width = width.loc[between.index[between == 0]]
-                assert (zero_width == 0).any(), "Neutral transition must collapse band width to zero"
+                assert not (between == 0).any(), "Direction should hold until the opposite threshold confirms"
+                assert (width.loc[between.index] > 0).all(), "Active trend should keep a visible width floor"
             prev_dir = curr_dir
             prev_idx = idx
 
@@ -271,3 +270,9 @@ class TestTrendRibbon:
         neutral = direction == 0
         width = (upper - lower).fillna(0)
         assert (width[neutral] == 0).all()
+
+    def test_active_direction_keeps_width_floor(self, sample_df):
+        _, upper, lower, _, direction = compute_trend_ribbon(sample_df)
+        active = direction != 0
+        width = (upper - lower).fillna(0)
+        assert (width[active] > 0).all()

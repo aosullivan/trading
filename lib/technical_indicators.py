@@ -27,6 +27,7 @@ RIBBON_SLOW_PERIOD = 34
 RIBBON_SMOOTH_PERIOD = 5
 RIBBON_COLLAPSE_THRESHOLD = 0.06
 RIBBON_EXPAND_THRESHOLD = 0.16
+RIBBON_MIN_WIDTH = 0.8
 CB50_PERIOD = 50
 CB150_PERIOD = 150
 SMA_CROSS_FAST_10 = 10
@@ -365,17 +366,17 @@ def compute_trend_ribbon(
     slow_period=RIBBON_SLOW_PERIOD,
     smooth_period=RIBBON_SMOOTH_PERIOD,
     max_width=3.0,
-    min_width=0.0,
+    min_width=RIBBON_MIN_WIDTH,
     adx_period=14,
     collapse_threshold=RIBBON_COLLAPSE_THRESHOLD,
     expand_threshold=RIBBON_EXPAND_THRESHOLD,
 ):
-    """Compute a trend-strength ribbon that tapers before flipping direction.
+    """Compute a trend-strength ribbon with persistent bullish/bearish bands.
 
     Uses the normalized distance between fast and slow EMAs as a continuous
-    trend score.  The ribbon width is proportional to ``|trend_score|``, so
-    it naturally narrows to zero before the colour changes — the direction
-    can only flip *after* the trend has weakened to nothing.
+    trend score.  Direction flips only after the score reaches the opposite
+    confirmation threshold, so bearish/bullish ribbons persist through weak
+    counter-trend bounces instead of collapsing to a neutral zero-width line.
     """
     close = df["Close"]
     high = df["High"]
@@ -407,8 +408,9 @@ def compute_trend_ribbon(
     if expand_threshold < collapse_threshold:
         raise ValueError("expand_threshold must be >= collapse_threshold")
 
-    # Direction changes pass through a neutral collapsed state first:
-    # +1 -> 0 -> -1 or -1 -> 0 -> +1.
+    # Keep the prior trend state until the opposite side reaches the expansion
+    # threshold. This mirrors Larsson-style ribbons that remain bearish through
+    # shallow rebounds instead of collapsing to neutral.
     direction = pd.Series(0, index=df.index, dtype=int)
     state = 0
     for i in range(len(strength)):
@@ -423,16 +425,17 @@ def compute_trend_ribbon(
                 state = 1
             elif score <= -expand_threshold:
                 state = -1
-        elif state == 1 and score <= collapse_threshold:
-            state = 0
-        elif state == -1 and score >= -collapse_threshold:
-            state = 0
+        elif state == 1 and score <= -expand_threshold:
+            state = -1
+        elif state == -1 and score >= expand_threshold:
+            state = 1
 
         direction.iloc[i] = state
 
-    # Ribbon width proportional to |strength| — tapers to zero at crossover
+    # Active trends keep a minimum band width and then expand with conviction.
     abs_strength = strength.abs().where(direction != 0, 0.0)
     width_mult = min_width + (max_width - min_width) * abs_strength
+    width_mult = width_mult.where(direction != 0, 0.0)
     half_width = atr * width_mult / 2
     upper = center + half_width
     lower = center - half_width

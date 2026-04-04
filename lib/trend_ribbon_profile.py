@@ -2,7 +2,7 @@ import json
 
 
 TREND_RIBBON_SIGNAL_PROFILE = {
-    "ema_period": 13,
+    "ema_period": 34,
     "atr_period": 14,
     "fast_period": 8,
     "slow_period": 34,
@@ -12,7 +12,7 @@ TREND_RIBBON_SIGNAL_PROFILE = {
 }
 
 TREND_RIBBON_WEEKLY_SIGNAL_PROFILE = {
-    "ema_period": 13,
+    "ema_period": 34,
     "atr_period": 14,
     "fast_period": 8,
     "slow_period": 34,
