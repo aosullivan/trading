@@ -13,6 +13,7 @@ import pytest
 from playwright.sync_api import sync_playwright, expect, Error as PlaywrightError
 
 BASE_URL = "http://127.0.0.1:5050"
+pytestmark = pytest.mark.ui
 
 
 def _wait_for_server(host="127.0.0.1", port=5050, timeout=15):
@@ -234,9 +235,11 @@ class TestBacktestPanel:
         try:
             select = popup.locator("#strategy-select")
             options = select.locator("option")
-            assert options.count() == 12
+            assert options.count() == 13
             assert options.first.get_attribute("value") == "ribbon"
             assert options.first.text_content().strip() == "Trend-Driven"
+            assert options.nth(1).get_attribute("value") == "corpus_trend"
+            assert options.nth(1).text_content().strip() == "Corpus Trend (Donchian/ATR)"
         finally:
             popup.close()
 
