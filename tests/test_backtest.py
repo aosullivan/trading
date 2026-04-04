@@ -137,7 +137,7 @@ class TestBacktestSupertrend:
 
 
 class TestBacktestCorpusTrend:
-    def test_risks_fractional_equity_and_leaves_idle_cash(self):
+    def test_uses_available_cash_on_entry(self):
         idx = pd.date_range("2024-01-01", periods=5, freq="D")
         df = pd.DataFrame(
             {
@@ -157,12 +157,12 @@ class TestBacktestCorpusTrend:
         assert len(trades) == 1
         assert trades[0]["entry_date"] == "2024-01-03"
         assert trades[0]["exit_date"] == "2024-01-05"
-        assert trades[0]["quantity"] == pytest.approx(20.0)
+        assert trades[0]["quantity"] == pytest.approx(100.0)
         assert trades[0]["pnl_pct"] == pytest.approx(10.0)
         assert summary["total_trades"] == 1
         assert summary["open_trades"] == 0
         assert equity[2]["value"] == pytest.approx(10000.0)
-        assert equity[-1]["value"] == pytest.approx(10200.0)
+        assert equity[-1]["value"] == pytest.approx(11000.0)
 
     def test_marks_final_open_trade_to_last_close(self):
         idx = pd.date_range("2024-01-01", periods=4, freq="D")
@@ -185,9 +185,9 @@ class TestBacktestCorpusTrend:
         assert trades[0]["open"] is True
         assert trades[0]["exit_date"] == "2024-01-04"
         assert trades[0]["exit_price"] == pytest.approx(104.0)
-        assert trades[0]["quantity"] == pytest.approx(25.0)
+        assert trades[0]["quantity"] == pytest.approx(98.03921569)
         assert summary["open_trades"] == 1
-        assert equity[-1]["value"] == pytest.approx(10050.0)
+        assert equity[-1]["value"] == pytest.approx(10196.08)
 
 
 class TestBacktestRibbonAccumulation:

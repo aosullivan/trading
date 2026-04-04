@@ -12,7 +12,7 @@
 - **Donchian trailing exit lookback:** 20 bars
 - **ATR period:** 14 bars
 - **ATR stop multiple:** 2.0
-- **Account risk budget per entry:** 1.0% of current equity
+- **Entry sizing:** deploy available cash on each long entry in the current single-ticker backtest
 - **Direction convention:** `1` = long, `-1` = cash/flat, with no short entries
 
 ## Signal Formula
@@ -42,10 +42,9 @@ Warmup and initial-state behavior:
 Implement `backtest_corpus_trend(...)` in `lib/backtesting.py` and preserve the existing `(trades, summary, equity_curve)` return shape.
 
 Position sizing:
-- On each long entry, compute stop distance as `max(entry_price - stop_price, 0.01)`, where `stop_price` comes from the latest valid `stop_line` value at the signal bar.
-- Risk cash = `equity * 0.01`.
-- Quantity = `min(cash / entry_price, risk_cash / stop_distance)`.
-- Leave unused cash idle instead of forcing all-in exposure.
+- On each long entry, deploy available cash using `quantity = cash / entry_price` at the next-open fill.
+- ATR and Donchian rules still govern exits and stop discipline, but not entry size in this v1 single-asset report path.
+- This avoids the near-flat equity curve caused by tiny 1% risk-budget sizing on volatile single-asset charts such as BTC weekly.
 
 Trade object semantics:
 - Use the existing trade dict fields: `entry_date`, `entry_price`, `exit_date`, `exit_price`, `quantity`, `type`, `pnl`, `pnl_pct`, and `open` for still-open trades.
@@ -75,7 +74,7 @@ No changes are required to `static/js/backtest_panel.js` for default selection b
 |---------------|-----------------------|-----------------|
 | Price-only breakout entries over prediction-driven entries | `entry-001`, `trend-001`, `regime-001` | `.planning/phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.md` |
 | Systematic trailing/channel exits and ATR stops | `exit-001`, `whipsaw-001`, `drawdown-001` | `.planning/phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.md` |
-| 1.0% risk-budget sizing with ATR-scaled quantities and idle cash allowed | `sizing-001`, `risk-001`, `portfolio-001` | `.planning/phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.json` |
+| Full-cash single-position sizing in the current single-asset report path, with ATR/Donchian used for exits and risk discipline | `sizing-001`, `risk-001`, `portfolio-001` | `.planning/phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.json` |
 | Fixed 55/20/14/2.0 defaults with no drawdown-triggered parameter adaptation | `drawdown-001`, `trend-001`, `whipsaw-001` | `.planning/phases/01-build-trend-following-knowledge-base/01-02-SUMMARY.md` |
 | Single-ticker long/cash implementation in v1, reusable across tickers but not yet a true basket allocator | `portfolio-001`, `risk-001` | `.planning/phases/02-implement-corpus-derived-strategy/02-CONTEXT.md` |
 
@@ -84,7 +83,7 @@ No changes are required to `static/js/backtest_panel.js` for default selection b
 | File | Contract to implement |
 |------|-----------------------|
 | `lib/technical_indicators.py` | Add `compute_corpus_trend_signal(...)` and constants for Donchian entry/exit lookbacks, ATR period, stop multiple, and risk budget defaults. |
-| `lib/backtesting.py` | Add `backtest_corpus_trend(...)` with ATR-sized long/cash entries, next-open fills, channel/stop exits, open-trade marking, and `compute_summary(...)` compatibility. |
+| `lib/backtesting.py` | Add `backtest_corpus_trend(...)` with full-cash long/cash entries, next-open fills, channel/stop exits, open-trade marking, and `compute_summary(...)` compatibility. |
 | `routes/chart.py` | Compute corpus-trend signal outputs in `_get_indicator_bundle(...)`, run the new backtest over `df_view`, and expose `payload["strategies"]["corpus_trend"]`. |
 | `templates/partials/backtest_panel.html` | Add `<option value="corpus_trend">Corpus Trend (Donchian/ATR)</option>` after the existing `ribbon` option without changing the first/default strategy. |
 | `tests/test_indicators.py` | Cover warmup behavior, breakout entries, channel/stop exits, and non-decreasing trailing stops for `compute_corpus_trend_signal(...)`. |
@@ -94,4 +93,4 @@ No changes are required to `static/js/backtest_panel.js` for default selection b
 
 ## Caveat from Phase 1 Extraction
 
-The Phase 1 KB is a deterministic first pass built from curated `PRINCIPLE_BLUEPRINTS` plus substring term matching in `scripts/build_trend_following_kb.py`, not a sentence-level semantic parser over every transcript line. Phase 2 should preserve the principle IDs and citations above for traceability, but treat the exact 55/20/14/2.0/1.0% defaults as an implementation starting point derived from the KB's directionally consistent rules, not as book-proven optimal parameters.
+The Phase 1 KB is a deterministic first pass built from curated `PRINCIPLE_BLUEPRINTS` plus substring term matching in `scripts/build_trend_following_kb.py`, not a sentence-level semantic parser over every transcript line. Phase 2 should preserve the principle IDs and citations above for traceability, but treat the exact 55/20/14/2.0 defaults and the single-position full-cash sizing choice as implementation starting points derived from the KB's directionally consistent rules, not as book-proven optimal parameters.

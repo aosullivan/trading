@@ -236,7 +236,7 @@ def backtest_corpus_trend(
     prior_direction=None,
     risk_fraction=0.01,
 ):
-    """Backtest corpus-trend long/cash entries with ATR-sized position risk."""
+    """Backtest corpus-trend long/cash entries with ATR-guided exits."""
     if df.empty:
         summary = compute_summary([], [], initial_capital=INITIAL_CAPITAL)
         return [], summary, []
@@ -285,16 +285,8 @@ def backtest_corpus_trend(
         execution_date = str(dates[i + 1].date())
 
         if prev_dir != 1 and curr_dir == 1 and position is None:
-            signal_stop = stop_line.iloc[i]
-            stop_price = (
-                float(signal_stop)
-                if not pd.isna(signal_stop)
-                else execution_price * (1 - risk_fraction)
-            )
-            stop_distance = max(execution_price - stop_price, 0.01)
-            risk_cash = equity_curve[-1]["value"] * max(0.0, float(risk_fraction))
-            qty = min(cash / execution_price if execution_price else 0.0, risk_cash / stop_distance)
-            qty = max(0.0, round(qty, 8))
+            qty = cash / execution_price if execution_price else 0.0
+            qty = round(max(0.0, qty), 8)
             if qty > 0:
                 position = {
                     "entry_date": execution_date,

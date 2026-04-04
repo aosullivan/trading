@@ -19,7 +19,7 @@ affects:
 tech-stack:
   added: []
   patterns:
-    - ATR-risk-sized single-position backtests with idle cash and next-open fills
+    - Full-cash single-position backtests with ATR/Donchian exits and next-open fills
     - Additive strategy registration that preserves existing ribbon defaults
 key-files:
   created:
@@ -34,7 +34,7 @@ key-files:
     - tests/test_routes.py
     - tests/test_ui.py
 key-decisions:
-  - "Implemented corpus_trend as long/cash Donchian 55/20 breakout plus ATR(14) trailing stop with 2.0x stop distance and 1.0% per-entry risk sizing."
+  - "Implemented corpus_trend as long/cash Donchian 55/20 breakout plus ATR(14) trailing stop with 2.0x stop distance and full-cash single-position entries."
   - "Kept ribbon first and BT_DEFAULT_STRATEGY='ribbon' unchanged while exposing corpus_trend as the second selector option."
   - "Marked tests/test_ui.py with pytest.mark.ui so the plan's targeted UI verification command selects the strategy selector test."
 patterns-established:
@@ -65,7 +65,7 @@ completed: 2026-04-04
 ## Accomplishments
 
 - Added `compute_corpus_trend_signal(...)` with asymmetric Donchian channels, Wilder ATR, ATR trailing stop, and long/flat direction output.
-- Added `backtest_corpus_trend(...)` with next-open fills, ATR-stop-based position sizing against a 1% risk budget, idle cash handling, and final open-trade mark-to-last-close behavior.
+- Added `backtest_corpus_trend(...)` with next-open fills, full-cash long entries, ATR/Donchian exits, and final open-trade mark-to-last-close behavior.
 - Exposed `payload["strategies"]["corpus_trend"]` from `/api/chart` and added the selector option immediately after `ribbon` while preserving `BT_DEFAULT_STRATEGY='ribbon'`.
 - Extended indicator, backtest, route, and UI tests for the new strategy contract and legacy default ordering.
 
@@ -90,7 +90,7 @@ completed: 2026-04-04
 ## Decisions Made
 
 - Used Wilder-smoothed ATR for both Supertrend and corpus-trend so stop sizing and trailing logic share one ATR implementation.
-- Sized entries from the current equity risk budget and stop distance, capped by available cash, so the strategy can stay partially in cash when the ATR stop is wide.
+- Switched entry sizing to deploy available cash in the current single-ticker report path after BTC weekly UAT showed 1% ATR risk-budget sizing produced a near-flat strategy curve.
 - Preserved all existing strategy keys and left `ribbon` as the default strategy to avoid UI regression.
 
 ## Deviations from Plan
