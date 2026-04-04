@@ -408,27 +408,47 @@ def compute_trend_ribbon(
     if expand_threshold < collapse_threshold:
         raise ValueError("expand_threshold must be >= collapse_threshold")
 
-    # Keep the prior trend state until the opposite side reaches the expansion
-    # threshold. This mirrors Larsson-style ribbons that remain bearish through
-    # shallow rebounds instead of collapsing to neutral.
+    # Keep the prior trend state through same-side softening, but force flips
+    # through a one-bar neutral bridge once the score crosses to the opposite
+    # side. That preserves Larsson-style persistence during weak rebounds while
+    # ensuring color changes only happen after visible band compression.
     direction = pd.Series(0, index=df.index, dtype=int)
     state = 0
+    pending_flip = 0
     for i in range(len(strength)):
         score = strength.iloc[i]
+        close_value = close.iloc[i]
+        center_value = center.iloc[i]
         if pd.isna(score):
             direction.iloc[i] = 0
             state = 0
+            pending_flip = 0
             continue
 
-        if state == 0:
+        if state == 0 and pending_flip != 0:
+            if pending_flip == 1 and score >= expand_threshold:
+                state = 1
+                pending_flip = 0
+            elif pending_flip == -1 and score <= -expand_threshold:
+                state = -1
+                pending_flip = 0
+        elif state == 0:
             if score >= expand_threshold:
                 state = 1
             elif score <= -expand_threshold:
                 state = -1
-        elif state == 1 and score <= -expand_threshold:
-            state = -1
-        elif state == -1 and score >= expand_threshold:
-            state = 1
+        elif state == 1:
+            if score <= -expand_threshold:
+                state = 0
+                pending_flip = -1
+            elif -collapse_threshold <= score <= 0 and close_value <= center_value:
+                state = 0
+        elif state == -1:
+            if score >= expand_threshold:
+                state = 0
+                pending_flip = 1
+            elif 0 <= score <= collapse_threshold and close_value >= center_value:
+                state = 0
 
         direction.iloc[i] = state
 
