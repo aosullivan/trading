@@ -37,6 +37,7 @@ from lib.technical_indicators import (
     compute_ma_confirmation,
     compute_macd_crossover,
     compute_donchian_breakout,
+    compute_corpus_trend_signal,
     compute_adx_trend,
     compute_bollinger_breakout,
     compute_keltner_breakout,
@@ -46,6 +47,7 @@ from lib.technical_indicators import (
     compute_regime_router,
 )
 from lib.backtesting import (
+    backtest_corpus_trend,
     backtest_direction,
     build_weekly_confirmed_ribbon_direction,
     build_buy_hold_equity_curve,
@@ -174,6 +176,17 @@ def _run_ribbon_regime_backtest(
     )
 
 
+def _run_corpus_trend_backtest(df_view, direction, stop_line, full_index, view_index):
+    prior_direction = _prior_direction(direction, full_index, view_index)
+    return backtest_corpus_trend(
+        df_view,
+        direction.loc[view_index],
+        stop_line.loc[view_index],
+        start_in_position=prior_direction == 1,
+        prior_direction=prior_direction,
+    )
+
+
 def _carry_neutral_direction(direction: pd.Series) -> pd.Series:
     """Carry the prior non-zero state through neutral bridge bars."""
     return direction.replace(0, pd.NA).ffill().fillna(0).astype(int)
@@ -244,6 +257,13 @@ def _get_indicator_bundle(
         df,
         DONCHIAN_PERIOD,
     )
+    (
+        corpus_entry_upper,
+        corpus_exit_lower,
+        corpus_atr,
+        corpus_stop_line,
+        corpus_direction,
+    ) = compute_corpus_trend_signal(df)
     adx_val, plus_di, minus_di, adx_direction = compute_adx_trend(
         df,
         ADX_PERIOD,
@@ -269,6 +289,7 @@ def _get_indicator_bundle(
         "ema_crossover": ema_direction,
         "macd": macd_direction,
         "donchian": donch_direction,
+        "corpus_trend": corpus_direction,
         "adx_trend": adx_direction,
         "bb_breakout": bb_direction,
         "keltner": kelt_direction,
@@ -292,6 +313,11 @@ def _get_indicator_bundle(
         "donch_upper": donch_upper,
         "donch_lower": donch_lower,
         "donch_direction": donch_direction,
+        "corpus_entry_upper": corpus_entry_upper,
+        "corpus_exit_lower": corpus_exit_lower,
+        "corpus_atr": corpus_atr,
+        "corpus_stop_line": corpus_stop_line,
+        "corpus_direction": corpus_direction,
         "adx_val": adx_val,
         "plus_di": plus_di,
         "minus_di": minus_di,
@@ -519,6 +545,20 @@ def chart_data():
     donch_direction = indicator_bundle["donch_direction"]
     donch_trades, donch_summary, donch_equity_curve = _run_direction_backtest(
         df_view, donch_direction, df.index, df_view.index
+    )
+
+    corpus_direction = indicator_bundle["corpus_direction"]
+    corpus_stop_line = indicator_bundle["corpus_stop_line"]
+    (
+        corpus_trades,
+        corpus_summary,
+        corpus_equity_curve,
+    ) = _run_corpus_trend_backtest(
+        df_view,
+        corpus_direction,
+        corpus_stop_line,
+        df.index,
+        df_view.index,
     )
 
     adx_val = indicator_bundle["adx_val"]
@@ -883,6 +923,12 @@ def chart_data():
             "ema_crossover": {"trades": ema_trades, "summary": ema_summary, "equity_curve": ema_equity_curve},
             "macd": {"trades": macd_trades, "summary": macd_summary, "equity_curve": macd_equity_curve},
             "donchian": {"trades": donch_trades, "summary": donch_summary, "equity_curve": donch_equity_curve},
+            "corpus_trend": {
+                "trades": corpus_trades,
+                "summary": corpus_summary,
+                "equity_curve": corpus_equity_curve,
+                "buy_hold_equity_curve": buy_hold_equity_curve,
+            },
             "adx_trend": {"trades": adx_trades, "summary": adx_summary, "equity_curve": adx_equity_curve},
             "bb_breakout": {"trades": bb_trades, "summary": bb_summary, "equity_curve": bb_equity_curve},
             "keltner": {"trades": kelt_trades, "summary": kelt_summary, "equity_curve": kelt_equity_curve},
