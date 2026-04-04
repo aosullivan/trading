@@ -9,6 +9,10 @@ TREND_RIBBON_SIGNAL_PROFILE = {
     "smooth_period": 8,
     "collapse_threshold": 0.06,
     "expand_threshold": 0.15,
+    "bull_expand_threshold": 0.22,
+    "bear_expand_threshold": 0.15,
+    "bull_confirm_bars": 3,
+    "bear_confirm_bars": 1,
 }
 
 TREND_RIBBON_WEEKLY_SIGNAL_PROFILE = {
@@ -19,6 +23,10 @@ TREND_RIBBON_WEEKLY_SIGNAL_PROFILE = {
     "smooth_period": 8,
     "collapse_threshold": 0.06,
     "expand_threshold": 0.15,
+    "bull_expand_threshold": 0.22,
+    "bear_expand_threshold": 0.15,
+    "bull_confirm_bars": 2,
+    "bear_confirm_bars": 1,
 }
 
 TREND_RIBBON_REGIME_PROFILE = {

@@ -28,6 +28,10 @@ RIBBON_SMOOTH_PERIOD = 5
 RIBBON_COLLAPSE_THRESHOLD = 0.06
 RIBBON_EXPAND_THRESHOLD = 0.16
 RIBBON_MIN_WIDTH = 0.8
+RIBBON_BULL_EXPAND_THRESHOLD = 0.22
+RIBBON_BEAR_EXPAND_THRESHOLD = 0.15
+RIBBON_BULL_CONFIRM_BARS = 3
+RIBBON_BEAR_CONFIRM_BARS = 1
 CB50_PERIOD = 50
 CB150_PERIOD = 150
 SMA_CROSS_FAST_10 = 10
@@ -370,6 +374,10 @@ def compute_trend_ribbon(
     adx_period=14,
     collapse_threshold=RIBBON_COLLAPSE_THRESHOLD,
     expand_threshold=RIBBON_EXPAND_THRESHOLD,
+    bull_expand_threshold=None,
+    bear_expand_threshold=None,
+    bull_confirm_bars=RIBBON_BULL_CONFIRM_BARS,
+    bear_confirm_bars=RIBBON_BEAR_CONFIRM_BARS,
 ):
     """Compute a trend-strength ribbon with persistent bullish/bearish bands.
 
@@ -377,6 +385,7 @@ def compute_trend_ribbon(
     trend score.  Direction flips only after the score reaches the opposite
     confirmation threshold, so bearish/bullish ribbons persist through weak
     counter-trend bounces instead of collapsing to a neutral zero-width line.
+    Bullish re-entry can require stricter proof than bearish re-entry.
     """
     close = df["Close"]
     high = df["High"]
@@ -407,6 +416,12 @@ def compute_trend_ribbon(
 
     if expand_threshold < collapse_threshold:
         raise ValueError("expand_threshold must be >= collapse_threshold")
+    bull_expand_threshold = (
+        expand_threshold if bull_expand_threshold is None else bull_expand_threshold
+    )
+    bear_expand_threshold = (
+        expand_threshold if bear_expand_threshold is None else bear_expand_threshold
+    )
 
     # Keep the prior trend state through same-side softening, but force flips
     # through a one-bar neutral bridge once the score crosses to the opposite
@@ -415,6 +430,7 @@ def compute_trend_ribbon(
     direction = pd.Series(0, index=df.index, dtype=int)
     state = 0
     pending_flip = 0
+    pending_count = 0
     for i in range(len(strength)):
         score = strength.iloc[i]
         close_value = close.iloc[i]
@@ -423,32 +439,60 @@ def compute_trend_ribbon(
             direction.iloc[i] = 0
             state = 0
             pending_flip = 0
+            pending_count = 0
             continue
 
+        bull_ready = score >= bull_expand_threshold and close_value >= center_value
+        bear_ready = score <= -bear_expand_threshold and close_value <= center_value
+
         if state == 0 and pending_flip != 0:
-            if pending_flip == 1 and score >= expand_threshold:
-                state = 1
-                pending_flip = 0
-            elif pending_flip == -1 and score <= -expand_threshold:
-                state = -1
-                pending_flip = 0
+            if pending_flip == 1:
+                pending_count = pending_count + 1 if bull_ready else 0
+                if pending_count >= bull_confirm_bars:
+                    state = 1
+                    pending_flip = 0
+                    pending_count = 0
+            elif pending_flip == -1:
+                pending_count = pending_count + 1 if bear_ready else 0
+                if pending_count >= bear_confirm_bars:
+                    state = -1
+                    pending_flip = 0
+                    pending_count = 0
         elif state == 0:
-            if score >= expand_threshold:
-                state = 1
-            elif score <= -expand_threshold:
-                state = -1
+            if bull_ready:
+                pending_flip = 1
+                pending_count = 1
+                if pending_count >= bull_confirm_bars:
+                    state = 1
+                    pending_flip = 0
+                    pending_count = 0
+            elif bear_ready:
+                pending_flip = -1
+                pending_count = 1
+                if pending_count >= bear_confirm_bars:
+                    state = -1
+                    pending_flip = 0
+                    pending_count = 0
         elif state == 1:
-            if score <= -expand_threshold:
+            pending_count = 0
+            if score <= -bear_expand_threshold:
                 state = 0
                 pending_flip = -1
+                pending_count = 0
             elif -collapse_threshold <= score <= 0 and close_value <= center_value:
                 state = 0
+                pending_flip = 0
+                pending_count = 0
         elif state == -1:
-            if score >= expand_threshold:
+            pending_count = 0
+            if score >= bull_expand_threshold:
                 state = 0
                 pending_flip = 1
+                pending_count = 0
             elif 0 <= score <= collapse_threshold and close_value >= center_value:
                 state = 0
+                pending_flip = 0
+                pending_count = 0
 
         direction.iloc[i] = state
 

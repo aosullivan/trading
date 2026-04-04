@@ -301,3 +301,42 @@ class TestTrendRibbon:
 
         assert (direction.iloc[-20:] == -1).all()
         assert ((upper - lower).iloc[-20:] > 0).all()
+
+    def test_bullish_reentry_can_require_extra_confirmation(self):
+        index = pd.date_range("2025-01-01", periods=220, freq="D")
+        close = np.concatenate(
+            [
+                np.linspace(120.0, 80.0, 120),
+                np.linspace(80.0, 82.0, 20),
+                np.linspace(82.0, 104.0, 80),
+            ]
+        )
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 1.5,
+                "Low": close - 1.5,
+                "Close": close,
+                "Volume": np.full(len(index), 1000),
+            },
+            index=index,
+        )
+
+        _, _, _, _, fast_reentry = compute_trend_ribbon(
+            df,
+            bull_expand_threshold=0.15,
+            bear_expand_threshold=0.15,
+            bull_confirm_bars=1,
+            bear_confirm_bars=1,
+        )
+        _, _, _, _, slow_reentry = compute_trend_ribbon(
+            df,
+            bull_expand_threshold=0.22,
+            bear_expand_threshold=0.15,
+            bull_confirm_bars=3,
+            bear_confirm_bars=1,
+        )
+
+        fast_bull_date = fast_reentry[fast_reentry == 1].index[0]
+        slow_bull_date = slow_reentry[slow_reentry == 1].index[0]
+        assert slow_bull_date > fast_bull_date
