@@ -12,7 +12,7 @@ This milestone starts by reading the transcript corpus in `audio/` and distillin
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Build Trend-Following Knowledge Base** - Read the transcript corpus and extract a reusable, source-cited set of trend-following rules and principles.
+- [x] **Phase 1: Build Trend-Following Knowledge Base** - Read the transcript corpus and extract a reusable, source-cited set of trend-following rules and principles.
 - [ ] **Phase 2: Implement Corpus-Derived Strategy** - Turn the extracted knowledge into a concrete strategy spec, implement it, expose it in the UI/API, and regression-test existing flows.
 
 ## Phase Details
@@ -30,7 +30,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 Plans:
 - [x] 01-01: Design the transcript ingestion and knowledge-base schema/output format, including source citation and chapter ordering.
-- [ ] 01-02: Read the `audio/` transcript files, extract the trend-following concepts into the knowledge base, and verify the artifact is complete enough for strategy synthesis.
+- [x] 01-02: Read the `audio/` transcript files, extract the trend-following concepts into the knowledge base, and verify the artifact is complete enough for strategy synthesis.
 
 ### Phase 2: Implement Corpus-Derived Strategy
 **Goal**: Use the Phase 1 knowledge base to define a concrete trend-following strategy and implement it in the existing backend/UI stack without breaking current app behavior.
@@ -54,5 +54,5 @@ Phases execute in numeric order: 1 -> 2
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Build Trend-Following Knowledge Base | 0/2 | Not started | - |
+| 1. Build Trend-Following Knowledge Base | 2/2 | Complete | 2026-04-04 |
 | 2. Implement Corpus-Derived Strategy | 0/2 | Not started | - |

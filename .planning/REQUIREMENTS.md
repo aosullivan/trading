@@ -7,9 +7,9 @@
 
 ### Corpus Knowledge Extraction
 
-- [ ] **KB-01**: All transcript `.txt` files in `audio/` are read in a deterministic order and processed into a structured trend-following knowledge base
-- [ ] **KB-02**: The knowledge base captures strategy-relevant concepts such as entry/exit principles, position sizing, risk control, drawdown discipline, trend persistence, whipsaw handling, and market regime assumptions
-- [ ] **KB-03**: Extracted knowledge is saved in a reusable artifact that can be inspected, cited back to source transcript files/chapters, and used as the basis for strategy design
+- [x] **KB-01**: All transcript `.txt` files in `audio/` are read in a deterministic order and processed into a structured trend-following knowledge base
+- [x] **KB-02**: The knowledge base captures strategy-relevant concepts such as entry/exit principles, position sizing, risk control, drawdown discipline, trend persistence, whipsaw handling, and market regime assumptions
+- [x] **KB-03**: Extracted knowledge is saved in a reusable artifact that can be inspected, cited back to source transcript files/chapters, and used as the basis for strategy design
 
 ### Strategy Synthesis And Implementation
 
@@ -42,9 +42,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| KB-01 | Phase 1 | Pending |
-| KB-02 | Phase 1 | Pending |
-| KB-03 | Phase 1 | Pending |
+| KB-01 | Phase 1 | Complete |
+| KB-02 | Phase 1 | Complete |
+| KB-03 | Phase 1 | Complete |
 | STRAT-01 | Phase 2 | Pending |
 | STRAT-02 | Phase 2 | Pending |
 | STRAT-03 | Phase 2 | Pending |
