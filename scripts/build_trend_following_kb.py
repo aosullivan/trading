@@ -108,6 +108,61 @@ def _build_kb_payload() -> dict[str, object]:
     }
 
 
+def _validate_kb_payload(kb_payload: dict[str, object]) -> None:
+    expected_files = [str(path) for path in sorted(AUDIO_DIR.glob("*.txt"))]
+    corpus_rows = kb_payload.get("corpus", [])
+    corpus_files = [str(row.get("file", "")) for row in corpus_rows]
+    errors = []
+
+    if corpus_files != expected_files:
+        missing_files = sorted(set(expected_files) - set(corpus_files))
+        duplicate_files = sorted(
+            file_path for file_path in set(corpus_files) if corpus_files.count(file_path) > 1
+        )
+        errors.append(
+            "Corpus index does not match deterministic transcript ordering "
+            f"(missing={missing_files}, duplicates={duplicate_files})."
+        )
+
+    if len(corpus_files) != len(set(corpus_files)):
+        errors.append("Corpus index contains duplicate transcript rows.")
+
+    existing_audio_files = set(expected_files)
+    principles = kb_payload.get("principles", [])
+    category_notes = kb_payload.get("category_notes", {})
+    represented_categories = {
+        str(principle.get("category", "")).strip()
+        for principle in principles
+        if str(principle.get("category", "")).strip()
+    }
+
+    for index, principle in enumerate(principles, start=1):
+        sources = principle.get("sources")
+        if not sources:
+            errors.append(f"Principle #{index} is missing `sources`.")
+            continue
+
+        for source_ref in sources:
+            source_file = str(source_ref.get("file", "")).strip()
+            if source_file not in existing_audio_files:
+                errors.append(
+                    f"Principle #{index} references nonexistent source file: {source_file}"
+                )
+
+    for category in PRINCIPLE_CATEGORIES:
+        if category in represented_categories:
+            continue
+        note = str(category_notes.get(category, "")).strip().lower()
+        if "no strong evidence found" not in note:
+            errors.append(
+                f"Category `{category}` has no principle and no explicit "
+                "`no strong evidence found` note."
+            )
+
+    if errors:
+        raise ValueError("KB validation failed:\n- " + "\n- ".join(errors))
+
+
 def _render_markdown(kb_payload: dict[str, object]) -> str:
     corpus = kb_payload["corpus"]
     category_notes = kb_payload["category_notes"]
@@ -205,9 +260,11 @@ def main() -> int:
         action="store_true",
         help="Regenerate the KB scaffold and run validation checks.",
     )
-    _ = parser.parse_args()
+    args = parser.parse_args()
 
-    write_kb_artifacts()
+    kb_payload = write_kb_artifacts()
+    if args.validate:
+        _validate_kb_payload(kb_payload)
     return 0
 
 
