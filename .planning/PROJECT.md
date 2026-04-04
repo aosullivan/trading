@@ -2,11 +2,11 @@
 
 ## What This Is
 
-TriedingView is a local charting and backtesting app for stocks, crypto, ETFs, indexes, and Treasury proxies. It combines Flask APIs, yfinance/FRED data, TradingView Lightweight Charts, a live watchlist, support/resistance overlays, financial snapshots, and multiple strategy backtests so new strategy ideas can be explored and compared quickly.
+TriedingView is a local charting/backtesting app, and this milestone is about turning the trend-following transcript corpus in `audio/` into a practical knowledge base that can drive a strategy design. The main output should be: read all text transcripts, extract trend-following principles/rules/constraints, structure that into reusable knowledge, then build a trading strategy from what the corpus teaches.
 
 ## Core Value
 
-New trading strategy variants should be testable and visually comparable in the existing chart/backtest UI without breaking current indicators, watchlist flows, or data correctness.
+The strategy should be grounded in what the `audio/` transcripts actually say about trend following, not just manually invented indicator tweaks.
 
 ## Requirements
 
@@ -22,16 +22,16 @@ New trading strategy variants should be testable and visually comparable in the 
 
 ### Active
 
-- [ ] Add a new ribbon strategy variant to the backend indicator/backtest stack and expose it through `/api/chart`
-- [ ] Add the new ribbon strategy to the frontend strategy selector, overlay/signal display, and explanatory UI copy
-- [ ] Preserve existing Trend Ribbon behavior and regression coverage while adding tests for the new variant
+- [ ] Read every transcript text file in `audio/` and extract a structured trend-following knowledge base
+- [ ] Use that knowledge base to derive a concrete strategy specification: entry rules, exit rules, risk management, position sizing, and market regime assumptions
+- [ ] Implement the resulting trend-following strategy in the existing backtest/chart stack and preserve current app behavior
 
 ### Out of Scope
 
 - Replacing Flask/Jinja or introducing a frontend build pipeline — this feature should fit the current architecture
 - Shipping a hosted SaaS version or authentication — current app remains local-first
-- Reworking every non-ribbon strategy — scope is a new ribbon variant plus safe integration
-- Long-running optimizer redesign unless the new strategy requires a small, targeted extension
+- Reworking every non-ribbon strategy — scope is corpus-driven trend-following research plus one implemented strategy
+- Treating the transcript text as verbatim UI copy — the corpus should be distilled into a structured knowledge artifact and strategy rules
 
 ## Context
 
@@ -40,6 +40,7 @@ The existing codebase is a brownfield Flask app with substantial indicator and b
 Important implementation context:
 - `routes/chart.py` computes indicator bundles, backtests, and JSON payloads for the main chart endpoint.
 - `lib/technical_indicators.py`, `lib/backtesting.py`, and `lib/trend_ribbon_profile.py` are the core strategy modules likely affected by a ribbon variant.
+- `audio/` contains 75 transcript text files from *Trend Following, 5th Edition* that should be ingested/read in chapter order and distilled into a reusable knowledge base.
 - `templates/partials/signal_chips.html`, `templates/partials/backtest_panel.html`, and `static/js/chart_*.js` define how strategies appear and toggle in the UI.
 - Tests already exist for routes, backtesting, indicators, support/resistance, optimizer behavior, and Playwright UI flows.
 - Current concerns documented in `.planning/codebase/CONCERNS.md` include dependency drift, broad exception handling, frontend globals, and duplicated interval/backtest logic.
@@ -57,8 +58,8 @@ Important implementation context:
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Keep this as a brownfield GSD project initialized from the existing codebase map | We need phase workflows to understand current architecture before changing strategy code | — Pending |
-| Start with one implementation phase focused on the new ribbon strategy, then use `$gsd-discuss-phase 1` to clarify exact behavior/UI choices | The feature request is intentionally high-level and needs a discussion pass before detailed planning | — Pending |
-| Preserve current Trend Ribbon behavior while introducing the new strategy as an additional variant unless discussion says otherwise | Safer for regression risk and easier A/B comparison in the UI | — Pending |
+| Make transcript ingestion and trend-following knowledge extraction the first phase before strategy implementation | The user clarified that the real output starts with learning from the `audio/` text corpus | — Pending |
+| Derive strategy rules from the extracted knowledge base before coding indicator/backtest changes | This keeps implementation tied to corpus-backed trend-following principles | — Pending |
 | Use existing Flask/Jinja/plain-JS architecture rather than adding a frontend build step | The current repo is intentionally lightweight and script-order based | — Pending |
 
 ## Evolution

@@ -4,15 +4,15 @@
 
 See: .planning/PROJECT.md (updated 2026-04-04)
 
-**Core value:** New trading strategy variants should be testable and visually comparable in the existing chart/backtest UI without breaking current indicators, watchlist flows, or data correctness.
-**Current focus:** Phase 1 - New Ribbon Strategy Variant
+**Core value:** The strategy should be grounded in what the `audio/` transcripts actually say about trend following, not just manually invented indicator tweaks.
+**Current focus:** Phase 1 - Build Trend-Following Knowledge Base
 
 ## Current Position
 
-Phase: 1 of 1 (New Ribbon Strategy Variant)
-Plan: 0 of 3 in current phase
+Phase: 1 of 2 (Build Trend-Following Knowledge Base)
+Plan: 0 of 2 in current phase
 Status: Ready to plan
-Last activity: 2026-04-04 - Initialized PROJECT/REQUIREMENTS/ROADMAP for the new ribbon strategy feature
+Last activity: 2026-04-04 - Revised PROJECT/REQUIREMENTS/ROADMAP around transcript-driven knowledge extraction and strategy synthesis
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -27,7 +27,8 @@ Progress: [░░░░░░░░░░] 0%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1 | 0/3 | 0 min | - |
+| 1 | 0/2 | 0 min | - |
+| 2 | 0/2 | 0 min | - |
 
 **Recent Trend:**
 - Last 5 plans: []
@@ -42,7 +43,8 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- Initialize this brownfield feature as a one-phase GSD milestone so discussion/planning can focus on the new ribbon strategy variant.
+- Phase 1 should build a trend-following knowledge base from the `audio/` transcript files before any strategy implementation.
+- Phase 2 should derive and implement the strategy from that extracted knowledge.
 
 ### Pending Todos
 
@@ -50,10 +52,10 @@ None yet.
 
 ### Blockers/Concerns
 
-- The exact signal semantics, parameter set, and UI naming for the new ribbon strategy are not defined yet and should be clarified in Phase 1 discussion.
+- Need to decide the knowledge-base artifact format/schema and how explicitly source transcript citations should be represented.
 
 ## Session Continuity
 
 Last session: 2026-04-04 10:30
-Stopped at: Project bootstrap completed, ready for `$gsd-discuss-phase 1`
+Stopped at: Requirements corrected, ready for `$gsd-discuss-phase 1` on transcript knowledge-base design
 Resume file: None

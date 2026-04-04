@@ -1,16 +1,22 @@
 # Requirements: TriedingView
 
 **Defined:** 2026-04-04
-**Core Value:** New trading strategy variants should be testable and visually comparable in the existing chart/backtest UI without breaking current indicators, watchlist flows, or data correctness.
+**Core Value:** The strategy should be grounded in what the `audio/` transcripts actually say about trend following, not just manually invented indicator tweaks.
 
 ## v1 Requirements
 
-### Ribbon Strategy
+### Corpus Knowledge Extraction
 
-- [ ] **RIB-01**: The backend can compute a new ribbon strategy variant and return its series, direction, and backtest outputs from `/api/chart`
-- [ ] **RIB-02**: The UI exposes the new ribbon strategy in the strategy selector and, if applicable, as a chart overlay/signal toggle with clear labels
-- [ ] **RIB-03**: Existing Trend Ribbon behavior remains available so the new variant can be compared without replacing the baseline
-- [ ] **RIB-04**: The new strategy has automated test coverage for indicator output, backtest behavior, and route/UI contract integration
+- [ ] **KB-01**: All transcript `.txt` files in `audio/` are read in a deterministic order and processed into a structured trend-following knowledge base
+- [ ] **KB-02**: The knowledge base captures strategy-relevant concepts such as entry/exit principles, position sizing, risk control, drawdown discipline, trend persistence, whipsaw handling, and market regime assumptions
+- [ ] **KB-03**: Extracted knowledge is saved in a reusable artifact that can be inspected, cited back to source transcript files/chapters, and used as the basis for strategy design
+
+### Strategy Synthesis And Implementation
+
+- [ ] **STRAT-01**: A concrete trend-following strategy specification is derived from the knowledge base before implementation begins
+- [ ] **STRAT-02**: The derived strategy is implemented in the backend indicator/backtest stack and exposed through `/api/chart`
+- [ ] **STRAT-03**: The strategy is selectable/inspectable in the UI with clear naming and explanatory text that reflects the corpus-derived rules
+- [ ] **STRAT-04**: Automated tests cover transcript processing, strategy implementation, route payload integration, and regression protection for existing app behavior
 
 ### Brownfield Compatibility
 
@@ -29,23 +35,26 @@
 | Feature | Reason |
 |---------|--------|
 | Auth, cloud sync, or a hosted multi-user backend | Not needed for this local-first feature |
-| Replacing all existing strategy implementations | Current scope is one new ribbon strategy variant |
+| Replacing all existing strategy implementations | Current scope is corpus-derived trend-following strategy design plus one implementation |
 | Full frontend architecture migration to a bundler/framework | Too large and unrelated to the strategy feature |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RIB-01 | Phase 1 | Pending |
-| RIB-02 | Phase 1 | Pending |
-| RIB-03 | Phase 1 | Pending |
-| RIB-04 | Phase 1 | Pending |
-| COMP-01 | Phase 1 | Pending |
-| COMP-02 | Phase 1 | Pending |
+| KB-01 | Phase 1 | Pending |
+| KB-02 | Phase 1 | Pending |
+| KB-03 | Phase 1 | Pending |
+| STRAT-01 | Phase 2 | Pending |
+| STRAT-02 | Phase 2 | Pending |
+| STRAT-03 | Phase 2 | Pending |
+| STRAT-04 | Phase 2 | Pending |
+| COMP-01 | Phase 2 | Pending |
+| COMP-02 | Phase 2 | Pending |
 
 **Coverage:**
-- v1 requirements: 6 total
-- Mapped to phases: 6
+- v1 requirements: 9 total
+- Mapped to phases: 9
 - Unmapped: 0
 
 ---
