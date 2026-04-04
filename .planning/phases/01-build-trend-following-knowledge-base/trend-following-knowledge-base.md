@@ -174,6 +174,10 @@ Generated from transcript files in `audio/`.
   - Breakout or moving-average entries that act only on price-confirmed trend direction.
   - Systematic trailing-stop or channel/moving-average exits that let winners run while cutting reversals.
   - A diversified cross-market implementation so one signal family can trade multiple asset classes.
+- Principle-linked rule map:
+  - price_breakout_or_moving_average_entries: entry-001, trend-001, regime-001
+  - systematic_trailing_or_channel_exits: exit-001, whipsaw-001, drawdown-001
+  - volatility_scaled_cross_market_portfolio: sizing-001, risk-001, portfolio-001
 - Risk constraints:
   - Use explicit volatility- or risk-budget-based position sizing and cap per-trade and portfolio losses.
   - Do not change parameters just because the system is in drawdown; report drawdown depth and recovery time instead.

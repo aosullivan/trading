@@ -406,6 +406,20 @@ def _build_kb_payload() -> dict[str, object]:
                 "Systematic trailing-stop or channel/moving-average exits that let winners run while cutting reversals.",
                 "A diversified cross-market implementation so one signal family can trade multiple asset classes.",
             ],
+            "candidate_rule_map": [
+                {
+                    "name": "price_breakout_or_moving_average_entries",
+                    "principle_ids": ["entry-001", "trend-001", "regime-001"],
+                },
+                {
+                    "name": "systematic_trailing_or_channel_exits",
+                    "principle_ids": ["exit-001", "whipsaw-001", "drawdown-001"],
+                },
+                {
+                    "name": "volatility_scaled_cross_market_portfolio",
+                    "principle_ids": ["sizing-001", "risk-001", "portfolio-001"],
+                },
+            ],
             "risk_constraints": [
                 "Use explicit volatility- or risk-budget-based position sizing and cap per-trade and portfolio losses.",
                 "Do not change parameters just because the system is in drawdown; report drawdown depth and recovery time instead.",
@@ -565,6 +579,12 @@ def _render_markdown(kb_payload: dict[str, object]) -> str:
 
     for rule_family in strategy_handoff["candidate_rule_families"]:
         lines.append(f"  - {rule_family}")
+
+    lines.append("- Principle-linked rule map:")
+    for item in strategy_handoff["candidate_rule_map"]:
+        lines.append(
+            f"  - {item['name']}: {', '.join(item['principle_ids'])}"
+        )
 
     lines.extend(
         [
