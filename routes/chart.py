@@ -47,7 +47,7 @@ from lib.technical_indicators import (
 )
 from lib.backtesting import (
     backtest_direction,
-    backtest_ribbon_accumulation,
+    build_weekly_confirmed_ribbon_direction,
     build_buy_hold_equity_curve,
 )
 from lib.chart_serialization import (
@@ -55,6 +55,11 @@ from lib.chart_serialization import (
     compute_all_trend_flips,
     last_trend_flip,
     series_to_json,
+)
+from lib.trend_ribbon_profile import (
+    trend_ribbon_profile_signature,
+    trend_ribbon_regime_kwargs,
+    trend_ribbon_signal_kwargs,
 )
 from lib.support_resistance import compute_support_resistance
 
@@ -154,21 +159,18 @@ def _run_direction_backtest(df_view, direction, full_index, view_index):
     )
 
 
-def _run_ribbon_accumulation_backtest(
+def _run_ribbon_regime_backtest(
     df_view,
-    daily_direction,
-    weekly_direction,
+    confirmed_direction,
     full_index,
     view_index,
 ):
-    prior_daily_direction = _prior_direction(daily_direction, full_index, view_index)
-    prior_weekly_direction = _prior_direction(weekly_direction, full_index, view_index)
-    return backtest_ribbon_accumulation(
+    prior_direction = _prior_direction(confirmed_direction, full_index, view_index)
+    return backtest_direction(
         df_view,
-        daily_direction.loc[view_index],
-        weekly_direction.loc[view_index],
-        prior_daily_direction=prior_daily_direction,
-        prior_weekly_direction=prior_weekly_direction,
+        confirmed_direction.loc[view_index],
+        start_in_position=prior_direction == 1,
+        prior_direction=prior_direction,
     )
 
 
@@ -184,9 +186,9 @@ def _align_weekly_direction_to_daily(
     return weekly_direction.reindex(daily_index).ffill().bfill().fillna(0).astype(int)
 
 
-def _trend_ribbon_kwargs(ticker: str) -> dict:
+def _trend_ribbon_kwargs(ticker: str, timeframe: str = "daily") -> dict:
     """Use the Trend Ribbon baseline profile for every ticker."""
-    return {}
+    return trend_ribbon_signal_kwargs(ticker, timeframe=timeframe)
 
 
 def _frame_signature(df: pd.DataFrame) -> str:
@@ -219,7 +221,7 @@ def _get_indicator_bundle(
 ) -> tuple[dict, bool]:
     cache_key = (
         f"indicator_bundle:{ticker}:{interval}:{period_val}:{multiplier_val}:"
-        f"{_frame_signature(df)}"
+        f"{trend_ribbon_profile_signature(ticker)}:{_frame_signature(df)}"
     )
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -327,7 +329,7 @@ def _get_weekly_bundle(
 ) -> tuple[dict, bool]:
     cache_key = (
         f"weekly_bundle:{ticker}:{period_val}:{multiplier_val}:"
-        f"{_frame_signature(df_w)}"
+        f"{trend_ribbon_profile_signature(ticker)}:{_frame_signature(df_w)}"
     )
     cached = _cache_get(cache_key)
     if cached is not None:
@@ -338,7 +340,7 @@ def _get_weekly_bundle(
     sma_w200 = df_w["Close"].rolling(window=200).mean()
     _ribbon_center, _ribbon_upper, _ribbon_lower, _ribbon_strength, ribbon_dir = compute_trend_ribbon(
         df_w,
-        **_trend_ribbon_kwargs(ticker),
+        **_trend_ribbon_kwargs(ticker, timeframe="weekly"),
     )
     bundle = {
         "sma_w50": sma_w50,
@@ -349,7 +351,7 @@ def _get_weekly_bundle(
             df_w,
             period_val=period_val,
             multiplier_val=multiplier_val,
-            ribbon_kwargs=_trend_ribbon_kwargs(ticker),
+            ribbon_kwargs=_trend_ribbon_kwargs(ticker, timeframe="weekly"),
         ),
     }
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
@@ -392,7 +394,8 @@ def chart_data():
     period_val = int(request.args.get("period", SUPERTREND_PERIOD))
     multiplier_val = float(request.args.get("multiplier", SUPERTREND_MULTIPLIER))
     chart_cache_key = (
-        f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}"
+        f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
+        f"{trend_ribbon_profile_signature(ticker)}"
     )
     cached_chart = _cache_get(chart_cache_key)
     if cached_chart is not None:
@@ -712,21 +715,34 @@ def chart_data():
             if interval == "1d":
                 daily_ribbon_direction = _carry_neutral_direction(ribbon_dir)
                 weekly_ribbon_direction = _align_weekly_direction_to_daily(
-                    _carry_neutral_direction(weekly_bundle["ribbon_dir"]),
+                    weekly_bundle["ribbon_dir"],
                     df.index,
+                )
+                ribbon_regime_kwargs = trend_ribbon_regime_kwargs(ticker)
+                confirmed_ribbon_direction = build_weekly_confirmed_ribbon_direction(
+                    daily_ribbon_direction,
+                    weekly_ribbon_direction,
+                    reentry_cooldown_bars=ribbon_regime_kwargs[
+                        "reentry_cooldown_bars"
+                    ],
+                    reentry_cooldown_ratio=ribbon_regime_kwargs[
+                        "reentry_cooldown_ratio"
+                    ],
+                    weekly_nonbull_confirm_bars=ribbon_regime_kwargs[
+                        "weekly_nonbull_confirm_bars"
+                    ],
                 )
                 (
                     ribbon_trades,
                     ribbon_summary,
                     ribbon_equity_curve,
-                    ribbon_hold_equity_curve,
-                ) = _run_ribbon_accumulation_backtest(
+                ) = _run_ribbon_regime_backtest(
                     df_view,
-                    daily_ribbon_direction,
-                    weekly_ribbon_direction,
+                    confirmed_ribbon_direction,
                     df.index,
                     df_view.index,
                 )
+                ribbon_hold_equity_curve = buy_hold_equity_curve
     except Exception:
         pass
     mark_phase("weekly_ms")

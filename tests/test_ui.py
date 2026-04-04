@@ -168,6 +168,28 @@ class TestWatchlistUI:
             restored_page.close()
             page.close()
 
+    def test_selected_ticker_survives_watchlist_trends_switches(self, browser_page):
+        page = browser_page.context.new_page()
+        try:
+            page.goto(BASE_URL, wait_until="domcontentloaded", timeout=15000)
+            page.wait_for_timeout(3000)
+
+            page.locator("#ticker").fill("TSLA")
+            page.locator("#ticker").press("Enter")
+            expect(page.locator("#ticker")).to_have_value("TSLA")
+
+            page.locator("#wl-tabs .wl-tab[data-tab='crypto']").click()
+            page.locator(".wl-view-tab[data-view='trends']").click()
+            expect(page.locator(".wl-trend-row.active .wl-trend-symbol span")).to_have_text(
+                "TSLA", timeout=30000
+            )
+
+            page.locator("#wl-tabs .wl-tab[data-tab='crypto']").click()
+            page.locator(".wl-view-tab[data-view='watchlist']").click()
+            expect(page.locator(".wl-row.active .wl-tk span")).to_have_text("TSLA")
+        finally:
+            page.close()
+
 
 class TestOverlayChips:
     def test_overlay_chips_visible(self, browser_page):

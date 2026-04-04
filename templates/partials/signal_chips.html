@@ -3,15 +3,15 @@
 		    <div class="chip" onclick="toggleSignal(this,'ribbon')"><span class="cd" style="background:#7f98ff"></span>Trend Ribbon<div class="chip-tip" onclick="event.stopPropagation()">
 	      <h4>Trend Ribbon</h4>
 	      <div class="tip-sub">Adaptive Trend Overlay</div>
-	      <p>Trend Ribbon plots a <strong>smoothed center line</strong> with an adaptive band that widens as trend conviction strengthens and narrows before potential reversals. Green shading marks bullish structure; red shading marks bearish structure.</p>
+		      <p>Trend Ribbon plots a <strong>smoothed center line</strong> with an adaptive band that widens as trend conviction strengthens and narrows before potential reversals. Green shading marks bullish structure; red shading marks bearish structure. The strategy is <strong>fully in</strong> when daily and weekly ribbons confirm bull regime, <strong>fully out</strong> once daily flips bear while weekly is no longer bullish, and then stays locked out for a cooldown sized to the prior bull cycle.</p>
 	      <div class="tip-section">How To Read It</div>
 	      <ul>
-	        <li>Price holding above a green ribbon suggests trend continuation</li>
+	        <li>Price holding above a green ribbon suggests bull-regime continuation</li>
 	        <li>Compression toward the center line suggests momentum is fading</li>
-	        <li>A color flip marks a potential trend regime change</li>
+	        <li>A daily color flip matters most when the weekly ribbon confirms the same regime</li>
 	      </ul>
 	      <div class="tip-section">Example</div>
-		      <div class="tip-example">NVDA's ribbon stays wide and green during an uptrend, then compresses as price loses momentum. A later flip to red warns that trend support has failed and a bearish regime may be starting.</div>
+			      <div class="tip-example">BTC's ribbon stays wide and green through a bull leg, then compresses and flips as momentum fades. After a confirmed bear exit, the model waits through a proportional cooldown before accepting the next bull flip, which helps avoid mid-bear fake rallies.</div>
 		    </div></div>
 		    <div class="chip" onclick="toggleSignal(this,'ma_confirm')"><span class="cd" style="background:#00d4ff"></span>MA Confirm<div class="chip-tip" onclick="event.stopPropagation()">
 		      <h4>MA Confirmation (SMA 180)</h4>

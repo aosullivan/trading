@@ -347,6 +347,109 @@ def _mark_open_lots_to_market(open_lots, close_date, close_price):
     return open_trades
 
 
+def build_weekly_confirmed_ribbon_direction(
+    daily_direction: pd.Series,
+    weekly_direction: pd.Series,
+    initial_direction: int = 0,
+    reentry_cooldown_bars: int = 0,
+    reentry_cooldown_ratio: float = 0.0,
+    weekly_nonbull_confirm_bars: int = 1,
+) -> pd.Series:
+    """Build a cycle-level ribbon regime from daily flips and weekly confirmation.
+
+    Bull entries require daily bull + weekly carried bull. Bear exits trigger on a
+    daily bear flip once the raw weekly ribbon has been non-bull for enough bars.
+    After each exit, re-entry can be locked out for either a fixed number of bars
+    or a fraction of the just-completed bull regime's duration.
+    """
+    if daily_direction.empty:
+        return pd.Series(dtype=int, index=daily_direction.index)
+
+    daily_state = (
+        daily_direction.replace(0, pd.NA)
+        .ffill()
+        .fillna(0)
+        .astype(int)
+    )
+    weekly_raw_state = (
+        weekly_direction.reindex(daily_direction.index)
+        .ffill()
+        .bfill()
+        .fillna(0)
+        .astype(int)
+    )
+    weekly_state = (
+        weekly_raw_state.replace(0, pd.NA)
+        .ffill()
+        .fillna(0)
+        .astype(int)
+    )
+
+    confirmed = []
+    state = int(initial_direction) if not pd.isna(initial_direction) else 0
+    cooldown_remaining = 0
+    bull_duration_bars = 0
+    weekly_nonbull_streak = 0
+    cooldown_ratio = max(0.0, float(reentry_cooldown_ratio))
+    cooldown_floor = max(0, int(reentry_cooldown_bars))
+    nonbull_confirm_bars = max(1, int(weekly_nonbull_confirm_bars))
+
+    for daily_value, weekly_value, weekly_raw_value in zip(
+        daily_state,
+        weekly_state,
+        weekly_raw_state,
+    ):
+        weekly_nonbull_streak = (
+            weekly_nonbull_streak + 1 if weekly_raw_value != 1 else 0
+        )
+
+        if (
+            state == 1
+            and daily_value == -1
+            and weekly_nonbull_streak >= nonbull_confirm_bars
+        ):
+            state = -1
+            ratio_cooldown = int(round(bull_duration_bars * cooldown_ratio))
+            cooldown_remaining = max(cooldown_floor, ratio_cooldown)
+            bull_duration_bars = 0
+        elif state != 1 and cooldown_remaining <= 0 and daily_value == 1 and weekly_value == 1:
+            state = 1
+            bull_duration_bars = 1
+        elif cooldown_remaining > 0:
+            cooldown_remaining -= 1
+        elif state == 1:
+            bull_duration_bars += 1
+        confirmed.append(state)
+
+    return pd.Series(confirmed, index=daily_direction.index, dtype=int)
+
+
+def backtest_ribbon_regime(
+    df,
+    daily_direction,
+    weekly_direction,
+    prior_direction=None,
+    reentry_cooldown_bars=0,
+    reentry_cooldown_ratio=0.0,
+    weekly_nonbull_confirm_bars=1,
+):
+    """Backtest a weekly-confirmed bull/bear ribbon regime: long in bull, cash in bear."""
+    confirmed_direction = build_weekly_confirmed_ribbon_direction(
+        daily_direction,
+        weekly_direction,
+        initial_direction=prior_direction or 0,
+        reentry_cooldown_bars=reentry_cooldown_bars,
+        reentry_cooldown_ratio=reentry_cooldown_ratio,
+        weekly_nonbull_confirm_bars=weekly_nonbull_confirm_bars,
+    )
+    return backtest_direction(
+        df,
+        confirmed_direction,
+        start_in_position=prior_direction == 1,
+        prior_direction=prior_direction,
+    )
+
+
 def backtest_ribbon_accumulation(
     df,
     daily_direction,

@@ -7,7 +7,9 @@ import pytest
 from lib.backtesting import (
     backtest_direction,
     backtest_ribbon_accumulation,
+    backtest_ribbon_regime,
     backtest_supertrend,
+    build_weekly_confirmed_ribbon_direction,
     build_buy_hold_equity_curve,
     build_equity_curve,
     compute_summary,
@@ -287,6 +289,113 @@ class TestBacktestRibbonAccumulation:
         assert summary["ending_equity"] == 16000.0
         assert sum(t["quantity"] for t in trades if t.get("open")) == pytest.approx(160.0)
         assert hold_equity[-1]["value"] == 16000.0
+
+
+class TestBuildWeeklyConfirmedRibbonDirection:
+    def test_holds_previous_regime_until_daily_and_weekly_agree(self):
+        idx = pd.date_range("2024-01-01", periods=8, freq="D")
+        daily = pd.Series([1, 1, -1, -1, 1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, 1, 1, 1, 1, -1, -1], index=idx)
+
+        confirmed = build_weekly_confirmed_ribbon_direction(daily, weekly)
+
+        assert confirmed.tolist() == [1, 1, 1, 1, 1, 1, -1, -1]
+
+    def test_carries_neutral_daily_and_weekly_bridge_bars(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        daily = pd.Series([0, 1, 0, 0, -1, 0], index=idx)
+        weekly = pd.Series([0, 1, 1, 0, -1, 0], index=idx)
+
+        confirmed = build_weekly_confirmed_ribbon_direction(daily, weekly)
+
+        assert confirmed.tolist() == [0, 1, 1, 1, -1, -1]
+
+    def test_can_seed_from_prior_bull_regime(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        daily = pd.Series([-1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, -1, -1], index=idx)
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+        )
+
+        assert confirmed.tolist() == [1, 1, -1, -1]
+
+    def test_reentry_cooldown_blocks_immediate_bull_flip(self):
+        idx = pd.date_range("2024-01-01", periods=8, freq="D")
+        daily = pd.Series([1, 1, -1, -1, 1, 1, 1, 1], index=idx)
+        weekly = pd.Series([1, 1, -1, -1, 1, 1, 1, 1], index=idx)
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+            reentry_cooldown_bars=3,
+        )
+
+        assert confirmed.tolist() == [1, 1, -1, -1, -1, -1, 1, 1]
+
+    def test_dynamic_cooldown_scales_with_prior_bull_duration(self):
+        idx = pd.date_range("2024-01-01", periods=10, freq="D")
+        daily = pd.Series([1, 1, 1, 1, -1, -1, 1, 1, 1, 1], index=idx)
+        weekly = pd.Series([1, 1, 1, 1, 0, 0, 1, 1, 1, 1], index=idx)
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+            reentry_cooldown_ratio=0.75,
+        )
+
+        assert confirmed.tolist() == [1, 1, 1, 1, -1, -1, -1, -1, 1, 1]
+
+    def test_weekly_nonbull_neutral_bars_can_confirm_bear_exit(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        daily = pd.Series([1, 1, -1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, 0, 0, -1, -1], index=idx)
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+            weekly_nonbull_confirm_bars=2,
+        )
+
+        assert confirmed.tolist() == [1, 1, 1, -1, -1, -1]
+
+
+class TestBacktestRibbonRegime:
+    def test_enters_on_weekly_confirmed_bull_and_exits_on_weekly_confirmed_bear(self):
+        idx = pd.date_range("2024-01-01", periods=8, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 101, 102, 103, 104, 105, 106, 107],
+                "High": [101, 102, 103, 104, 105, 106, 107, 108],
+                "Low": [99, 100, 101, 102, 103, 104, 105, 106],
+                "Close": [101, 102, 103, 104, 105, 106, 107, 108],
+                "Volume": [1] * 8,
+            },
+            index=idx,
+        )
+        daily = pd.Series([-1, 1, 1, -1, -1, -1, -1, -1], index=idx)
+        weekly = pd.Series([-1, -1, 1, 1, 1, -1, -1, -1], index=idx)
+
+        trades, summary, equity = backtest_ribbon_regime(
+            df,
+            daily,
+            weekly,
+            prior_direction=-1,
+        )
+
+        assert len(trades) == 1
+        assert trades[0]["entry_date"] == "2024-01-04"
+        assert trades[0]["exit_date"] == "2024-01-07"
+        assert trades[0].get("sleeve") is None
+        assert summary["total_trades"] == 1
+        assert summary["open_trades"] == 0
+        assert len(equity) == len(df)
 
 
 class TestEquityCurve:

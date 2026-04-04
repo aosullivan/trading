@@ -9,7 +9,10 @@ __pycache__/
 .DS_Store
 *.log
 .claude/
+.codex/
+.codexc/
 build/
 data_cache/
 dist/
 *.spec
+audio/

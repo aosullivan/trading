@@ -35,6 +35,7 @@ let wlTrendsLoading=false;
 let wlTrendsStale=false;
 let wlPanelCollapsed=false;
 let wlPanelWidth=WL_PANEL_DEFAULT_WIDTH;
+let wlTrendSelectionSyncPending=false;
 const WL_TAB_ORDER=['all','indexes','treasuries','semis','tech','software','etfs','crypto','misc'];
 const WL_CATEGORY_LABELS={indexes:'Index',treasuries:'Rates',semis:'Semis',tech:'Tech',software:'Software',etfs:'ETF',crypto:'Crypto',misc:'Misc'};
 
@@ -51,6 +52,19 @@ function wlNormalizeWidth(width){
 }
 function syncWatchlistURLState(){
   if(typeof pushURLParams==='function')pushURLParams();
+}
+function wlCurrentTicker(){
+  return document.getElementById('ticker')?.value?.toUpperCase().trim()||'';
+}
+function syncWLTabButtons(){
+  document.querySelectorAll('#wl-tabs .wl-tab').forEach(b=>{
+    b.classList.toggle('active',b.dataset.tab===wlActiveTab);
+  });
+}
+function syncWLTrendSideButtons(){
+  document.querySelectorAll('.wl-trend-side-tabs .wl-tab').forEach(b=>{
+    b.classList.toggle('active',b.dataset.side===wlTrendSide);
+  });
 }
 function resizeWatchlistChart(){
   const container=document.getElementById('chart-container');
@@ -138,9 +152,29 @@ function wlTickerCategory(t){
   if(_WL_CRYPTO_ADJ_SYMS.has(raw))return 'crypto';
   return 'misc';
 }
+function ensureWLCurrentTickerTab(){
+  const currentTicker=wlCurrentTicker();
+  if(!currentTicker||wlActiveTab==='all'||!wlList.includes(currentTicker))return;
+  const nextTab=wlTickerCategory(currentTicker);
+  if(nextTab===wlActiveTab)return;
+  wlActiveTab=wlNormalizeTab(nextTab);
+  syncWLTabButtons();
+}
+function ensureWLCurrentTickerTrendSide(){
+  const currentTicker=wlCurrentTicker();
+  if(!currentTicker||!wlList.includes(currentTicker))return true;
+  const row=wlTrendRows.find(item=>item?.ticker===currentTicker);
+  if(!row)return false;
+  const nextSide=wlNormalizeTrendSide(wlTrendRowMeta(row)?.[wlTrendFrame]?.meta?.tone);
+  if(nextSide===wlTrendSide)return true;
+  wlTrendSide=nextSide;
+  syncWLTrendSideButtons();
+  syncWatchlistURLState();
+  return true;
+}
 function switchWLTab(tab,{syncURL=true}={}){
   wlActiveTab=wlNormalizeTab(tab);
-  document.querySelectorAll('#wl-tabs .wl-tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===wlActiveTab));
+  syncWLTabButtons();
   renderWL(wlList);
   if(syncURL)syncWatchlistURLState();
 }
@@ -153,11 +187,14 @@ function switchWLView(view,{syncURL=true}={}){
   document.getElementById('wl-trend-side-tabs').style.display=wlView==='trends'?'flex':'none';
   document.getElementById('wl-quote-cols').style.display=wlView==='watchlist'?'grid':'none';
   document.getElementById('wl-trend-cols').style.display=wlView==='trends'?'grid':'none';
+  if(syncURL)ensureWLCurrentTickerTab();
   if(wlView==='trends'){
+    wlTrendSelectionSyncPending=syncURL&&!ensureWLCurrentTickerTrendSide();
     switchWLTrendFrame(wlTrendFrame,{syncURL:false});
     switchWLTrendSide(wlTrendSide,{syncURL:false});
     fetchTrends();
   }else{
+    wlTrendSelectionSyncPending=false;
     stopWLTrendTimers();
   }
   syncWLRefreshTimers();
@@ -221,9 +258,8 @@ function switchWLTrendFrame(frame,{syncURL=true}={}){
 
 function switchWLTrendSide(side,{syncURL=true}={}){
   wlTrendSide=wlNormalizeTrendSide(side);
-  document.querySelectorAll('.wl-trend-side-tabs .wl-tab').forEach(b=>{
-    b.classList.toggle('active',b.dataset.side===wlTrendSide);
-  });
+  syncWLTrendSideButtons();
+  if(syncURL)wlTrendSelectionSyncPending=false;
   renderWL(wlList);
   if(syncURL)syncWatchlistURLState();
 }
@@ -411,6 +447,9 @@ function fetchTrends(){
       wlTrendRows=Array.isArray(payload.items)?payload.items:[];
       wlTrendsLoading=!!payload.loading;
       wlTrendsStale=!!payload.stale;
+      if(wlView==='trends'&&wlTrendSelectionSyncPending){
+        wlTrendSelectionSyncPending=!ensureWLCurrentTickerTrendSide();
+      }
       renderWL(wlList);
       if(wlTrendPollTimer) clearTimeout(wlTrendPollTimer);
       wlTrendPollTimer=null;
