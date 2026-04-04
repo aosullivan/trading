@@ -1,3 +1,7 @@
+from dataclasses import dataclass
+from typing import Optional
+
+import numpy as np
 import pandas as pd
 
 from lib.settings import (
@@ -8,6 +12,136 @@ from lib.settings import (
     RIBBON_WEEKLY_ADD_CAPITAL,
     RIBBON_WEEKLY_SELL_FRACTION,
 )
+
+
+@dataclass(frozen=True)
+class MoneyManagementConfig:
+    """Configurable money management for the backtesting engine.
+
+    Default values reproduce backtest_direction() behavior:
+    all-in/all-out with INITIAL_CAPITAL, no stops, no vol sizing.
+    """
+
+    initial_capital: float = INITIAL_CAPITAL
+
+    # Sizing: None=all-in, "vol", "fixed_fraction"
+    sizing_method: Optional[str] = None
+    vol_scale_factor: float = 0.001
+    vol_lookback: int = 100
+    point_value: float = 1.0
+    risk_fraction: float = 0.01
+
+    # Stops: None=no stop, "atr", "pct"
+    stop_type: Optional[str] = None
+    stop_atr_period: int = 20
+    stop_atr_multiple: float = 3.0
+    stop_pct: float = 0.02
+
+    # Basso three-layer risk caps (None=disabled)
+    risk_to_stop_limit: Optional[float] = None
+    vol_to_equity_limit: Optional[float] = None
+    vol_to_equity_atr_period: int = 20
+    margin_to_equity_limit: Optional[float] = None
+    margin_per_unit: float = 0.0
+
+    # Compounding: "trade"=current equity, "monthly"=month-start, "fixed"=initial only
+    compounding: str = "trade"
+
+
+def _compute_atr(highs, lows, closes, end_idx, period):
+    """Compute ATR ending at end_idx using Wilder's method."""
+    start = max(0, end_idx - period * 2)
+    if end_idx - start < period:
+        return None
+    tr_vals = []
+    for j in range(start + 1, end_idx + 1):
+        hi = float(highs.iloc[j])
+        lo = float(lows.iloc[j])
+        prev_c = float(closes.iloc[j - 1])
+        tr_vals.append(max(hi - lo, abs(hi - prev_c), abs(lo - prev_c)))
+    if len(tr_vals) < period:
+        return None
+    atr = sum(tr_vals[:period]) / period
+    for v in tr_vals[period:]:
+        atr = (atr * (period - 1) + v) / period
+    return atr
+
+
+def _compute_stop_distance(df, bar_idx, config):
+    """Compute the stop distance in price units for position sizing."""
+    if config.stop_type == "atr":
+        atr = _compute_atr(
+            df["High"], df["Low"], df["Close"], bar_idx, config.stop_atr_period
+        )
+        if atr is not None:
+            return atr * config.stop_atr_multiple
+        return None
+    elif config.stop_type == "pct":
+        return float(df["Close"].iloc[bar_idx]) * config.stop_pct
+    return None
+
+
+def _compute_position_size(config, sizing_equity, price, df, bar_idx, stop_dist):
+    """Compute base position size in shares before risk caps."""
+    if config.sizing_method is None:
+        return None  # signals all-in
+
+    if config.sizing_method == "vol":
+        start = max(0, bar_idx - config.vol_lookback)
+        if bar_idx - start < 2:
+            return 0.0
+        changes = df["Close"].iloc[start : bar_idx + 1].diff().dropna()
+        stddev = float(changes.std()) if len(changes) > 1 else 0.0
+        if stddev <= 0:
+            return 0.0
+        return config.vol_scale_factor * sizing_equity / (stddev * config.point_value)
+
+    if config.sizing_method == "fixed_fraction":
+        risk_per_share = stop_dist
+        if risk_per_share is None or risk_per_share <= 0:
+            atr = _compute_atr(
+                df["High"], df["Low"], df["Close"], bar_idx, 20
+            )
+            risk_per_share = atr if atr and atr > 0 else price * 0.02
+        return (sizing_equity * config.risk_fraction) / risk_per_share
+
+    return None
+
+
+def _apply_risk_caps(config, quantity, price, equity, df, bar_idx):
+    """Apply Basso three-layer risk caps, returning the minimum qualifying quantity."""
+    candidates = [quantity]
+
+    if config.risk_to_stop_limit is not None:
+        stop_dist = _compute_stop_distance(df, bar_idx, config)
+        if stop_dist and stop_dist > 0:
+            max_qty = (equity * config.risk_to_stop_limit) / stop_dist
+            candidates.append(max_qty)
+
+    if config.vol_to_equity_limit is not None:
+        atr = _compute_atr(
+            df["High"],
+            df["Low"],
+            df["Close"],
+            bar_idx,
+            config.vol_to_equity_atr_period,
+        )
+        if atr and atr > 0:
+            max_qty = (equity * config.vol_to_equity_limit) / atr
+            candidates.append(max_qty)
+
+    if config.margin_to_equity_limit is not None and config.margin_per_unit > 0:
+        max_qty = (equity * config.margin_to_equity_limit) / config.margin_per_unit
+        candidates.append(max_qty)
+
+    return max(0.0, min(candidates))
+
+
+def _is_new_month(current_date, previous_date):
+    return (
+        current_date.month != previous_date.month
+        or current_date.year != previous_date.year
+    )
 
 
 def build_equity_curve(df, trades):
@@ -228,112 +362,240 @@ def backtest_supertrend(df, direction, start_in_position=False):
     return backtest_direction(df, direction, start_in_position=start_in_position)
 
 
-def backtest_corpus_trend(
+
+
+def backtest_managed(
     df,
     direction,
-    stop_line,
+    config=None,
     start_in_position=False,
     prior_direction=None,
-    risk_fraction=0.01,
 ):
-    """Backtest corpus-trend long/cash entries with ATR-guided exits."""
-    if df.empty:
-        summary = compute_summary([], [], initial_capital=INITIAL_CAPITAL)
-        return [], summary, []
+    """Backtest with configurable money management layers.
 
-    direction = direction.reindex(df.index).ffill().fillna(-1).astype(int)
-    stop_line = stop_line.reindex(df.index)
+    When config is None or default, reproduces backtest_direction() behavior.
+    Returns (trades, summary, equity_curve) matching the existing format.
+    """
+    if config is None:
+        config = MoneyManagementConfig()
+
+    # All-in mode: delegate to backtest_direction for exact equivalence
+    has_mm = (
+        config.sizing_method is not None
+        or config.stop_type is not None
+        or config.risk_to_stop_limit is not None
+        or config.vol_to_equity_limit is not None
+        or config.margin_to_equity_limit is not None
+    )
+    if not has_mm and config.compounding == "trade":
+        return backtest_direction(
+            df,
+            direction,
+            start_in_position=start_in_position,
+            prior_direction=prior_direction,
+        )
+
+    trades = []
+    open_lots = []
+    equity_curve = []
+    cash = float(config.initial_capital)
+    sizing_equity = float(config.initial_capital)
     open_prices = df["Open"]
     close_prices = df["Close"]
     dates = df.index
-    trades = []
-    equity_curve = []
-    cash = float(INITIAL_CAPITAL)
-    position = None
+    completed_trades = []
 
     initial_prev_dir = prior_direction
-    if initial_prev_dir is None:
-        initial_prev_dir = 1 if start_in_position else int(direction.iloc[0])
+    if initial_prev_dir is None and len(df) > 0:
+        initial_prev_dir = 1 if start_in_position else direction.iloc[0]
 
-    if start_in_position:
+    if start_in_position and len(df) > 0:
         entry_price = round(float(open_prices.iloc[0]), 2)
-        qty = cash / entry_price if entry_price else 0.0
-        position = {
-            "entry_date": str(dates[0].date()),
-            "entry_price": entry_price,
-            "type": "long",
-            "quantity": round(qty, 8),
-        }
-        cash -= qty * entry_price
+        if entry_price > 0:
+            quantity = _compute_position_size(
+                config, sizing_equity, entry_price, df, 0, None
+            )
+            if quantity is None:
+                quantity = cash / entry_price
+            quantity = _apply_risk_caps(config, quantity, entry_price, cash, df, 0)
+            quantity = min(quantity, cash / entry_price) if entry_price > 0 else 0
+            if quantity > 0:
+                cost = quantity * entry_price
+                open_lots.append(
+                    {
+                        "entry_date": str(dates[0].date()),
+                        "entry_price": entry_price,
+                        "quantity": round(quantity, 8),
+                        "type": "long",
+                        "stop_price": None,
+                    }
+                )
+                cash -= cost
+                if config.stop_type == "atr":
+                    sd = _compute_stop_distance(df, 0, config)
+                    if sd:
+                        open_lots[-1]["stop_price"] = entry_price - sd
+                elif config.stop_type == "pct":
+                    open_lots[-1]["stop_price"] = entry_price * (1 - config.stop_pct)
 
     for i in range(len(df)):
         close_price = float(close_prices.iloc[i])
-        shares = position["quantity"] if position is not None else 0.0
+        market_value = sum(lot["quantity"] * close_price for lot in open_lots)
+        equity = cash + market_value
+
+        # Monthly compounding reset
+        if config.compounding == "monthly" and i > 0:
+            if _is_new_month(dates[i], dates[i - 1]):
+                sizing_equity = equity
+        elif config.compounding == "trade":
+            sizing_equity = equity
+        # "fixed" keeps sizing_equity = initial_capital
+
+        # Stop loss checks
+        if open_lots and config.stop_type is not None:
+            low_price = float(df["Low"].iloc[i])
+            new_open = []
+            for lot in open_lots:
+                if lot["stop_price"] is not None and low_price <= lot["stop_price"]:
+                    exit_price = round(lot["stop_price"], 2)
+                    pnl = (exit_price - lot["entry_price"]) * lot["quantity"]
+                    pnl_pct = (
+                        ((exit_price / lot["entry_price"]) - 1) * 100
+                        if lot["entry_price"]
+                        else 0
+                    )
+                    trade = {
+                        "entry_date": lot["entry_date"],
+                        "entry_price": lot["entry_price"],
+                        "exit_date": str(dates[i].date()),
+                        "exit_price": exit_price,
+                        "type": "long",
+                        "quantity": round(lot["quantity"], 8),
+                        "pnl": round(pnl, 2),
+                        "pnl_pct": round(pnl_pct, 2),
+                    }
+                    trades.append(trade)
+                    completed_trades.append(trade)
+                    cash += lot["quantity"] * exit_price
+                else:
+                    new_open.append(lot)
+            open_lots[:] = new_open
+
+            # Update trailing stops (ratchet up only)
+            if open_lots:
+                if config.stop_type == "atr":
+                    atr = _compute_atr(
+                        df["High"],
+                        df["Low"],
+                        df["Close"],
+                        i,
+                        config.stop_atr_period,
+                    )
+                    if atr is not None:
+                        new_stop = close_price - config.stop_atr_multiple * atr
+                        for lot in open_lots:
+                            if lot["stop_price"] is None or new_stop > lot["stop_price"]:
+                                lot["stop_price"] = new_stop
+                elif config.stop_type == "pct":
+                    new_stop = close_price * (1 - config.stop_pct)
+                    for lot in open_lots:
+                        if lot["stop_price"] is None or new_stop > lot["stop_price"]:
+                            lot["stop_price"] = new_stop
+
+        # Signal processing (1-bar delay)
+        if i < len(df) - 1:
+            prev_dir = initial_prev_dir if i == 0 else direction.iloc[i - 1]
+            curr_dir = direction.iloc[i]
+            execution_idx = i + 1
+            execution_price = round(float(open_prices.iloc[execution_idx]), 2)
+            execution_date = str(dates[execution_idx].date())
+
+            # Exit signal
+            if prev_dir == 1 and curr_dir != 1 and open_lots:
+                for lot in open_lots:
+                    pnl = (execution_price - lot["entry_price"]) * lot["quantity"]
+                    pnl_pct = (
+                        ((execution_price / lot["entry_price"]) - 1) * 100
+                        if lot["entry_price"]
+                        else 0
+                    )
+                    trade = {
+                        "entry_date": lot["entry_date"],
+                        "entry_price": lot["entry_price"],
+                        "exit_date": execution_date,
+                        "exit_price": execution_price,
+                        "type": "long",
+                        "quantity": round(lot["quantity"], 8),
+                        "pnl": round(pnl, 2),
+                        "pnl_pct": round(pnl_pct, 2),
+                    }
+                    trades.append(trade)
+                    completed_trades.append(trade)
+                    cash += lot["quantity"] * execution_price
+                open_lots.clear()
+
+            # Entry signal
+            elif prev_dir != 1 and curr_dir == 1 and not open_lots:
+                if execution_price > 0:
+                    stop_dist = _compute_stop_distance(df, i, config)
+                    quantity = _compute_position_size(
+                        config, sizing_equity, execution_price, df, i, stop_dist
+                    )
+                    if quantity is None:
+                        quantity = cash / execution_price
+                    quantity = _apply_risk_caps(
+                        config, quantity, execution_price, equity, df, i
+                    )
+                    quantity = min(quantity, cash / execution_price)
+                    if quantity > 0:
+                        cost = quantity * execution_price
+                        lot = {
+                            "entry_date": execution_date,
+                            "entry_price": execution_price,
+                            "quantity": round(quantity, 8),
+                            "type": "long",
+                            "stop_price": None,
+                        }
+                        if config.stop_type == "atr" and stop_dist:
+                            lot["stop_price"] = execution_price - stop_dist
+                        elif config.stop_type == "pct":
+                            lot["stop_price"] = execution_price * (1 - config.stop_pct)
+                        open_lots.append(lot)
+                        cash -= cost
+
+        # Record equity
+        market_value = sum(lot["quantity"] * close_price for lot in open_lots)
+        equity = cash + market_value
         equity_curve.append(
-            {
-                "time": int(dates[i].timestamp()),
-                "value": round(cash + (shares * close_price), 2),
-            }
+            {"time": int(dates[i].timestamp()), "value": round(equity, 2)}
         )
 
-        if i >= len(df) - 1:
-            continue
-
-        prev_dir = initial_prev_dir if i == 0 else int(direction.iloc[i - 1])
-        curr_dir = int(direction.iloc[i])
-        execution_price = round(float(open_prices.iloc[i + 1]), 2)
-        execution_date = str(dates[i + 1].date())
-
-        if prev_dir != 1 and curr_dir == 1 and position is None:
-            qty = cash / execution_price if execution_price else 0.0
-            qty = round(max(0.0, qty), 8)
-            if qty > 0:
-                position = {
-                    "entry_date": execution_date,
-                    "entry_price": execution_price,
-                    "type": "long",
-                    "quantity": qty,
-                }
-                cash -= qty * execution_price
-        elif prev_dir == 1 and curr_dir != 1 and position is not None:
-            pnl = (execution_price - position["entry_price"]) * position["quantity"]
+    # Mark open positions to market
+    if open_lots:
+        last_close = round(float(close_prices.iloc[-1]), 2)
+        last_date = str(dates[-1].date())
+        for lot in open_lots:
+            pnl = (last_close - lot["entry_price"]) * lot["quantity"]
             pnl_pct = (
-                ((execution_price / position["entry_price"]) - 1) * 100
-                if position["entry_price"]
+                ((last_close / lot["entry_price"]) - 1) * 100
+                if lot["entry_price"]
                 else 0
             )
-            cash += execution_price * position["quantity"]
             trades.append(
                 {
-                    **position,
-                    "exit_date": execution_date,
-                    "exit_price": execution_price,
+                    "entry_date": lot["entry_date"],
+                    "entry_price": lot["entry_price"],
+                    "exit_date": last_date,
+                    "exit_price": last_close,
+                    "type": "long",
+                    "quantity": round(lot["quantity"], 8),
                     "pnl": round(pnl, 2),
                     "pnl_pct": round(pnl_pct, 2),
+                    "open": True,
                 }
             )
-            position = None
 
-    if position is not None:
-        last_close = round(float(close_prices.iloc[-1]), 2)
-        pnl = (last_close - position["entry_price"]) * position["quantity"]
-        pnl_pct = (
-            ((last_close / position["entry_price"]) - 1) * 100
-            if position["entry_price"]
-            else 0
-        )
-        trades.append(
-            {
-                **position,
-                "exit_date": str(dates[-1].date()),
-                "exit_price": last_close,
-                "pnl": round(pnl, 2),
-                "pnl_pct": round(pnl_pct, 2),
-                "open": True,
-            }
-        )
-
-    summary = compute_summary(trades, equity_curve)
+    summary = compute_summary(trades, equity_curve, initial_capital=config.initial_capital)
     return trades, summary, equity_curve
 
 

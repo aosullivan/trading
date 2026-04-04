@@ -20,25 +20,26 @@ from lib.data_fetching import (
     resolve_treasury_price_proxy_ticker,
 )
 from lib.technical_indicators import (
-    ADX_PERIOD,
-    ADX_THRESHOLD,
     BOLLINGER_PERIOD,
     BOLLINGER_STD_DEV,
+    CB50_PERIOD,
+    CB150_PERIOD,
     DONCHIAN_PERIOD,
     EMA_FAST_PERIOD,
     EMA_SLOW_PERIOD,
-    MA_CONFIRM_BEAR_CANDLES,
-    MA_CONFIRM_BULL_CANDLES,
-    MA_CONFIRM_PERIOD,
+    SMA_CROSS_FAST_10,
+    SMA_CROSS_SLOW_100,
+    SMA_CROSS_SLOW_200,
     SUPERTREND_MULTIPLIER,
     SUPERTREND_PERIOD,
     compute_supertrend,
     compute_ema_crossover,
-    compute_ma_confirmation,
     compute_macd_crossover,
     compute_donchian_breakout,
-    compute_corpus_trend_signal,
-    compute_adx_trend,
+    compute_channel_breakout_close,
+    compute_sma_crossover,
+    compute_ema_trend_signal,
+    compute_yearly_ma_trend,
     compute_bollinger_breakout,
     compute_keltner_breakout,
     compute_parabolic_sar,
@@ -47,8 +48,9 @@ from lib.technical_indicators import (
     compute_regime_router,
 )
 from lib.backtesting import (
-    backtest_corpus_trend,
+    MoneyManagementConfig,
     backtest_direction,
+    backtest_managed,
     build_weekly_confirmed_ribbon_direction,
     build_buy_hold_equity_curve,
 )
@@ -151,8 +153,47 @@ def _prior_direction(direction, full_index, view_index):
     return direction.iloc[first_visible_loc - 1]
 
 
+def _parse_mm_config():
+    """Build a MoneyManagementConfig from request query params, or None if all-in."""
+    sizing = request.args.get("mm_sizing", "")
+    stop = request.args.get("mm_stop", "")
+    stop_val = request.args.get("mm_stop_val", "")
+    risk_cap = request.args.get("mm_risk_cap", "")
+    compound = request.args.get("mm_compound", "trade")
+
+    if not sizing and not stop and not risk_cap and compound == "trade":
+        return None
+
+    kwargs = {}
+    if sizing:
+        kwargs["sizing_method"] = sizing
+    if stop:
+        kwargs["stop_type"] = stop
+        if stop_val:
+            val = float(stop_val)
+            if stop == "atr":
+                kwargs["stop_atr_multiple"] = val
+            elif stop == "pct":
+                kwargs["stop_pct"] = val / 100.0
+    if risk_cap:
+        kwargs["vol_to_equity_limit"] = float(risk_cap)
+    if compound != "trade":
+        kwargs["compounding"] = compound
+
+    return MoneyManagementConfig(**kwargs)
+
+
 def _run_direction_backtest(df_view, direction, full_index, view_index):
     prior_direction = _prior_direction(direction, full_index, view_index)
+    mm_config = _parse_mm_config()
+    if mm_config is not None:
+        return backtest_managed(
+            df_view,
+            direction.loc[view_index],
+            config=mm_config,
+            start_in_position=prior_direction == 1,
+            prior_direction=prior_direction,
+        )
     return backtest_direction(
         df_view,
         direction.loc[view_index],
@@ -171,17 +212,6 @@ def _run_ribbon_regime_backtest(
     return backtest_direction(
         df_view,
         confirmed_direction.loc[view_index],
-        start_in_position=prior_direction == 1,
-        prior_direction=prior_direction,
-    )
-
-
-def _run_corpus_trend_backtest(df_view, direction, stop_line, full_index, view_index):
-    prior_direction = _prior_direction(direction, full_index, view_index)
-    return backtest_corpus_trend(
-        df_view,
-        direction.loc[view_index],
-        stop_line.loc[view_index],
         start_in_position=prior_direction == 1,
         prior_direction=prior_direction,
     )
@@ -246,29 +276,21 @@ def _get_indicator_bundle(
         EMA_FAST_PERIOD,
         EMA_SLOW_PERIOD,
     )
-    ma_conf, ma_conf_direction = compute_ma_confirmation(
-        df,
-        MA_CONFIRM_PERIOD,
-        MA_CONFIRM_BULL_CANDLES,
-        MA_CONFIRM_BEAR_CANDLES,
-    )
     macd_line, signal_line, macd_hist, macd_direction = compute_macd_crossover(df)
     donch_upper, donch_lower, donch_direction = compute_donchian_breakout(
         df,
         DONCHIAN_PERIOD,
     )
-    (
-        corpus_entry_upper,
-        corpus_exit_lower,
-        corpus_atr,
-        corpus_stop_line,
-        corpus_direction,
-    ) = compute_corpus_trend_signal(df)
-    adx_val, plus_di, minus_di, adx_direction = compute_adx_trend(
-        df,
-        ADX_PERIOD,
-        ADX_THRESHOLD,
+    cb50_hc, cb50_lc, cb50_direction = compute_channel_breakout_close(df, CB50_PERIOD)
+    cb150_hc, cb150_lc, cb150_direction = compute_channel_breakout_close(df, CB150_PERIOD)
+    sma10, sma100, sma_10_100_direction = compute_sma_crossover(
+        df, SMA_CROSS_FAST_10, SMA_CROSS_SLOW_100,
     )
+    _, sma200, sma_10_200_direction = compute_sma_crossover(
+        df, SMA_CROSS_FAST_10, SMA_CROSS_SLOW_200,
+    )
+    ema_trend_ref, ema_trend_sig, ema_trend_direction = compute_ema_trend_signal(df)
+    yearly_ma, yearly_ma_direction = compute_yearly_ma_trend(df)
     bb_upper, bb_mid, bb_lower, bb_direction = compute_bollinger_breakout(
         df,
         BOLLINGER_PERIOD,
@@ -284,13 +306,16 @@ def _get_indicator_bundle(
     )
 
     direction_map = {
-        "ma_confirm": ma_conf_direction,
+        "cb50": cb50_direction,
+        "cb150": cb150_direction,
+        "sma_10_100": sma_10_100_direction,
+        "sma_10_200": sma_10_200_direction,
+        "ema_trend": ema_trend_direction,
+        "yearly_ma": yearly_ma_direction,
         "supertrend": direction,
         "ema_crossover": ema_direction,
         "macd": macd_direction,
         "donchian": donch_direction,
-        "corpus_trend": corpus_direction,
-        "adx_trend": adx_direction,
         "bb_breakout": bb_direction,
         "keltner": kelt_direction,
         "parabolic_sar": psar_direction,
@@ -304,8 +329,6 @@ def _get_indicator_bundle(
         "ema_fast": ema_fast,
         "ema_slow": ema_slow,
         "ema_direction": ema_direction,
-        "ma_conf": ma_conf,
-        "ma_conf_direction": ma_conf_direction,
         "macd_line": macd_line,
         "signal_line": signal_line,
         "macd_hist": macd_hist,
@@ -313,15 +336,12 @@ def _get_indicator_bundle(
         "donch_upper": donch_upper,
         "donch_lower": donch_lower,
         "donch_direction": donch_direction,
-        "corpus_entry_upper": corpus_entry_upper,
-        "corpus_exit_lower": corpus_exit_lower,
-        "corpus_atr": corpus_atr,
-        "corpus_stop_line": corpus_stop_line,
-        "corpus_direction": corpus_direction,
-        "adx_val": adx_val,
-        "plus_di": plus_di,
-        "minus_di": minus_di,
-        "adx_direction": adx_direction,
+        "cb50_direction": cb50_direction,
+        "cb150_direction": cb150_direction,
+        "sma_10_100_direction": sma_10_100_direction,
+        "sma_10_200_direction": sma_10_200_direction,
+        "ema_trend_direction": ema_trend_direction,
+        "yearly_ma_direction": yearly_ma_direction,
         "bb_upper": bb_upper,
         "bb_mid": bb_mid,
         "bb_lower": bb_lower,
@@ -419,9 +439,13 @@ def chart_data():
     end = request.args.get("end", "")
     period_val = int(request.args.get("period", SUPERTREND_PERIOD))
     multiplier_val = float(request.args.get("multiplier", SUPERTREND_MULTIPLIER))
+    mm_sig = ":".join(
+        request.args.get(k, "")
+        for k in ("mm_sizing", "mm_stop", "mm_stop_val", "mm_risk_cap", "mm_compound")
+    )
     chart_cache_key = (
         f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
-        f"{trend_ribbon_profile_signature(ticker)}"
+        f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}"
     )
     cached_chart = _cache_get(chart_cache_key)
     if cached_chart is not None:
@@ -527,11 +551,6 @@ def chart_data():
         df_view, ema_direction, df.index, df_view.index
     )
 
-    ma_conf_direction = indicator_bundle["ma_conf_direction"]
-    ma_conf_trades, ma_conf_summary, ma_conf_equity_curve = _run_direction_backtest(
-        df_view, ma_conf_direction, df.index, df_view.index
-    )
-
     macd_line = indicator_bundle["macd_line"]
     signal_line = indicator_bundle["signal_line"]
     macd_hist = indicator_bundle["macd_hist"]
@@ -547,26 +566,34 @@ def chart_data():
         df_view, donch_direction, df.index, df_view.index
     )
 
-    corpus_direction = indicator_bundle["corpus_direction"]
-    corpus_stop_line = indicator_bundle["corpus_stop_line"]
-    (
-        corpus_trades,
-        corpus_summary,
-        corpus_equity_curve,
-    ) = _run_corpus_trend_backtest(
-        df_view,
-        corpus_direction,
-        corpus_stop_line,
-        df.index,
-        df_view.index,
+    cb50_direction = indicator_bundle["cb50_direction"]
+    cb50_trades, cb50_summary, cb50_equity_curve = _run_direction_backtest(
+        df_view, cb50_direction, df.index, df_view.index
     )
 
-    adx_val = indicator_bundle["adx_val"]
-    plus_di = indicator_bundle["plus_di"]
-    minus_di = indicator_bundle["minus_di"]
-    adx_direction = indicator_bundle["adx_direction"]
-    adx_trades, adx_summary, adx_equity_curve = _run_direction_backtest(
-        df_view, adx_direction, df.index, df_view.index
+    cb150_direction = indicator_bundle["cb150_direction"]
+    cb150_trades, cb150_summary, cb150_equity_curve = _run_direction_backtest(
+        df_view, cb150_direction, df.index, df_view.index
+    )
+
+    sma_10_100_direction = indicator_bundle["sma_10_100_direction"]
+    sma_10_100_trades, sma_10_100_summary, sma_10_100_equity_curve = _run_direction_backtest(
+        df_view, sma_10_100_direction, df.index, df_view.index
+    )
+
+    sma_10_200_direction = indicator_bundle["sma_10_200_direction"]
+    sma_10_200_trades, sma_10_200_summary, sma_10_200_equity_curve = _run_direction_backtest(
+        df_view, sma_10_200_direction, df.index, df_view.index
+    )
+
+    ema_trend_direction = indicator_bundle["ema_trend_direction"]
+    ema_trend_trades, ema_trend_summary, ema_trend_equity_curve = _run_direction_backtest(
+        df_view, ema_trend_direction, df.index, df_view.index
+    )
+
+    yearly_ma_direction = indicator_bundle["yearly_ma_direction"]
+    yearly_ma_trades, yearly_ma_summary, yearly_ma_equity_curve = _run_direction_backtest(
+        df_view, yearly_ma_direction, df.index, df_view.index
     )
 
     bb_upper = indicator_bundle["bb_upper"]
@@ -864,10 +891,7 @@ def chart_data():
         else:
             psar_bear_data.append(pt)
 
-    # --- ADX / CCI ---
-    adx_data = series_to_json(adx_val, df_view.index)
-    plus_di_data = series_to_json(plus_di, df_view.index)
-    minus_di_data = series_to_json(minus_di, df_view.index)
+    # --- CCI ---
     cci_data = series_to_json(cci_val, df_view.index)
 
     # --- Trend ribbon ---
@@ -918,18 +942,16 @@ def chart_data():
                 "equity_curve": ribbon_equity_curve,
                 "buy_hold_equity_curve": ribbon_hold_equity_curve or buy_hold_equity_curve,
             },
-            "ma_confirm": {"trades": ma_conf_trades, "summary": ma_conf_summary, "equity_curve": ma_conf_equity_curve},
+            "cb50": {"trades": cb50_trades, "summary": cb50_summary, "equity_curve": cb50_equity_curve},
+            "cb150": {"trades": cb150_trades, "summary": cb150_summary, "equity_curve": cb150_equity_curve},
+            "sma_10_100": {"trades": sma_10_100_trades, "summary": sma_10_100_summary, "equity_curve": sma_10_100_equity_curve},
+            "sma_10_200": {"trades": sma_10_200_trades, "summary": sma_10_200_summary, "equity_curve": sma_10_200_equity_curve},
+            "ema_trend": {"trades": ema_trend_trades, "summary": ema_trend_summary, "equity_curve": ema_trend_equity_curve},
+            "yearly_ma": {"trades": yearly_ma_trades, "summary": yearly_ma_summary, "equity_curve": yearly_ma_equity_curve},
             "supertrend": {"trades": trades, "summary": summary, "equity_curve": equity_curve},
             "ema_crossover": {"trades": ema_trades, "summary": ema_summary, "equity_curve": ema_equity_curve},
             "macd": {"trades": macd_trades, "summary": macd_summary, "equity_curve": macd_equity_curve},
             "donchian": {"trades": donch_trades, "summary": donch_summary, "equity_curve": donch_equity_curve},
-            "corpus_trend": {
-                "trades": corpus_trades,
-                "summary": corpus_summary,
-                "equity_curve": corpus_equity_curve,
-                "buy_hold_equity_curve": buy_hold_equity_curve,
-            },
-            "adx_trend": {"trades": adx_trades, "summary": adx_summary, "equity_curve": adx_equity_curve},
             "bb_breakout": {"trades": bb_trades, "summary": bb_summary, "equity_curve": bb_equity_curve},
             "keltner": {"trades": kelt_trades, "summary": kelt_summary, "equity_curve": kelt_equity_curve},
             "parabolic_sar": {"trades": psar_trades, "summary": psar_summary, "equity_curve": psar_equity_curve},
@@ -947,7 +969,6 @@ def chart_data():
             "bb": {"upper": bb_upper_data, "mid": bb_mid_data, "lower": bb_lower_data},
             "keltner": {"upper": kelt_upper_data, "mid": kelt_mid_data, "lower": kelt_lower_data},
             "psar": {"bull": psar_bull_data, "bear": psar_bear_data},
-            "adx": {"adx": adx_data, "plus_di": plus_di_data, "minus_di": minus_di_data},
             "cci": {"cci": cci_data},
             "ribbon": {"upper": ribbon_upper_data, "lower": ribbon_lower_data, "center": ribbon_center_data},
         },

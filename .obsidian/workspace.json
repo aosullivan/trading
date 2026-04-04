@@ -1,24 +1,20 @@
 {
   "main": {
-    "id": "dada50d2f7764d43",
+    "id": "3564304dce14ff78",
     "type": "split",
     "children": [
       {
-        "id": "aca2d54da0c7c3c4",
+        "id": "aa8c868b402d2ed1",
         "type": "tabs",
         "children": [
           {
-            "id": "0e3bcedc7290c06f",
+            "id": "76edbefb4e7347e7",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "trend-following-knowledge-base"
+              "title": "New tab"
             }
           }
         ]
@@ -27,15 +23,15 @@
     "direction": "vertical"
   },
   "left": {
-    "id": "bfe913670fbdbd17",
+    "id": "eed855de88214137",
     "type": "split",
     "children": [
       {
-        "id": "e8705716e1ef12f4",
+        "id": "f30839817df182b3",
         "type": "tabs",
         "children": [
           {
-            "id": "576c0ad76015b1d5",
+            "id": "b9ac55045131200a",
             "type": "leaf",
             "state": {
               "type": "file-explorer",
@@ -48,7 +44,7 @@
             }
           },
           {
-            "id": "9e54635e6e6d3735",
+            "id": "5be22f81ebdabcde",
             "type": "leaf",
             "state": {
               "type": "search",
@@ -65,7 +61,7 @@
             }
           },
           {
-            "id": "b4f16200338cfcd4",
+            "id": "4939e07adc4177b1",
             "type": "leaf",
             "state": {
               "type": "bookmarks",
@@ -81,20 +77,19 @@
     "width": 300
   },
   "right": {
-    "id": "a0f4cde77bd87cdb",
+    "id": "bd9d3395502c540c",
     "type": "split",
     "children": [
       {
-        "id": "f11b4eb748ffef7f",
+        "id": "2f8d7fb1aa8c25c9",
         "type": "tabs",
         "children": [
           {
-            "id": "12fbf583ae44e87a",
+            "id": "b69bdfbdc8817321",
             "type": "leaf",
             "state": {
               "type": "backlink",
               "state": {
-                "file": "phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,25 +99,24 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for trend-following-knowledge-base"
+              "title": "Backlinks"
             }
           },
           {
-            "id": "1543dba8f5cb3026",
+            "id": "987b29757a0595ea",
             "type": "leaf",
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from trend-following-knowledge-base"
+              "title": "Outgoing links"
             }
           },
           {
-            "id": "45ee60f9e2bd3267",
+            "id": "b96d867412bcca98",
             "type": "leaf",
             "state": {
               "type": "tag",
@@ -137,7 +131,7 @@
             }
           },
           {
-            "id": "b150949f8bb92315",
+            "id": "5f9b3750567ca9d7",
             "type": "leaf",
             "state": {
               "type": "all-properties",
@@ -151,18 +145,17 @@
             }
           },
           {
-            "id": "cd2704a55146b24a",
+            "id": "2c7aac4fcf401bb8",
             "type": "leaf",
             "state": {
               "type": "outline",
               "state": {
-                "file": "phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.md",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of trend-following-knowledge-base"
+              "title": "Outline"
             }
           }
         ]
@@ -183,31 +176,6 @@
       "bases:Create new base": false
     }
   },
-  "active": "0e3bcedc7290c06f",
-  "lastOpenFiles": [
-    "phases/01-build-trend-following-knowledge-base/01-RESEARCH.md",
-    "phases/02-implement-corpus-derived-strategy/02-UAT.md",
-    "phases/02-implement-corpus-derived-strategy/02-02-SUMMARY.md",
-    "phases/02-implement-corpus-derived-strategy/02-01-SUMMARY.md",
-    "phases/02-implement-corpus-derived-strategy/corpus-trend-strategy-spec.md",
-    "phases/02-implement-corpus-derived-strategy/02-02-PLAN.md",
-    "phases/02-implement-corpus-derived-strategy/02-01-PLAN.md",
-    "phases/02-implement-corpus-derived-strategy/02-RESEARCH.md",
-    "phases/02-implement-corpus-derived-strategy/02-CONTEXT.md",
-    "phases/01-build-trend-following-knowledge-base/01-CONTEXT.md",
-    "phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.md",
-    "phases/02-implement-corpus-derived-strategy",
-    "phases/01-build-trend-following-knowledge-base/01-02-SUMMARY.md",
-    "phases/01-build-trend-following-knowledge-base/01-01-SUMMARY.md",
-    "phases/01-build-trend-following-knowledge-base/trend-following-knowledge-base.json",
-    "phases/01-build-trend-following-knowledge-base/01-02-PLAN.md",
-    "phases/01-build-trend-following-knowledge-base/01-01-PLAN.md",
-    "REQUIREMENTS.md",
-    "phases/01-build-trend-following-knowledge-base",
-    "phases",
-    "STATE.md",
-    "ROADMAP.md",
-    "codebase/CONCERNS.md",
-    "PROJECT.md"
-  ]
+  "active": "76edbefb4e7347e7",
+  "lastOpenFiles": []
 }

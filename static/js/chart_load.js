@@ -34,6 +34,8 @@ async function loadChart(){
 	try{
     let url=`/api/chart?ticker=${ticker}&interval=${interval}&start=${start}&period=${period}&multiplier=${mult}`;
     if(end)url+=`&end=${end}`;
+    const mmqs=typeof buildMMQueryString==='function'?buildMMQueryString():'';
+    if(mmqs)url+=`&${mmqs}`;
     const res=await fetch(url),data=await res.json();
     if(data.error){alert(data.error);return}
     document.getElementById('tk-sym').textContent=ticker;

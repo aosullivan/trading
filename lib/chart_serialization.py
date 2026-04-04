@@ -2,28 +2,30 @@ import pandas as pd
 
 from lib.settings import VOLUME_PROFILE_BUCKETS
 from lib.technical_indicators import (
-    ADX_PERIOD,
-    ADX_THRESHOLD,
     BOLLINGER_PERIOD,
     BOLLINGER_STD_DEV,
+    CB50_PERIOD,
+    CB150_PERIOD,
     DONCHIAN_PERIOD,
     EMA_FAST_PERIOD,
     EMA_SLOW_PERIOD,
-    MA_CONFIRM_BEAR_CANDLES,
-    MA_CONFIRM_BULL_CANDLES,
-    MA_CONFIRM_PERIOD,
-    compute_adx_trend,
+    SMA_CROSS_FAST_10,
+    SMA_CROSS_SLOW_100,
+    SMA_CROSS_SLOW_200,
     compute_bollinger_breakout,
     compute_cci_trend,
+    compute_channel_breakout_close,
     compute_donchian_breakout,
     compute_ema_crossover,
+    compute_ema_trend_signal,
     compute_keltner_breakout,
-    compute_ma_confirmation,
     compute_macd_crossover,
     compute_parabolic_sar,
     compute_regime_router,
+    compute_sma_crossover,
     compute_supertrend,
     compute_trend_ribbon,
+    compute_yearly_ma_trend,
 )
 
 
@@ -63,15 +65,12 @@ def compute_all_trend_flips(
     ribbon_kwargs = ribbon_kwargs or {}
     flips = {}
     computations = [
-        (
-            "ma_confirm",
-            lambda d: compute_ma_confirmation(
-                d,
-                MA_CONFIRM_PERIOD,
-                MA_CONFIRM_BULL_CANDLES,
-                MA_CONFIRM_BEAR_CANDLES,
-            )[1],
-        ),
+        ("cb50", lambda d: compute_channel_breakout_close(d, CB50_PERIOD)[2]),
+        ("cb150", lambda d: compute_channel_breakout_close(d, CB150_PERIOD)[2]),
+        ("sma_10_100", lambda d: compute_sma_crossover(d, SMA_CROSS_FAST_10, SMA_CROSS_SLOW_100)[2]),
+        ("sma_10_200", lambda d: compute_sma_crossover(d, SMA_CROSS_FAST_10, SMA_CROSS_SLOW_200)[2]),
+        ("ema_trend", lambda d: compute_ema_trend_signal(d)[2]),
+        ("yearly_ma", lambda d: compute_yearly_ma_trend(d)[1]),
         ("supertrend", lambda d: compute_supertrend(d, period_val, multiplier_val)[1]),
         (
             "ema_crossover",
@@ -81,10 +80,6 @@ def compute_all_trend_flips(
         (
             "donchian",
             lambda d: compute_donchian_breakout(d, DONCHIAN_PERIOD)[2],
-        ),
-        (
-            "adx_trend",
-            lambda d: compute_adx_trend(d, ADX_PERIOD, ADX_THRESHOLD)[3],
         ),
         (
             "bb_breakout",

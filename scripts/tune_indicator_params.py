@@ -13,16 +13,19 @@ from lib.data_fetching import (
     resolve_treasury_price_proxy_ticker,
 )
 from lib.technical_indicators import (
-    compute_adx_trend,
     compute_bollinger_breakout,
     compute_cci_trend,
+    compute_channel_breakout_close,
     compute_donchian_breakout,
     compute_ema_crossover,
+    compute_ema_trend_signal,
     compute_keltner_breakout,
     compute_macd_crossover,
     compute_parabolic_sar,
+    compute_sma_crossover,
     compute_supertrend,
     compute_trend_ribbon,
+    compute_yearly_ma_trend,
 )
 
 
@@ -214,16 +217,15 @@ def donchian_variants():
     return variants
 
 
-def adx_variants():
-    variants = [("baseline_14_25", lambda d: compute_adx_trend(d, 14, 25)[3])]
-    for period in [10, 14, 20]:
-        for threshold in [18, 20, 22, 28, 30]:
-            variants.append(
-                (
-                    f"p{period}_t{threshold}",
-                    lambda d, p=period, t=threshold: compute_adx_trend(d, p, t)[3],
-                )
+def cb_variants():
+    variants = [("baseline_cb50", lambda d: compute_channel_breakout_close(d, 50)[2])]
+    for period in [20, 50, 100, 150, 200]:
+        variants.append(
+            (
+                f"cb{period}",
+                lambda d, p=period: compute_channel_breakout_close(d, p)[2],
             )
+        )
     return variants
 
 
@@ -356,7 +358,7 @@ STRATEGY_GRIDS = {
     "ema": ("EMA", ema_variants),
     "macd": ("MACD", macd_variants),
     "donchian": ("Donchian", donchian_variants),
-    "adx": ("ADX", adx_variants),
+    "cb": ("Channel Breakout", cb_variants),
     "bb": ("Bollinger", bb_variants),
     "keltner": ("Keltner", keltner_variants),
     "psar": ("Parabolic SAR", psar_variants),

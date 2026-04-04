@@ -1,6 +1,48 @@
 const BT_DEFAULT_STRATEGY='ribbon';
 const BT_IS_STANDALONE=document.body?.dataset?.backtestMode==='standalone';
 let _btSliderInitialized=false;
+let _lastMMParams='';
+
+function getMMParams(){
+  const sizing=document.getElementById('mm-sizing')?.value||'';
+  const stop=document.getElementById('mm-stop')?.value||'';
+  const stopVal=document.getElementById('mm-stop-val')?.value||'3';
+  const riskCap=document.getElementById('mm-risk-cap')?.value||'';
+  const compound=document.getElementById('mm-compound')?.value||'trade';
+  return{sizing,stop,stopVal,riskCap,compound};
+}
+
+function buildMMQueryString(){
+  const p=getMMParams();
+  const parts=[];
+  if(p.sizing)parts.push(`mm_sizing=${p.sizing}`);
+  if(p.stop){
+    parts.push(`mm_stop=${p.stop}`);
+    parts.push(`mm_stop_val=${p.stopVal}`);
+  }
+  if(p.riskCap)parts.push(`mm_risk_cap=${p.riskCap}`);
+  if(p.compound!=='trade')parts.push(`mm_compound=${p.compound}`);
+  return parts.join('&');
+}
+
+function onMMChange(){
+  // Show/hide stop params
+  const stopType=document.getElementById('mm-stop')?.value;
+  const paramsEl=document.getElementById('mm-stop-params');
+  if(paramsEl)paramsEl.style.display=stopType?'flex':'none';
+  // Update placeholder based on stop type
+  const stopInput=document.getElementById('mm-stop-val');
+  if(stopInput){
+    if(stopType==='atr'){stopInput.value='3';stopInput.title='ATR multiple';stopInput.step='0.5'}
+    else if(stopType==='pct'){stopInput.value='5';stopInput.title='Stop loss %';stopInput.step='1'}
+  }
+  // Trigger reload if params actually changed
+  const newParams=buildMMQueryString();
+  if(newParams!==_lastMMParams){
+    _lastMMParams=newParams;
+    requestBacktestReload();
+  }
+}
 
 function fmtCurrency(value){
   const n=Number(value||0);
@@ -60,6 +102,11 @@ function openBacktestTab(){
   p.set('period',period);
   p.set('multiplier',mult);
   p.set('strategy',strategy);
+  const mm=getMMParams();
+  if(mm.sizing)p.set('mm_sizing',mm.sizing);
+  if(mm.stop){p.set('mm_stop',mm.stop);p.set('mm_stop_val',mm.stopVal)}
+  if(mm.riskCap)p.set('mm_risk_cap',mm.riskCap);
+  if(mm.compound!=='trade')p.set('mm_compound',mm.compound);
   const url=`/backtest?${p.toString()}`;
   const tab=window.open(url,'_blank');
   if(tab){

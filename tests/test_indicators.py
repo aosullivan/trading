@@ -6,12 +6,13 @@ import pytest
 
 from lib.technical_indicators import (
     compute_supertrend,
-    compute_ma_confirmation,
+    compute_channel_breakout_close,
+    compute_sma_crossover,
+    compute_ema_trend_signal,
+    compute_yearly_ma_trend,
     compute_ema_crossover,
     compute_macd_crossover,
-    compute_corpus_trend_signal,
     compute_donchian_breakout,
-    compute_adx_trend,
     compute_bollinger_breakout,
     compute_keltner_breakout,
     compute_parabolic_sar,
@@ -42,46 +43,60 @@ class TestSupertrend:
         assert not st1.equals(st2)
 
 
-class TestMAConfirmation:
+class TestChannelBreakoutClose:
     def test_returns_correct_shape(self, sample_df):
-        ma, direction = compute_ma_confirmation(sample_df, ma_period=200, confirm_candles=3)
+        hc, lc, direction = compute_channel_breakout_close(sample_df, period=50)
+        assert len(hc) == len(sample_df)
+        assert len(lc) == len(sample_df)
+        assert len(direction) == len(sample_df)
+
+    def test_direction_values(self, sample_df):
+        _, _, direction = compute_channel_breakout_close(sample_df, period=50)
+        unique = set(direction.unique())
+        assert unique.issubset({-1, 0, 1})
+
+    def test_hc_gte_lc(self, sample_df):
+        hc, lc, _ = compute_channel_breakout_close(sample_df, period=50)
+        valid = hc.dropna().index
+        assert (hc[valid] >= lc[valid]).all()
+
+
+class TestSMACrossover:
+    def test_returns_three_series(self, sample_df):
+        fast, slow, direction = compute_sma_crossover(sample_df, fast=10, slow=100)
+        assert len(fast) == len(sample_df)
+        assert len(slow) == len(sample_df)
+        assert len(direction) == len(sample_df)
+
+    def test_direction_values(self, sample_df):
+        _, _, direction = compute_sma_crossover(sample_df, fast=10, slow=100)
+        unique = set(direction.iloc[100:].unique())
+        assert unique.issubset({-1, 1})
+
+
+class TestEMATrendSignal:
+    def test_returns_correct_shape(self, sample_df):
+        ref, sig, direction = compute_ema_trend_signal(sample_df, decay_days=105)
+        assert len(ref) == len(sample_df)
+        assert len(sig) == len(sample_df)
+        assert len(direction) == len(sample_df)
+
+    def test_direction_values(self, sample_df):
+        _, _, direction = compute_ema_trend_signal(sample_df)
+        unique = set(direction.unique())
+        assert unique.issubset({-1, 0, 1})
+
+
+class TestYearlyMATrend:
+    def test_returns_correct_shape(self, sample_df):
+        ma, direction = compute_yearly_ma_trend(sample_df, period=252)
         assert len(ma) == len(sample_df)
         assert len(direction) == len(sample_df)
 
     def test_direction_values(self, sample_df):
-        _, direction = compute_ma_confirmation(sample_df)
+        _, direction = compute_yearly_ma_trend(sample_df)
         unique = set(direction.unique())
         assert unique.issubset({-1, 0, 1})
-
-    def test_ma_nan_during_warmup(self, sample_df):
-        ma, _ = compute_ma_confirmation(sample_df, ma_period=200)
-        assert pd.isna(ma.iloc[0])
-
-    def test_exit_confirm_can_be_slower_than_entry_confirm(self):
-        dates = pd.date_range("2024-01-01", periods=7, freq="D")
-        close = [10, 10, 9, 11, 12, 9, 8]
-        df = pd.DataFrame(
-            {
-                "Open": close,
-                "High": close,
-                "Low": close,
-                "Close": close,
-                "Volume": [100] * len(close),
-            },
-            index=dates,
-        )
-
-        _, direction = compute_ma_confirmation(
-            df,
-            ma_period=2,
-            confirm_candles=1,
-            exit_confirm_candles=2,
-        )
-
-        assert direction.iloc[3] == 1
-        assert direction.iloc[4] == 1
-        assert direction.iloc[5] == 1
-        assert direction.iloc[6] == -1
 
 
 class TestEMACrossover:
@@ -132,51 +147,6 @@ class TestDonchianBreakout:
         valid = upper.dropna().index
         assert (upper[valid] >= lower[valid]).all()
 
-
-class TestCorpusTrendSignal:
-    def test_breakout_entry_trailing_stop_and_channel_exit(self):
-        idx = pd.date_range("2024-01-01", periods=9, freq="D")
-        close = [10, 10, 10, 12, 13, 14, 13, 11, 8]
-        df = pd.DataFrame(
-            {
-                "Open": close,
-                "High": [c + 0.5 for c in close],
-                "Low": [c - 0.5 for c in close],
-                "Close": close,
-                "Volume": [100] * len(close),
-            },
-            index=idx,
-        )
-
-        entry_upper, exit_lower, atr, stop_line, direction = compute_corpus_trend_signal(
-            df,
-            entry_period=3,
-            exit_period=2,
-            atr_period=2,
-            stop_multiplier=1.0,
-        )
-
-        assert direction.iloc[:3].tolist() == [-1, -1, -1]
-        assert direction.iloc[3] == 1
-        assert direction.iloc[8] == -1
-        assert entry_upper.iloc[3] == pytest.approx(10.5)
-        assert exit_lower.iloc[8] == pytest.approx(10.5)
-        active_stops = stop_line.dropna()
-        assert not active_stops.empty
-        assert (active_stops.diff().dropna() >= 0).all()
-        assert not atr.dropna().empty
-
-
-class TestADXTrend:
-    def test_returns_correct_shape(self, sample_df):
-        adx, plus_di, minus_di, direction = compute_adx_trend(sample_df)
-        assert len(adx) == len(sample_df)
-        assert len(direction) == len(sample_df)
-
-    def test_direction_values(self, sample_df):
-        _, _, _, direction = compute_adx_trend(sample_df)
-        unique = set(direction.unique())
-        assert unique.issubset({-1, 0, 1})
 
 
 class TestBollingerBreakout:

@@ -11,13 +11,16 @@
       </div>
       <select id="strategy-select" class="inp" style="font-size:11px;padding:4px 8px;border-radius:20px" onchange="switchStrategy(this.value)">
         <option value="ribbon">Trend-Driven</option>
-        <option value="corpus_trend">Corpus Trend (Donchian/ATR)</option>
-        <option value="ma_confirm">MA Confirmation (180/1 up/5 down)</option>
+        <option value="cb50">Channel Breakout 50</option>
+        <option value="cb150">Channel Breakout 150</option>
+        <option value="sma_10_100">SMA 10/100 Cross</option>
+        <option value="sma_10_200">SMA 10/200 Cross</option>
+        <option value="ema_trend">EMA Trend (5mo)</option>
+        <option value="yearly_ma">1-Year MA Trend</option>
         <option value="supertrend">Supertrend (10/2.5)</option>
         <option value="ema_crossover">EMA 5/20 Cross</option>
         <option value="macd">MACD Signal (16/32/9)</option>
         <option value="donchian">Donchian Breakout (10)</option>
-        <option value="adx_trend">ADX Trend (14/25)</option>
         <option value="bb_breakout">Bollinger Breakout (30/1.5)</option>
         <option value="keltner">Keltner Breakout (30/10/1.5)</option>
         <option value="parabolic_sar">Parabolic SAR (0.01/0.01/0.1)</option>
@@ -25,6 +28,36 @@
         <option value="regime_router">Regime Router</option>
       </select>
       <button class="bt-close" onclick="closeBacktestView()">&times;</button>
+    </div>
+    <div class="bt-mm-bar" id="bt-mm-bar">
+      <label class="bt-mm-label">Sizing</label>
+      <select id="mm-sizing" class="inp inp-mm" onchange="onMMChange()">
+        <option value="">All-In</option>
+        <option value="vol">Vol-Normalised</option>
+        <option value="fixed_fraction">Fixed Fraction</option>
+      </select>
+      <label class="bt-mm-label">Stop</label>
+      <select id="mm-stop" class="inp inp-mm" onchange="onMMChange()">
+        <option value="">None</option>
+        <option value="atr">ATR Trail</option>
+        <option value="pct">% Trail</option>
+      </select>
+      <div id="mm-stop-params" class="bt-mm-params" style="display:none">
+        <input type="number" id="mm-stop-val" class="inp inp-mm-n" value="3" step="0.5" min="0.5" title="ATR multiple or % value" onchange="onMMChange()">
+      </div>
+      <label class="bt-mm-label">Risk Cap</label>
+      <select id="mm-risk-cap" class="inp inp-mm" onchange="onMMChange()">
+        <option value="">None</option>
+        <option value="0.01">1%</option>
+        <option value="0.005">0.5%</option>
+        <option value="0.02">2%</option>
+      </select>
+      <label class="bt-mm-label">Compound</label>
+      <select id="mm-compound" class="inp inp-mm" onchange="onMMChange()">
+        <option value="trade">Per Trade</option>
+        <option value="monthly">Monthly</option>
+        <option value="fixed">Fixed</option>
+      </select>
     </div>
     <div class="bt-cfg">
       <input type="date" id="bt-start" class="inp inp-d" style="display:none">

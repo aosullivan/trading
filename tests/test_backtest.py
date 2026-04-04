@@ -5,8 +5,9 @@ import pandas as pd
 import pytest
 
 from lib.backtesting import (
-    backtest_corpus_trend,
+    MoneyManagementConfig,
     backtest_direction,
+    backtest_managed,
     backtest_ribbon_accumulation,
     backtest_ribbon_regime,
     backtest_supertrend,
@@ -135,59 +136,6 @@ class TestBacktestSupertrend:
         assert trades1 == trades2
         assert summary1 == summary2
 
-
-class TestBacktestCorpusTrend:
-    def test_uses_available_cash_on_entry(self):
-        idx = pd.date_range("2024-01-01", periods=5, freq="D")
-        df = pd.DataFrame(
-            {
-                "Open": [100.0, 100.0, 100.0, 110.0, 110.0],
-                "High": [101.0, 101.0, 101.0, 111.0, 111.0],
-                "Low": [99.0, 99.0, 99.0, 109.0, 109.0],
-                "Close": [100.0, 100.0, 100.0, 110.0, 110.0],
-                "Volume": [1, 1, 1, 1, 1],
-            },
-            index=idx,
-        )
-        direction = pd.Series([-1, 1, 1, -1, -1], index=idx)
-        stop_line = pd.Series([np.nan, 95.0, 96.0, 97.0, 97.0], index=idx)
-
-        trades, summary, equity = backtest_corpus_trend(df, direction, stop_line)
-
-        assert len(trades) == 1
-        assert trades[0]["entry_date"] == "2024-01-03"
-        assert trades[0]["exit_date"] == "2024-01-05"
-        assert trades[0]["quantity"] == pytest.approx(100.0)
-        assert trades[0]["pnl_pct"] == pytest.approx(10.0)
-        assert summary["total_trades"] == 1
-        assert summary["open_trades"] == 0
-        assert equity[2]["value"] == pytest.approx(10000.0)
-        assert equity[-1]["value"] == pytest.approx(11000.0)
-
-    def test_marks_final_open_trade_to_last_close(self):
-        idx = pd.date_range("2024-01-01", periods=4, freq="D")
-        df = pd.DataFrame(
-            {
-                "Open": [100.0, 100.0, 102.0, 103.0],
-                "High": [101.0, 101.0, 103.0, 104.0],
-                "Low": [99.0, 99.0, 101.0, 102.0],
-                "Close": [100.0, 100.0, 102.0, 104.0],
-                "Volume": [1, 1, 1, 1],
-            },
-            index=idx,
-        )
-        direction = pd.Series([-1, 1, 1, 1], index=idx)
-        stop_line = pd.Series([np.nan, 98.0, 99.0, 100.0], index=idx)
-
-        trades, summary, equity = backtest_corpus_trend(df, direction, stop_line)
-
-        assert len(trades) == 1
-        assert trades[0]["open"] is True
-        assert trades[0]["exit_date"] == "2024-01-04"
-        assert trades[0]["exit_price"] == pytest.approx(104.0)
-        assert trades[0]["quantity"] == pytest.approx(98.03921569)
-        assert summary["open_trades"] == 1
-        assert equity[-1]["value"] == pytest.approx(10196.08)
 
 
 class TestBacktestRibbonAccumulation:
@@ -550,3 +498,330 @@ class TestComputeSummary:
         assert summary["total_pnl"] == 200
         assert summary["avg_pnl"] == 120
         assert summary["best_trade"] == 120
+
+
+class TestBacktestManaged:
+    def test_default_config_matches_backtest_direction(self, sample_df):
+        """Default MoneyManagementConfig should produce identical results."""
+        _, direction = compute_supertrend(sample_df)
+        trades_dir, summary_dir, eq_dir = backtest_direction(sample_df, direction)
+        trades_mm, summary_mm, eq_mm = backtest_managed(sample_df, direction)
+
+        assert len(trades_dir) == len(trades_mm)
+        assert summary_dir == summary_mm
+        assert eq_dir == eq_mm
+
+    def test_default_config_with_start_in_position(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 101, 102, 103],
+                "High": [101, 102, 103, 104],
+                "Low": [99, 100, 101, 102],
+                "Close": [100, 101, 102, 103],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        direction = pd.Series([-1, -1, -1, -1], index=idx)
+
+        trades_dir, summary_dir, eq_dir = backtest_direction(
+            df, direction, start_in_position=True, prior_direction=1
+        )
+        trades_mm, summary_mm, eq_mm = backtest_managed(
+            df, direction, start_in_position=True, prior_direction=1
+        )
+
+        assert len(trades_dir) == len(trades_mm)
+        assert summary_dir == summary_mm
+
+    def test_vol_sizing_smaller_position_than_all_in(self, sample_df):
+        """Vol sizing should produce a smaller position than all-in."""
+        direction = pd.Series(-1, index=sample_df.index)
+        direction.iloc[10:50] = 1
+        config = MoneyManagementConfig(sizing_method="vol")
+
+        trades_mm, _, _ = backtest_managed(sample_df, direction, config=config)
+        trades_dir, _, _ = backtest_direction(sample_df, direction)
+
+        assert len(trades_mm) == 1
+        assert len(trades_dir) == 1
+        assert trades_mm[0]["quantity"] < trades_dir[0]["quantity"]
+
+    def test_vol_sizing_inversely_proportional_to_volatility(self):
+        """Higher volatility should produce smaller position sizes."""
+        n = 200
+        idx = pd.date_range("2024-01-01", periods=n, freq="D")
+        np.random.seed(42)
+
+        # Low volatility data
+        close_low = 100 + np.cumsum(np.random.randn(n) * 0.5)
+        df_low = pd.DataFrame(
+            {
+                "Open": close_low + 0.1,
+                "High": close_low + 0.5,
+                "Low": close_low - 0.5,
+                "Close": close_low,
+                "Volume": np.full(n, 1_000_000),
+            },
+            index=idx,
+        )
+
+        # High volatility data
+        np.random.seed(42)
+        close_high = 100 + np.cumsum(np.random.randn(n) * 5.0)
+        df_high = pd.DataFrame(
+            {
+                "Open": close_high + 0.1,
+                "High": close_high + 2.5,
+                "Low": close_high - 2.5,
+                "Close": close_high,
+                "Volume": np.full(n, 1_000_000),
+            },
+            index=idx,
+        )
+
+        direction = pd.Series(-1, index=idx)
+        direction.iloc[110:150] = 1
+        config = MoneyManagementConfig(sizing_method="vol")
+
+        trades_low, _, _ = backtest_managed(df_low, direction, config=config)
+        trades_high, _, _ = backtest_managed(df_high, direction, config=config)
+
+        assert len(trades_low) == 1
+        assert len(trades_high) == 1
+        assert trades_low[0]["quantity"] > trades_high[0]["quantity"]
+
+    def test_fixed_fraction_sizing(self, sample_df):
+        """Fixed fraction should risk a fixed % of equity per trade."""
+        direction = pd.Series(-1, index=sample_df.index)
+        direction.iloc[10:50] = 1
+        config = MoneyManagementConfig(
+            sizing_method="fixed_fraction",
+            risk_fraction=0.02,
+            stop_type="atr",
+            stop_atr_period=20,
+            stop_atr_multiple=3.0,
+        )
+
+        trades, _, _ = backtest_managed(sample_df, direction, config=config)
+        assert len(trades) == 1
+        assert trades[0]["quantity"] < INITIAL_CAPITAL / trades[0]["entry_price"]
+
+    def test_pct_stop_exits_on_low_breach(self):
+        """Pct stop should trigger exit when low breaches stop price."""
+        n = 50
+        idx = pd.date_range("2024-01-01", periods=n, freq="D")
+        np.random.seed(42)
+        close = np.array([100 + np.random.randn() * 2 for _ in range(25)]
+                         + [75.0] * 25)
+
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.5,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 1_000_000),
+            },
+            index=idx,
+        )
+
+        direction = pd.Series(-1, index=idx)
+        direction.iloc[5:45] = 1
+        config = MoneyManagementConfig(
+            sizing_method="fixed_fraction",
+            risk_fraction=0.02,
+            stop_type="pct",
+            stop_pct=0.10,
+        )
+
+        trades, summary, _ = backtest_managed(df, direction, config=config)
+        stopped_trades = [t for t in trades if not t.get("open")]
+        assert len(stopped_trades) >= 1
+        for t in stopped_trades:
+            if t["exit_price"] < t["entry_price"]:
+                loss_pct = abs(t["exit_price"] - t["entry_price"]) / t["entry_price"]
+                assert loss_pct <= 0.15
+
+    def test_trailing_stop_ratchets_up(self):
+        """Trailing stop should move up with price, never down."""
+        idx = pd.date_range("2024-01-01", periods=30, freq="D")
+        prices = np.array([100 + i * 2 for i in range(20)] + [140 - i * 5 for i in range(10)])
+
+        df = pd.DataFrame(
+            {
+                "Open": prices,
+                "High": prices + 1,
+                "Low": prices - 1,
+                "Close": prices,
+                "Volume": np.full(30, 1_000_000),
+            },
+            index=idx,
+        )
+
+        direction = pd.Series(1, index=idx)
+        direction.iloc[0] = -1
+        config = MoneyManagementConfig(
+            sizing_method="vol",
+            stop_type="pct",
+            stop_pct=0.05,
+        )
+
+        trades, _, _ = backtest_managed(df, direction, config=config)
+        stopped = [t for t in trades if not t.get("open")]
+        if stopped:
+            assert stopped[0]["exit_price"] > stopped[0]["entry_price"]
+
+    def test_risk_to_stop_cap(self):
+        """Risk-to-stop cap should limit position size."""
+        n = 200
+        idx = pd.date_range("2024-01-01", periods=n, freq="D")
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n) * 2)
+
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.1,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 1_000_000),
+            },
+            index=idx,
+        )
+
+        direction = pd.Series(-1, index=idx)
+        direction.iloc[110:150] = 1
+
+        config_uncapped = MoneyManagementConfig(sizing_method="vol")
+        config_capped = MoneyManagementConfig(
+            sizing_method="vol",
+            stop_type="atr",
+            stop_atr_period=20,
+            stop_atr_multiple=3.0,
+            risk_to_stop_limit=0.005,
+        )
+
+        trades_uncapped, _, _ = backtest_managed(df, direction, config=config_uncapped)
+        trades_capped, _, _ = backtest_managed(df, direction, config=config_capped)
+
+        assert len(trades_uncapped) == 1
+        assert len(trades_capped) == 1
+        assert trades_capped[0]["quantity"] <= trades_uncapped[0]["quantity"]
+
+    def test_vol_to_equity_cap(self):
+        """Vol-to-equity cap should limit position size based on ATR."""
+        n = 200
+        idx = pd.date_range("2024-01-01", periods=n, freq="D")
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n) * 2)
+
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.1,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 1_000_000),
+            },
+            index=idx,
+        )
+
+        direction = pd.Series(-1, index=idx)
+        direction.iloc[110:150] = 1
+
+        config_uncapped = MoneyManagementConfig(sizing_method="vol")
+        config_capped = MoneyManagementConfig(
+            sizing_method="vol",
+            vol_to_equity_limit=0.005,
+        )
+
+        trades_uncapped, _, _ = backtest_managed(df, direction, config=config_uncapped)
+        trades_capped, _, _ = backtest_managed(df, direction, config=config_capped)
+
+        assert len(trades_uncapped) == 1
+        assert len(trades_capped) == 1
+        assert trades_capped[0]["quantity"] <= trades_uncapped[0]["quantity"]
+
+    def test_monthly_compounding(self):
+        """Sizing equity should only update at month boundaries."""
+        idx = pd.bdate_range("2024-01-01", periods=200, freq="D")
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(200) * 2)
+
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.1,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(200, 1_000_000),
+            },
+            index=idx,
+        )
+
+        direction = pd.Series(-1, index=idx)
+        direction.iloc[10:30] = 1
+        direction.iloc[50:70] = 1
+        direction.iloc[100:130] = 1
+
+        config_trade = MoneyManagementConfig(sizing_method="vol", compounding="trade")
+        config_monthly = MoneyManagementConfig(sizing_method="vol", compounding="monthly")
+        config_fixed = MoneyManagementConfig(sizing_method="vol", compounding="fixed")
+
+        trades_trade, _, _ = backtest_managed(df, direction, config=config_trade)
+        trades_monthly, _, _ = backtest_managed(df, direction, config=config_monthly)
+        trades_fixed, _, _ = backtest_managed(df, direction, config=config_fixed)
+
+        assert len(trades_trade) == 3
+        assert len(trades_monthly) == 3
+        assert len(trades_fixed) == 3
+        qtys_fixed = [t["quantity"] for t in trades_fixed]
+        qtys_trade = [t["quantity"] for t in trades_trade]
+        assert qtys_fixed != qtys_trade
+
+    def test_equity_curve_length_matches_df(self, sample_df):
+        direction = pd.Series(-1, index=sample_df.index)
+        direction.iloc[10:50] = 1
+        config = MoneyManagementConfig(sizing_method="vol")
+        _, _, equity = backtest_managed(sample_df, direction, config=config)
+        assert len(equity) == len(sample_df)
+
+    def test_no_trades_when_never_bullish(self, sample_df):
+        direction = pd.Series(-1, index=sample_df.index)
+        config = MoneyManagementConfig(sizing_method="vol")
+        trades, summary, _ = backtest_managed(sample_df, direction, config=config)
+        assert len(trades) == 0
+        assert summary["total_trades"] == 0
+
+    def test_margin_to_equity_cap(self):
+        """Margin-to-equity cap should limit position size."""
+        n = 200
+        idx = pd.date_range("2024-01-01", periods=n, freq="D")
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n) * 2)
+
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.1,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 1_000_000),
+            },
+            index=idx,
+        )
+
+        direction = pd.Series(-1, index=idx)
+        direction.iloc[110:150] = 1
+
+        config = MoneyManagementConfig(
+            sizing_method="vol",
+            margin_to_equity_limit=0.1,
+            margin_per_unit=50.0,
+        )
+
+        trades, _, _ = backtest_managed(df, direction, config=config)
+        assert len(trades) == 1
+        assert trades[0]["quantity"] <= (INITIAL_CAPITAL * 0.1) / 50.0 + 0.01

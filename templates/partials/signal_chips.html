@@ -13,20 +13,88 @@
 	      <div class="tip-section">Example</div>
 			      <div class="tip-example">BTC's ribbon stays wide and green through a bull leg, then compresses and flips as momentum fades. After a confirmed bear exit, the model waits through a proportional cooldown before accepting the next bull flip, which helps avoid mid-bear fake rallies.</div>
 		    </div></div>
-		    <div class="chip" onclick="toggleSignal(this,'ma_confirm')"><span class="cd" style="background:#00d4ff"></span>MA Confirm<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>MA Confirmation (SMA 180)</h4>
-		      <div class="tip-sub">Trend Filter</div>
-		      <p>Uses the <strong>180-period Simple Moving Average</strong> as a trend filter with asymmetric confirmation. A single close above SMA(180) flips bullish faster to capture upside, while five consecutive closes below SMA(180) are required before turning bearish to reduce false exits.</p>
+		    <div class="chip" onclick="toggleSignal(this,'cb50')"><span class="cd" style="background:#00d4ff"></span>CB50<div class="chip-tip" onclick="event.stopPropagation()">
+		      <h4>Channel Breakout 50</h4>
+		      <div class="tip-sub">Close-Based Breakout (Trend Following Ch.45)</div>
+		      <p>Goes <strong>long</strong> when today's close equals the <strong>highest close</strong> over the last 50 days, and exits when it equals the <strong>lowest close</strong>. An always-in reversal system from Michael Covel's <em>Trend Following</em>.</p>
 		      <div class="tip-section">Calculation</div>
 		      <ul>
-		        <li><code>SMA(180) = Sum of last 180 closes / 180</code></li>
-		        <li><strong>Buy</strong> after 1 close above SMA(180)</li>
-		        <li><strong>Sell</strong> after 5 consecutive closes below SMA(180)</li>
+		        <li><strong>HC50</strong> = highest close in last 50 days</li>
+		        <li><strong>LC50</strong> = lowest close in last 50 days</li>
+		        <li><strong>Buy</strong> when Close = HC50</li>
+		        <li><strong>Sell</strong> when Close = LC50</li>
 		      </ul>
 		      <div class="tip-section">Example</div>
-		      <div class="tip-example">BTC reclaims its 180-day MA after a shakeout → the model can re-enter on the first confirmed close above the average, but it waits for five closes below the average before fully stepping aside.</div>
-		      <div class="tip-section">Links</div>
-		      <p><a href="https://www.investopedia.com/terms/s/sma.asp" target="_blank">Investopedia: SMA</a> · <a href="https://www.investopedia.com/terms/d/deathcross.asp" target="_blank">Death Cross / Golden Cross</a></p>
+		      <div class="tip-example">BTC breaks to a new 50-day closing high at $68k → CB50 goes long. It stays long until price makes a new 50-day closing low, capturing the full trend move.</div>
+		    </div></div>
+		    <div class="chip" onclick="toggleSignal(this,'cb150')"><span class="cd" style="background:#26c6da"></span>CB150<div class="chip-tip" onclick="event.stopPropagation()">
+		      <h4>Channel Breakout 150</h4>
+		      <div class="tip-sub">Close-Based Breakout (Trend Following Ch.45)</div>
+		      <p>Same logic as CB50 but with a <strong>150-day</strong> lookback. Longer-term variant that historically showed higher returns and Sharpe ratio (0.89 vs 0.56) but less positive skew.</p>
+		      <div class="tip-section">Calculation</div>
+		      <ul>
+		        <li><strong>HC150</strong> = highest close in last 150 days</li>
+		        <li><strong>LC150</strong> = lowest close in last 150 days</li>
+		        <li><strong>Buy</strong> when Close = HC150</li>
+		        <li><strong>Sell</strong> when Close = LC150</li>
+		      </ul>
+		      <div class="tip-section">Example</div>
+		      <div class="tip-example">TSLA makes a new 150-day closing high → CB150 enters. This longer lookback filters out more noise than CB50, producing fewer trades with larger average winners.</div>
+		    </div></div>
+		    <div class="chip" onclick="toggleSignal(this,'sma_10_100')"><span class="cd" style="background:#66bb6a"></span>SMA 10/100<div class="chip-tip" onclick="event.stopPropagation()">
+		      <h4>SMA 10/100 Cross</h4>
+		      <div class="tip-sub">Moving Average Crossover (Trend Following Ch.45)</div>
+		      <p>Long when the <strong>10-day SMA</strong> crosses above the <strong>100-day SMA</strong>. One of two crossover systems from Covel's backtested trend following framework.</p>
+		      <div class="tip-section">Calculation</div>
+		      <ul>
+		        <li><strong>SMA(10)</strong> = average of last 10 closes</li>
+		        <li><strong>SMA(100)</strong> = average of last 100 closes</li>
+		        <li><strong>Buy</strong> when SMA(10) &gt; SMA(100)</li>
+		        <li><strong>Sell</strong> when SMA(10) &lt; SMA(100)</li>
+		      </ul>
+		      <div class="tip-section">Example</div>
+		      <div class="tip-example">AAPL's 10-day SMA crosses above its 100-day SMA after a pullback → bullish crossover. The fast average accelerating above the slow one signals trend resumption.</div>
+		    </div></div>
+		    <div class="chip" onclick="toggleSignal(this,'sma_10_200')"><span class="cd" style="background:#42a5f5"></span>SMA 10/200<div class="chip-tip" onclick="event.stopPropagation()">
+		      <h4>SMA 10/200 Cross</h4>
+		      <div class="tip-sub">Moving Average Crossover (Trend Following Ch.45)</div>
+		      <p>Same as SMA 10/100 but with a <strong>200-day</strong> slow average. Even slower to turn, filtering more noise at the cost of later entries and exits.</p>
+		      <div class="tip-section">Calculation</div>
+		      <ul>
+		        <li><strong>SMA(10)</strong> = average of last 10 closes</li>
+		        <li><strong>SMA(200)</strong> = average of last 200 closes</li>
+		        <li><strong>Buy</strong> when SMA(10) &gt; SMA(200)</li>
+		        <li><strong>Sell</strong> when SMA(10) &lt; SMA(200)</li>
+		      </ul>
+		      <div class="tip-section">Example</div>
+		      <div class="tip-example">NVDA's 10-day SMA crosses above the 200-day SMA → strong trend confirmation. This is a more conservative filter than the 10/100, staying out of choppier intermediate swings.</div>
+		    </div></div>
+		    <div class="chip" onclick="toggleSignal(this,'ema_trend')"><span class="cd" style="background:#ab47bc"></span>EMA Trend<div class="chip-tip" onclick="event.stopPropagation()">
+		      <h4>EMA Trend Signal (5-month)</h4>
+		      <div class="tip-sub">Academic Momentum (Lemperiere et al., Ch.42)</div>
+		      <p>Measures <strong>price deviation from its EMA</strong>, normalized by volatility. Positive signal = bullish, negative = bearish. Uses a ~105 trading day (5-month) decay rate.</p>
+		      <div class="tip-section">Calculation</div>
+		      <ul>
+		        <li><strong>EMA ref</strong> = exponential moving average, span = 105 days</li>
+		        <li><strong>Vol</strong> = EMA of absolute daily price changes, span = 105 days</li>
+		        <li><strong>Signal</strong> = (Price &minus; EMA ref) / Vol</li>
+		        <li><strong>Buy</strong> when Signal &gt; 0; <strong>Sell</strong> when Signal &lt; 0</li>
+		      </ul>
+		      <div class="tip-section">Example</div>
+		      <div class="tip-example">ETH trades well above its 5-month EMA with rising signal strength → confirmed uptrend. When price dips below the EMA and signal turns negative, the model exits.</div>
+		    </div></div>
+		    <div class="chip" onclick="toggleSignal(this,'yearly_ma')"><span class="cd" style="background:#ef5350"></span>1Y MA<div class="chip-tip" onclick="event.stopPropagation()">
+		      <h4>1-Year MA Trend</h4>
+		      <div class="tip-sub">Trend Filter (Koijen et al., Ch.49)</div>
+		      <p>The trend component of the <strong>carry + trend</strong> combination strategy. Long when price is above its <strong>252-day (1-year) simple moving average</strong>, flat when below.</p>
+		      <div class="tip-section">Calculation</div>
+		      <ul>
+		        <li><strong>SMA(252)</strong> = average of last 252 closes (~1 trading year)</li>
+		        <li><strong>Buy</strong> when Close &gt; SMA(252)</li>
+		        <li><strong>Sell</strong> when Close &lt; SMA(252)</li>
+		      </ul>
+		      <div class="tip-section">Example</div>
+		      <div class="tip-example">SPY holds above its 1-year MA through a bull market → stays long. When a correction pushes price below the 252-day average, the model steps aside to avoid drawdowns.</div>
 		    </div></div>
 		    <div class="chip" onclick="toggleSignal(this,'supertrend')"><span class="cd" style="background:#5b7fff"></span>Supertrend<div class="chip-tip" onclick="event.stopPropagation()">
 		      <h4>Supertrend (10/2.5)</h4>
@@ -93,25 +161,6 @@
 	      <div class="tip-example">BTC consolidates for 10 days between $60k-$64k. Price breaks above $64k (the Donchian upper band) → breakout buy signal. This is the basis of the famous "Turtle Trading" strategy.</div>
 	      <div class="tip-section">Links</div>
 	      <p><a href="https://www.investopedia.com/terms/d/donchianchannels.asp" target="_blank">Investopedia: Donchian</a> · <a href="https://www.tradingview.com/support/solutions/43000502253/" target="_blank">TradingView: Donchian</a></p>
-	    </div></div>
-	    <div class="chip" onclick="toggleSignal(this,'adx_trend')"><span class="cd" style="background:#00e68a"></span>ADX<div class="chip-tip" onclick="event.stopPropagation()">
-	      <h4>ADX — Average Directional Index</h4>
-	      <div class="tip-sub">Trend Strength</div>
-	      <p>ADX measures <strong>how strong a trend is</strong> (not its direction). It's paired with <strong>+DI</strong> (bullish pressure) and <strong>−DI</strong> (bearish pressure) to generate directional signals.</p>
-	      <div class="tip-section">Calculation</div>
-	      <ul>
-	        <li><strong>+DM</strong> = Current High − Previous High (if positive &amp; &gt; −DM)</li>
-	        <li><strong>−DM</strong> = Previous Low − Current Low (if positive &amp; &gt; +DM)</li>
-	        <li><strong>+DI</strong> = <code>Smoothed +DM / ATR × 100</code></li>
-	        <li><strong>−DI</strong> = <code>Smoothed −DM / ATR × 100</code></li>
-	        <li><strong>ADX</strong> = <code>Smoothed |+DI − −DI| / (+DI + −DI) × 100</code></li>
-	        <li><strong>Buy</strong> when +DI crosses above −DI and ADX &gt; 25</li>
-	        <li><strong>Sell</strong> when −DI crosses above +DI and ADX &gt; 25</li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-	      <div class="tip-example">MSFT: ADX rises to 35 with +DI at 28 and −DI at 12 → strong bullish trend confirmed. ADX below 20 would indicate a ranging/choppy market — avoid trend-following signals.</div>
-	      <div class="tip-section">Links</div>
-	      <p><a href="https://www.investopedia.com/terms/a/adx.asp" target="_blank">Investopedia: ADX</a> · <a href="https://www.tradingview.com/support/solutions/43000589104/" target="_blank">TradingView: ADX</a></p>
 	    </div></div>
 	    <div class="chip" onclick="toggleSignal(this,'bb_breakout')"><span class="cd" style="background:#ff5274"></span>BB Breakout<div class="chip-tip" onclick="event.stopPropagation()">
 	      <h4>Bollinger Bands Breakout (30/1.5)</h4>

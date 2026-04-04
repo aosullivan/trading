@@ -377,8 +377,10 @@ class TestChartAPI:
         strategies = data["strategies"]
         expected_keys = [
             "ribbon",
-            "supertrend", "ema_crossover", "macd", "ma_confirm",
-            "donchian", "corpus_trend", "adx_trend", "bb_breakout",
+            "cb50", "cb150", "sma_10_100", "sma_10_200",
+            "ema_trend", "yearly_ma",
+            "supertrend", "ema_crossover", "macd",
+            "donchian", "bb_breakout",
             "keltner", "parabolic_sar", "cci_trend", "regime_router",
         ]
         for key in expected_keys:
@@ -386,7 +388,6 @@ class TestChartAPI:
             assert "trades" in strategies[key]
             assert "summary" in strategies[key]
             assert "equity_curve" in strategies[key]
-        assert "buy_hold_equity_curve" in strategies["corpus_trend"]
 
     @patch("lib.cache.yf.Ticker")
     @patch("lib.cache.yf.download")

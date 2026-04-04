@@ -2,9 +2,6 @@ import numpy as np
 import pandas as pd
 
 
-MA_CONFIRM_PERIOD = 180
-MA_CONFIRM_BULL_CANDLES = 1
-MA_CONFIRM_BEAR_CANDLES = 5
 SUPERTREND_PERIOD = 10
 SUPERTREND_MULTIPLIER = 2.5
 EMA_FAST_PERIOD = 5
@@ -13,8 +10,6 @@ MACD_FAST_PERIOD = 16
 MACD_SLOW_PERIOD = 32
 MACD_SIGNAL_PERIOD = 9
 DONCHIAN_PERIOD = 10
-ADX_PERIOD = 14
-ADX_THRESHOLD = 25
 BOLLINGER_PERIOD = 30
 BOLLINGER_STD_DEV = 1.5
 KELTNER_EMA_PERIOD = 30
@@ -32,10 +27,13 @@ RIBBON_SLOW_PERIOD = 34
 RIBBON_SMOOTH_PERIOD = 5
 RIBBON_COLLAPSE_THRESHOLD = 0.06
 RIBBON_EXPAND_THRESHOLD = 0.16
-CORPUS_TREND_ENTRY_PERIOD = 55
-CORPUS_TREND_EXIT_PERIOD = 20
-CORPUS_TREND_ATR_PERIOD = 14
-CORPUS_TREND_STOP_MULTIPLIER = 2.0
+CB50_PERIOD = 50
+CB150_PERIOD = 150
+SMA_CROSS_FAST_10 = 10
+SMA_CROSS_SLOW_100 = 100
+SMA_CROSS_SLOW_200 = 200
+EMA_TREND_DECAY_DAYS = 105  # ~5 months of trading days
+YEARLY_MA_PERIOD = 252
 
 
 def _compute_wilder_atr(high, low, close, period):
@@ -109,29 +107,72 @@ def compute_supertrend(
     return supertrend, direction
 
 
-def compute_ma_confirmation(
-    df,
-    ma_period=200,
-    confirm_candles=3,
-    exit_confirm_candles=None,
-):
-    """Compute MA confirmation direction with optional asymmetric exit confirmation."""
+def compute_channel_breakout_close(df, period=CB50_PERIOD):
+    """Close-based channel breakout (Trend Following Ch.45).
+
+    Long when today's close equals the highest close over *period* days,
+    flat when it equals the lowest close.  Always-in reversal system.
+    """
     close = df["Close"]
-    ma = close.rolling(window=ma_period).mean()
-    above = (close > ma).astype(int)
-    bullish_candles = confirm_candles
-    bearish_candles = (
-        confirm_candles if exit_confirm_candles is None else exit_confirm_candles
-    )
-    direction = pd.Series(0, index=df.index, dtype=int)
-    start = ma_period + max(bullish_candles, bearish_candles) - 1
-    for i in range(start, len(df)):
-        if all(above.iloc[i - j] == 1 for j in range(bullish_candles)):
+    hc = close.rolling(window=period).max()
+    lc = close.rolling(window=period).min()
+    direction = pd.Series(0, index=df.index)
+    for i in range(period, len(df)):
+        if close.iloc[i] >= hc.iloc[i]:
             direction.iloc[i] = 1
-        elif all(above.iloc[i - j] == 0 for j in range(bearish_candles)):
+        elif close.iloc[i] <= lc.iloc[i]:
             direction.iloc[i] = -1
         else:
             direction.iloc[i] = direction.iloc[i - 1]
+    return hc, lc, direction
+
+
+def compute_sma_crossover(df, fast=SMA_CROSS_FAST_10, slow=SMA_CROSS_SLOW_100):
+    """SMA crossover (Trend Following Ch.45).
+
+    Long when SMA(fast) > SMA(slow), flat otherwise.
+    """
+    close = df["Close"]
+    sma_fast = close.rolling(window=fast).mean()
+    sma_slow = close.rolling(window=slow).mean()
+    direction = pd.Series(0, index=df.index)
+    for i in range(slow, len(df)):
+        direction.iloc[i] = 1 if sma_fast.iloc[i] > sma_slow.iloc[i] else -1
+    return sma_fast, sma_slow, direction
+
+
+def compute_ema_trend_signal(df, decay_days=EMA_TREND_DECAY_DAYS):
+    """EMA trend signal (Lemperiere et al., Ch.42).
+
+    signal = (price - EMA_n) / vol_n
+    where vol_n is EMA of absolute daily price changes.
+    Long when signal > 0, flat otherwise.
+    """
+    close = df["Close"]
+    ema_ref = close.ewm(span=decay_days, adjust=False).mean()
+    abs_change = close.diff().abs()
+    vol = abs_change.ewm(span=decay_days, adjust=False).mean()
+    signal = (close - ema_ref) / vol.replace(0, np.nan)
+    direction = pd.Series(0, index=df.index)
+    start = decay_days
+    for i in range(start, len(df)):
+        if pd.isna(signal.iloc[i]):
+            direction.iloc[i] = direction.iloc[i - 1]
+        else:
+            direction.iloc[i] = 1 if signal.iloc[i] > 0 else -1
+    return ema_ref, signal, direction
+
+
+def compute_yearly_ma_trend(df, period=YEARLY_MA_PERIOD):
+    """1-Year MA trend filter (Koijen et al., Ch.49).
+
+    Long when price > 252-day SMA (trend component of carry+trend).
+    """
+    close = df["Close"]
+    ma = close.rolling(window=period).mean()
+    direction = pd.Series(0, index=df.index)
+    for i in range(period, len(df)):
+        direction.iloc[i] = 1 if close.iloc[i] > ma.iloc[i] else -1
     return ma, direction
 
 
@@ -184,96 +225,6 @@ def compute_donchian_breakout(df, period=DONCHIAN_PERIOD):
     return upper, lower, direction
 
 
-def compute_corpus_trend_signal(
-    df,
-    entry_period=CORPUS_TREND_ENTRY_PERIOD,
-    exit_period=CORPUS_TREND_EXIT_PERIOD,
-    atr_period=CORPUS_TREND_ATR_PERIOD,
-    stop_multiplier=CORPUS_TREND_STOP_MULTIPLIER,
-):
-    """Compute a long/cash Donchian breakout with trailing ATR stop discipline."""
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-    entry_upper = high.rolling(window=entry_period).max().shift(1)
-    exit_lower = low.rolling(window=exit_period).min().shift(1)
-    atr = _compute_wilder_atr(high, low, close, atr_period)
-    stop_line = pd.Series(np.nan, index=df.index)
-    direction = pd.Series(-1, index=df.index, dtype=int)
-
-    in_position = False
-    trailing_stop = np.nan
-    start = max(entry_period, exit_period, atr_period)
-    for i in range(start, len(df)):
-        price = float(close.iloc[i])
-        upper = entry_upper.iloc[i]
-        lower = exit_lower.iloc[i]
-        atr_value = atr.iloc[i]
-
-        if in_position and not pd.isna(atr_value):
-            candidate_stop = price - (stop_multiplier * float(atr_value))
-            trailing_stop = (
-                candidate_stop
-                if pd.isna(trailing_stop)
-                else max(trailing_stop, candidate_stop)
-            )
-
-        if in_position and (
-            (not pd.isna(lower) and price < float(lower))
-            or (not pd.isna(trailing_stop) and price < float(trailing_stop))
-        ):
-            in_position = False
-            trailing_stop = np.nan
-        elif (
-            not in_position
-            and not pd.isna(upper)
-            and not pd.isna(atr_value)
-            and price > float(upper)
-        ):
-            in_position = True
-            trailing_stop = price - (stop_multiplier * float(atr_value))
-
-        direction.iloc[i] = 1 if in_position else -1
-        if in_position:
-            stop_line.iloc[i] = trailing_stop
-
-    return entry_upper, exit_lower, atr, stop_line, direction
-
-
-def compute_adx_trend(df, period=ADX_PERIOD, adx_threshold=ADX_THRESHOLD):
-    """Compute ADX-based trend direction."""
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-
-    plus_dm = high.diff()
-    minus_dm = -low.diff()
-    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
-    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
-
-    hl = high - low
-    hc = (high - close.shift(1)).abs()
-    lc = (low - close.shift(1)).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-
-    atr = tr.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-    plus_di = 100 * (
-        plus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() / atr
-    )
-    minus_di = 100 * (
-        minus_dm.ewm(alpha=1 / period, min_periods=period, adjust=False).mean() / atr
-    )
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.ewm(alpha=1 / period, min_periods=period, adjust=False).mean()
-
-    direction = pd.Series(0, index=df.index)
-    start = period * 2
-    for i in range(start, len(df)):
-        if adx.iloc[i] > adx_threshold:
-            direction.iloc[i] = 1 if plus_di.iloc[i] > minus_di.iloc[i] else -1
-        else:
-            direction.iloc[i] = direction.iloc[i - 1]
-    return adx, plus_di, minus_di, direction
 
 
 def compute_bollinger_breakout(
@@ -577,18 +528,16 @@ def compute_regime_router(df):
 
 
 STRATEGIES = {
-    "MA Confirm (180/1 up/5 down)": lambda df: compute_ma_confirmation(
-        df,
-        MA_CONFIRM_PERIOD,
-        MA_CONFIRM_BULL_CANDLES,
-        MA_CONFIRM_BEAR_CANDLES,
-    )[1],
+    "CB50 (50-day)": lambda df: compute_channel_breakout_close(df, CB50_PERIOD)[2],
+    "CB150 (150-day)": lambda df: compute_channel_breakout_close(df, CB150_PERIOD)[2],
+    "SMA 10/100 Cross": lambda df: compute_sma_crossover(df, SMA_CROSS_FAST_10, SMA_CROSS_SLOW_100)[2],
+    "SMA 10/200 Cross": lambda df: compute_sma_crossover(df, SMA_CROSS_FAST_10, SMA_CROSS_SLOW_200)[2],
+    "EMA Trend (5mo)": lambda df: compute_ema_trend_signal(df)[2],
+    "1-Year MA Trend": lambda df: compute_yearly_ma_trend(df)[1],
     "Supertrend (10/2.5)": lambda df: compute_supertrend(df)[1],
     "EMA 5/20 Cross": lambda df: compute_ema_crossover(df)[2],
     "MACD Signal (16/32/9)": lambda df: compute_macd_crossover(df)[3],
     "Donchian (10)": lambda df: compute_donchian_breakout(df)[2],
-    "Corpus Trend (Donchian/ATR)": lambda df: compute_corpus_trend_signal(df)[4],
-    "ADX Trend (14/25)": lambda df: compute_adx_trend(df)[3],
     "Bollinger Breakout (30/1.5)": lambda df: compute_bollinger_breakout(df)[3],
     "Keltner Breakout (30/10/1.5)": lambda df: compute_keltner_breakout(df)[3],
     "Parabolic SAR (0.01/0.01/0.1)": lambda df: compute_parabolic_sar(df)[1],

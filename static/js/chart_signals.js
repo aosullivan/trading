@@ -1,7 +1,9 @@
 // === SIGNAL TOGGLES ===
 const signalColors={
+  cb50:'#00d4ff',cb150:'#26c6da',sma_10_100:'#66bb6a',sma_10_200:'#42a5f5',
+  ema_trend:'#ab47bc',yearly_ma:'#ef5350',
   supertrend:'#5b7fff',ema_crossover:'#ff9800',macd:'#b050ff',
-  ma_confirm:'#00d4ff',donchian:'#ffd644',adx_trend:'#00e68a',bb_breakout:'#ff5274',
+  donchian:'#ffd644',bb_breakout:'#ff5274',
   keltner:'#e040fb',parabolic_sar:'#76ff03',cci_trend:'#ff6e40',regime_router:'#00fff7',
   ribbon:'#7f98ff'
 };
@@ -50,48 +52,48 @@ document.addEventListener('click',()=>{
 });
 
 const activeSignals=new Set();
-const flipOrder=['ribbon','ma_confirm','supertrend','ema_crossover','macd','donchian','adx_trend','bb_breakout','keltner','parabolic_sar','cci_trend','regime_router'];
+const flipOrder=['ribbon','cb50','cb150','sma_10_100','sma_10_200','ema_trend','yearly_ma','supertrend','ema_crossover','macd','donchian','bb_breakout','keltner','parabolic_sar','cci_trend','regime_router'];
 const flipOrderRank=Object.fromEntries(flipOrder.map((key,idx)=>[key,idx]));
-const flipLabels={pulse:'Pulse',supertrend:'ST',ema_crossover:'EMA',macd:'MACD',ma_confirm:'MA',donchian:'Donch',adx_trend:'ADX',bb_breakout:'BB',keltner:'Kelt',parabolic_sar:'SAR',cci_trend:'CCI',regime_router:'RR',ribbon:'Trend'};
-const flipNames={supertrend:'Supertrend',ema_crossover:'EMA Cross',macd:'MACD',ma_confirm:'MA Confirm',donchian:'Donchian',adx_trend:'ADX',bb_breakout:'BB Breakout',keltner:'Keltner',parabolic_sar:'Parabolic SAR',cci_trend:'CCI',regime_router:'Regime Router',ribbon:'Trend-Driven'};
+const flipLabels={pulse:'Pulse',cb50:'CB50',cb150:'CB150',sma_10_100:'10/100',sma_10_200:'10/200',ema_trend:'EMAt',yearly_ma:'1Y',supertrend:'ST',ema_crossover:'EMA',macd:'MACD',donchian:'Donch',bb_breakout:'BB',keltner:'Kelt',parabolic_sar:'SAR',cci_trend:'CCI',regime_router:'RR',ribbon:'Trend'};
+const flipNames={cb50:'CB50',cb150:'CB150',sma_10_100:'SMA 10/100',sma_10_200:'SMA 10/200',ema_trend:'EMA Trend',yearly_ma:'1-Year MA',supertrend:'Supertrend',ema_crossover:'EMA Cross',macd:'MACD',donchian:'Donchian',bb_breakout:'BB Breakout',keltner:'Keltner',parabolic_sar:'Parabolic SAR',cci_trend:'CCI',regime_router:'Regime Router',ribbon:'Trend-Driven'};
 const flipDateFormatter=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
 let trendPulseMode='equal';
 const trendPulseProfiles={
   default:{
-    ribbon:24,ma_confirm:16,supertrend:12,ema_crossover:12,macd:10,donchian:8,
-    adx_trend:7,bb_breakout:5,keltner:4,parabolic_sar:3,cci_trend:2,regime_router:1
+    ribbon:20,cb50:10,cb150:10,sma_10_100:8,sma_10_200:8,ema_trend:7,yearly_ma:6,
+    supertrend:8,ema_crossover:7,macd:6,donchian:5,bb_breakout:4,keltner:3,parabolic_sar:3,cci_trend:2,regime_router:1
   },
   tech:{
-    ribbon:24,ma_confirm:15,supertrend:12,ema_crossover:13,macd:12,donchian:8,
-    adx_trend:7,bb_breakout:4,keltner:3,parabolic_sar:3,cci_trend:1,regime_router:1
+    ribbon:20,cb50:10,cb150:9,sma_10_100:8,sma_10_200:7,ema_trend:8,yearly_ma:5,
+    supertrend:8,ema_crossover:8,macd:7,donchian:5,bb_breakout:3,keltner:3,parabolic_sar:3,cci_trend:1,regime_router:1
   },
   semis:{
-    ribbon:25,ma_confirm:14,supertrend:12,ema_crossover:12,macd:12,donchian:10,
-    adx_trend:8,bb_breakout:3,keltner:2,parabolic_sar:3,cci_trend:1,regime_router:1
+    ribbon:20,cb50:10,cb150:10,sma_10_100:8,sma_10_200:7,ema_trend:7,yearly_ma:6,
+    supertrend:8,ema_crossover:7,macd:7,donchian:6,bb_breakout:3,keltner:2,parabolic_sar:3,cci_trend:1,regime_router:1
   },
   software:{
-    ribbon:24,ma_confirm:15,supertrend:11,ema_crossover:13,macd:12,donchian:7,
-    adx_trend:7,bb_breakout:5,keltner:3,parabolic_sar:3,cci_trend:2,regime_router:1
+    ribbon:20,cb50:10,cb150:9,sma_10_100:8,sma_10_200:7,ema_trend:8,yearly_ma:5,
+    supertrend:7,ema_crossover:8,macd:7,donchian:5,bb_breakout:4,keltner:3,parabolic_sar:3,cci_trend:2,regime_router:1
   },
   crypto:{
-    ribbon:26,ma_confirm:15,supertrend:13,ema_crossover:12,macd:10,donchian:10,
-    adx_trend:8,bb_breakout:4,keltner:3,parabolic_sar:2,cci_trend:1,regime_router:1
+    ribbon:20,cb50:11,cb150:9,sma_10_100:8,sma_10_200:7,ema_trend:7,yearly_ma:5,
+    supertrend:9,ema_crossover:7,macd:6,donchian:6,bb_breakout:3,keltner:2,parabolic_sar:2,cci_trend:1,regime_router:1
   },
   indexes:{
-    ribbon:22,ma_confirm:18,supertrend:10,ema_crossover:10,macd:8,donchian:6,
-    adx_trend:7,bb_breakout:8,keltner:4,parabolic_sar:2,cci_trend:3,regime_router:3
+    ribbon:18,cb50:9,cb150:10,sma_10_100:8,sma_10_200:9,ema_trend:7,yearly_ma:8,
+    supertrend:6,ema_crossover:6,macd:5,donchian:4,bb_breakout:5,keltner:3,parabolic_sar:2,cci_trend:2,regime_router:2
   },
   etfs:{
-    ribbon:22,ma_confirm:18,supertrend:10,ema_crossover:10,macd:8,donchian:6,
-    adx_trend:7,bb_breakout:8,keltner:4,parabolic_sar:2,cci_trend:3,regime_router:3
+    ribbon:18,cb50:9,cb150:10,sma_10_100:8,sma_10_200:9,ema_trend:7,yearly_ma:8,
+    supertrend:6,ema_crossover:6,macd:5,donchian:4,bb_breakout:5,keltner:3,parabolic_sar:2,cci_trend:2,regime_router:2
   },
   treasuries:{
-    ribbon:24,ma_confirm:20,supertrend:9,ema_crossover:8,macd:7,donchian:5,
-    adx_trend:9,bb_breakout:7,keltner:4,parabolic_sar:2,cci_trend:2,regime_router:4
+    ribbon:18,cb50:8,cb150:10,sma_10_100:7,sma_10_200:9,ema_trend:8,yearly_ma:10,
+    supertrend:6,ema_crossover:5,macd:4,donchian:3,bb_breakout:4,keltner:3,parabolic_sar:2,cci_trend:2,regime_router:3
   },
   misc:{
-    ribbon:24,ma_confirm:15,supertrend:11,ema_crossover:11,macd:10,donchian:8,
-    adx_trend:7,bb_breakout:5,keltner:4,parabolic_sar:3,cci_trend:2,regime_router:2
+    ribbon:20,cb50:10,cb150:10,sma_10_100:8,sma_10_200:8,ema_trend:7,yearly_ma:6,
+    supertrend:7,ema_crossover:6,macd:6,donchian:5,bb_breakout:4,keltner:3,parabolic_sar:3,cci_trend:2,regime_router:2
   }
 };
 const trendPulseCategoryLabels={

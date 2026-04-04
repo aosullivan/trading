@@ -64,6 +64,8 @@ function sameBTDateRange(startA,endA,startB,endB){
 async function fetchBacktestPayload(start,end){
   let url=`/api/chart?ticker=${encodeURIComponent(btReportState.ticker)}&interval=${encodeURIComponent(btReportState.interval)}&start=${encodeURIComponent(start)}&period=${encodeURIComponent(btReportState.period)}&multiplier=${encodeURIComponent(btReportState.multiplier)}`;
   if(end)url+=`&end=${encodeURIComponent(end)}`;
+  const mmqs=typeof buildMMQueryString==='function'?buildMMQueryString():'';
+  if(mmqs)url+=`&${mmqs}`;
   const res=await fetch(url);
   return res.json();
 }
