@@ -11,6 +11,7 @@
 - It clears `lib.cache` globals between tests.
 
 ## Test Coverage Areas
+- BTC benchmark backtests (pinned OHLCV, `/api/chart`, vs HODL): `tests/test_btc_benchmark_backtests.py` — see repo `docs/benchmark-backtests.md` and `scripts/regen_btc_benchmark_fixture.py`.
 - Indicator math and direction semantics in `tests/test_indicators.py`.
 - Trade simulation and summary metrics in `tests/test_backtest.py`.
 - Market-data normalization/cache behavior in `tests/test_data_fetching.py`.
@@ -22,8 +23,8 @@
 
 ## Known Test Gaps/Risks
 - `tests/test_ui.py` expects title `"Trading App"` while `templates/index.html` sets `"TriedingView"`.
-- `scipy` and `playwright` are used but missing from `requirements.txt`.
-- There is no visible CI workflow or coverage threshold in this snapshot.
+- `playwright` is not in `requirements.txt` (install for UI tests); `scipy` is listed for support/resistance imports.
+- Default `pytest` ignores `tests/test_ui.py` (see `pytest.ini`); CI runs `pytest` via `.github/workflows/ci.yml`.
 - Most frontend JS remains covered indirectly through Playwright rather than unit tests.
 
 ## Useful Commands

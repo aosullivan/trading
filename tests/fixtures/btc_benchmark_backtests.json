@@ -1,0 +1,30 @@
+{
+  "_comment": "Pinned metrics from tests/fixtures/btc_usd_1d_benchmark.csv (Yahoo BTC-USD daily). Regenerate CSV: python scripts/regen_btc_benchmark_fixture.py (from repo root). Then refresh min_net_profit_pct / expected_hodl_net_profit_pct here (e.g. run pytest and update from failure or a debug print).",
+  "chart_request": {
+    "ticker": "BTC-USD",
+    "interval": "1d",
+    "start": "2017-10-05",
+    "end": "2026-04-04",
+    "period": 10,
+    "multiplier": 2.5
+  },
+  "expected_hodl_net_profit_pct": 1490.84,
+  "strategies": {
+    "ribbon": {
+      "min_net_profit_pct": 2343.96,
+      "source_url": "http://127.0.0.1:5056/backtest?ticker=BTC-USD&interval=1d&start=2017-10-05&end=2026-04-04&domain_start=2015-01-01&domain_end=2026-04-04&period=10&multiplier=2.5&strategy=ribbon"
+    },
+    "cb50": {
+      "min_net_profit_pct": 2878.55,
+      "source_url": "http://127.0.0.1:5056/backtest?ticker=BTC-USD&interval=1d&start=2017-10-05&end=2026-04-04&domain_start=2015-01-01&domain_end=2026-04-04&period=10&multiplier=2.5&strategy=cb50"
+    },
+    "ema_trend": {
+      "min_net_profit_pct": 5340.75,
+      "source_url": "http://127.0.0.1:5056/backtest?ticker=BTC-USD&interval=1d&start=2017-10-05&end=2026-04-04&domain_start=2015-01-01&domain_end=2026-04-04&period=10&multiplier=2.5&strategy=ema_trend"
+    },
+    "parabolic_sar": {
+      "min_net_profit_pct": 4816.13,
+      "source_url": "http://127.0.0.1:5056/backtest?ticker=BTC-USD&interval=1d&start=2017-10-05&end=2026-04-04&domain_start=2015-01-01&domain_end=2026-04-04&period=10&multiplier=2.5&strategy=parabolic_sar"
+    }
+  }
+}

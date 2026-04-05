@@ -37,6 +37,13 @@ The desktop build stores watchlist and cache files in
 See [scripts/README.md](scripts/README.md) for the manifest, overnight run,
 resume, and export workflow for `scripts/optimize_trend_ribbon.py`.
 
+## Benchmark backtests (CI)
+
+Pinned BTC-USD history and PnL floors guard selected strategies against regressions
+versus buy-and-hold. How to run tests, regenerate the fixture CSV, and update
+floors: [docs/benchmark-backtests.md](docs/benchmark-backtests.md).
+
+
 ## Features
 
 ### Chart View (`/`)

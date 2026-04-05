@@ -8,7 +8,7 @@ alwaysApply: false
 
 ## What actually blocks a bad merge
 
-Cursor rules do **not** block Git merges. **CI does.** This repo runs `pytest` on every push and pull request to `main` (see `.github/workflows/ci.yml`). Default `pytest` skips `tests/test_ui.py` (Playwright); run that file explicitly after installing Playwright. Strategy regression lives in `tests/test_strategy_regression.py` with floors in `tests/fixtures/strategy_regression_thresholds.json`.
+Cursor rules do **not** block Git merges. **CI does.** This repo runs `pytest` on every push and pull request to `main` (see `.github/workflows/ci.yml`). Default `pytest` skips `tests/test_ui.py` (Playwright); run that file explicitly after installing Playwright. Strategy regression lives in `tests/test_strategy_regression.py` with floors in `tests/fixtures/strategy_regression_thresholds.json`. BTC benchmark backtests (`tests/test_btc_benchmark_backtests.py`) pin Yahoo-derived OHLCV in `tests/fixtures/btc_usd_1d_benchmark.csv` and require selected strategies to beat HODL and meet `tests/fixtures/btc_benchmark_backtests.json` PnL floors.
 
 Enable **branch protection** on `main` in GitHub: require the `CI` / `test` check to pass before merge. That is what prevents shipping code that fails regression tests.
 
