@@ -4,3 +4,4 @@ pywebview
 yfinance
 pandas
 numpy
+scipy

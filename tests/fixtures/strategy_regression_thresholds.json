@@ -1,0 +1,16 @@
+{
+  "_comment": "Floor metrics for deterministic regression scenarios. CI fails if actual < min (or > max for drawdown). Bump values only when deliberately improving strategy math; document in PR.",
+  "scenarios": [
+    {
+      "id": "ribbon_regime_sample_df",
+      "description": "Weekly-confirmed ribbon regime on the fixed conftest sample_df (np.random.seed 42, 300 rows).",
+      "handler": "ribbon_regime",
+      "metrics": {
+        "net_profit_pct": { "min": 2.5 },
+        "profit_factor": { "min": 1.45 },
+        "max_drawdown_pct": { "max": 16.0 },
+        "total_trades": { "min": 2 }
+      }
+    }
+  ]
+}

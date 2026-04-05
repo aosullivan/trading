@@ -1,0 +1,29 @@
+---
+description: Enforce backtest performance regression gates and merge discipline
+globs: lib/backtesting.py,lib/technical_indicators.py,routes/chart.py,lib/chart_serialization.py,tests/test_*.py,tests/fixtures/strategy_regression_thresholds.json
+alwaysApply: false
+---
+
+# Backtest performance and merge gates
+
+## What actually blocks a bad merge
+
+Cursor rules do **not** block Git merges. **CI does.** This repo runs `pytest` on every push and pull request to `main` (see `.github/workflows/ci.yml`). Default `pytest` skips `tests/test_ui.py` (Playwright); run that file explicitly after installing Playwright. Strategy regression lives in `tests/test_strategy_regression.py` with floors in `tests/fixtures/strategy_regression_thresholds.json`.
+
+Enable **branch protection** on `main` in GitHub: require the `CI` / `test` check to pass before merge. That is what prevents shipping code that fails regression tests.
+
+## Agent responsibilities
+
+- After changing signal logic, backtesting, or ribbon parameters in `lib/technical_indicators.py`, `lib/backtesting.py`, `routes/chart.py`, or related chart serialization, run **full** `pytest` locally before proposing merge.
+- If regression tests fail because the strategy change is **intentional and validated**, update **only** `tests/fixtures/strategy_regression_thresholds.json` (and keep scenarios deterministic). Never weaken floors to silence failures without explicit user approval and a short note in the PR.
+- Prefer adding new scenarios (new `handler` + metrics) when locking in another vetted path instead of overloading one scenario.
+- Do not rely on live Yahoo/network data for these gates; keep regression fixtures aligned with `tests/conftest.py` `sample_df` or other committed deterministic data.
+
+## Threshold file
+
+- `min` = actual must be **greater than or equal** (higher is better for return, win rate, profit factor).
+- `max` on `max_drawdown_pct` = actual must be **less than or equal** (lower drawdown is better).
+
+## Optional hardening
+
+For stronger guarantees, add frozen OHLCV under `tests/fixtures/` and scenarios that mirror production tickers/windows, still without network in CI.
