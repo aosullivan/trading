@@ -38,6 +38,8 @@ SMA_CROSS_FAST_10 = 10
 SMA_CROSS_SLOW_100 = 100
 SMA_CROSS_SLOW_200 = 200
 EMA_TREND_DECAY_DAYS = 105  # ~5 months of trading days
+# Long only when normalized signal exceeds this (0 = paper spec). Used by tests/CI benchmarks.
+EMA_TREND_LONG_THRESHOLD = 0.0
 YEARLY_MA_PERIOD = 252
 
 
@@ -151,7 +153,7 @@ def compute_ema_trend_signal(df, decay_days=EMA_TREND_DECAY_DAYS):
 
     signal = (price - EMA_n) / vol_n
     where vol_n is EMA of absolute daily price changes.
-    Long when signal > 0, flat otherwise.
+    Long when signal > EMA_TREND_LONG_THRESHOLD, flat otherwise.
     """
     close = df["Close"]
     ema_ref = close.ewm(span=decay_days, adjust=False).mean()
@@ -164,7 +166,9 @@ def compute_ema_trend_signal(df, decay_days=EMA_TREND_DECAY_DAYS):
         if pd.isna(signal.iloc[i]):
             direction.iloc[i] = direction.iloc[i - 1]
         else:
-            direction.iloc[i] = 1 if signal.iloc[i] > 0 else -1
+            direction.iloc[i] = (
+                1 if signal.iloc[i] > EMA_TREND_LONG_THRESHOLD else -1
+            )
     return ema_ref, signal, direction
 
 
