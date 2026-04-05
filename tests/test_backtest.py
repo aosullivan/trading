@@ -368,6 +368,140 @@ class TestBuildWeeklyConfirmedRibbonDirection:
 
         assert confirmed.tolist() == [1, 1, 1, -1, -1, -1]
 
+    def test_dd_gate_blocks_exit_when_drawdown_exceeds_threshold(self):
+        idx = pd.date_range("2024-01-01", periods=8, freq="D")
+        daily = pd.Series([1, 1, 1, 1, -1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, 1, 1, -1, -1, -1, -1], index=idx)
+        prices = pd.Series(
+            [100, 110, 120, 130, 70, 65, 60, 55], index=idx, dtype=float
+        )
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+            max_dd_exit_gate=-0.35,
+            price_series=prices,
+        )
+
+        # Peak is 130; at bar 4 price=70 → DD=-46%, exceeds -35% gate → exit blocked
+        assert confirmed.tolist() == [1, 1, 1, 1, 1, 1, 1, 1]
+
+    def test_dd_gate_allows_exit_when_drawdown_within_threshold(self):
+        idx = pd.date_range("2024-01-01", periods=8, freq="D")
+        daily = pd.Series([1, 1, 1, 1, -1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, 1, 1, -1, -1, -1, -1], index=idx)
+        prices = pd.Series(
+            [100, 110, 120, 130, 100, 95, 90, 85], index=idx, dtype=float
+        )
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+            max_dd_exit_gate=-0.35,
+            price_series=prices,
+        )
+
+        # Peak is 130; at bar 4 price=100 → DD=-23%, within -35% gate → exit fires
+        assert confirmed.tolist() == [1, 1, 1, 1, -1, -1, -1, -1]
+
+    def test_dd_gate_resets_peak_on_reentry(self):
+        idx = pd.date_range("2024-01-01", periods=12, freq="D")
+        daily = pd.Series([1, 1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, -1, -1, 1, 1, 1, 1, -1, -1, -1, -1], index=idx)
+        prices = pd.Series(
+            [100, 110, 95, 90, 92, 95, 98, 100, 55, 50, 48, 45],
+            index=idx,
+            dtype=float,
+        )
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+            max_dd_exit_gate=-0.35,
+            price_series=prices,
+        )
+
+        # Trade 1: peak=110, exit at 95 → DD=-14% → exit allowed
+        # Trade 2: peak=100 (reset), exit at 55 → DD=-45% → exit blocked
+        assert confirmed.tolist() == [1, 1, -1, -1, 1, 1, 1, 1, 1, 1, 1, 1]
+
+    def test_dd_gate_none_has_no_effect(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        daily = pd.Series([1, 1, 1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, 1, -1, -1, -1], index=idx)
+        prices = pd.Series([100, 110, 120, 50, 45, 40], index=idx, dtype=float)
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+            max_dd_exit_gate=None,
+            price_series=prices,
+        )
+
+        # No gate → normal exit even though DD is -58%
+        assert confirmed.tolist() == [1, 1, 1, -1, -1, -1]
+
+    def test_dd_gate_without_price_series_has_no_effect(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        daily = pd.Series([1, 1, 1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, 1, -1, -1, -1], index=idx)
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+            max_dd_exit_gate=-0.35,
+        )
+
+        # Gate specified but no price_series → gate has no effect
+        assert confirmed.tolist() == [1, 1, 1, -1, -1, -1]
+
+    def test_dd_gate_boundary_exactly_at_threshold(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        daily = pd.Series([1, 1, 1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, 1, -1, -1, -1], index=idx)
+        # DD exactly at -35%: 100 * 0.65 = 65
+        prices = pd.Series([100, 100, 100, 65, 60, 55], index=idx, dtype=float)
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+            max_dd_exit_gate=-0.35,
+            price_series=prices,
+        )
+
+        # DD = -35% exactly, not strictly less than gate → exit fires
+        assert confirmed.tolist() == [1, 1, 1, -1, -1, -1]
+
+    def test_dd_gate_blocks_then_allows_on_recovery(self):
+        """Gate blocks exit during deep DD but allows it after price recovers
+        to a new peak and then has a shallow correction."""
+        idx = pd.date_range("2024-01-01", periods=12, freq="D")
+        daily = pd.Series([1, 1, -1, 1, 1, 1, 1, 1, 1, 1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, -1, 1, 1, 1, 1, 1, 1, 1, -1, -1], index=idx)
+        prices = pd.Series(
+            [100, 120, 60, 65, 80, 100, 120, 140, 160, 180, 130, 125],
+            index=idx,
+            dtype=float,
+        )
+
+        confirmed = build_weekly_confirmed_ribbon_direction(
+            daily,
+            weekly,
+            initial_direction=1,
+            max_dd_exit_gate=-0.35,
+            price_series=prices,
+        )
+
+        # Bar 2: peak=120, price=60 → DD=-50% → blocked
+        # Bar 10: peak=180 (grew in bull), price=130 → DD=-28% → allowed
+        assert confirmed.tolist() == [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1, -1]
+
 
 class TestBacktestRibbonRegime:
     def test_enters_on_weekly_confirmed_bull_and_exits_on_weekly_confirmed_bear(self):

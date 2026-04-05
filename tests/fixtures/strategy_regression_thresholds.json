@@ -11,6 +11,17 @@
         "max_drawdown_pct": { "max": 16.0 },
         "total_trades": { "min": 2 }
       }
+    },
+    {
+      "id": "ribbon_regime_dd_gate_sample_df",
+      "description": "Weekly-confirmed ribbon regime with -35% drawdown exit gate on sample_df. Gate does not fire on this data (no deep drawdowns) so results must match the baseline.",
+      "handler": "ribbon_regime_dd_gate",
+      "metrics": {
+        "net_profit_pct": { "min": 2.5 },
+        "profit_factor": { "min": 1.45 },
+        "max_drawdown_pct": { "max": 16.0 },
+        "total_trades": { "min": 2 }
+      }
     }
   ]
 }

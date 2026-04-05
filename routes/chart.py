@@ -798,6 +798,10 @@ def chart_data():
                     weekly_nonbull_confirm_bars=ribbon_regime_kwargs[
                         "weekly_nonbull_confirm_bars"
                     ],
+                    max_dd_exit_gate=ribbon_regime_kwargs.get(
+                        "max_dd_exit_gate"
+                    ),
+                    price_series=df["Close"],
                 )
                 (
                     ribbon_trades,

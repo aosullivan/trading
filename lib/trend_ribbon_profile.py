@@ -31,8 +31,9 @@ TREND_RIBBON_WEEKLY_SIGNAL_PROFILE = {
 
 TREND_RIBBON_REGIME_PROFILE = {
     "reentry_cooldown_bars": 0,
-    "reentry_cooldown_ratio": 0.70,
+    "reentry_cooldown_ratio": 0.0,
     "weekly_nonbull_confirm_bars": 1,
+    "max_dd_exit_gate": -0.35,
 }
 
 TREND_RIBBON_BACKTEST_PROFILE = {
