@@ -39,7 +39,8 @@ SMA_CROSS_SLOW_100 = 100
 SMA_CROSS_SLOW_200 = 200
 EMA_TREND_DECAY_DAYS = 105  # ~5 months of trading days
 # Long only when normalized signal exceeds this (0 = paper spec). Used by tests/CI benchmarks.
-EMA_TREND_LONG_THRESHOLD = 0.0
+# DEMO BRANCH: 1.5 still beats BTC HODL on the benchmark window but fails pinned PnL floor — do not merge.
+EMA_TREND_LONG_THRESHOLD = 1.5
 YEARLY_MA_PERIOD = 252
 
 
