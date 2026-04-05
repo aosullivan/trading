@@ -10,6 +10,8 @@ This repo pins a **historical BTC-USD** window and asserts that selected strateg
   1. **`net_profit_pct` > HODL** — HODL is derived from `buy_hold_equity_curve` in the same JSON response (first visible bar open, full capital, mark-to-market on close), consistent with the UI comparison.
   2. **`net_profit_pct` ≥ floor** — Floors are stored in JSON so small intentional improvements do not require a file edit; regressions fail immediately.
 
+**Order matters:** a strategy can still **beat HODL** yet **fail** if it drops below the pinned floor (the second assertion). That catches “still good vs buy-and-hold but worse than the bar we locked in.”
+
 ## Files
 
 | File | Role |
