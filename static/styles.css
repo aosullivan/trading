@@ -101,6 +101,17 @@ body.bt-page{display:block}
 .tf-bias-mixed{color:var(--yellow)}
 .tf-weight{font-size:10px;font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
 
+/* === SIGNAL BAR (per-ticker) === */
+.signal-bar{display:flex;align-items:center;gap:12px;padding:5px 14px;background:var(--bg-2);border-bottom:1px solid var(--border);flex-shrink:0;font-size:11px}
+.sb-badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.2px}
+.sb-badge.long{background:rgba(0,230,138,.10);color:var(--green);border:1px solid rgba(0,230,138,.18)}
+.sb-badge.flat{background:var(--bg-4);color:var(--text-3);border:1px solid var(--border)}
+.sb-item{display:inline-flex;align-items:center;gap:5px}
+.sb-label{font-size:9px;font-weight:700;color:var(--text-4);text-transform:uppercase;letter-spacing:.4px}
+.sb-val{font-weight:600;color:var(--text-2);font-variant-numeric:tabular-nums}
+.sb-link{margin-left:auto;font-size:10px;font-weight:700;color:var(--accent);text-decoration:none;letter-spacing:.2px}
+.sb-link:hover{text-decoration:underline}
+
 /* === FINANCIALS MODAL === */
 .fin-backdrop{position:fixed;inset:0;background:rgba(5,6,10,.72);backdrop-filter:blur(10px);display:none;align-items:flex-start;justify-content:center;padding:56px 20px 20px;z-index:2000}
 .fin-backdrop.open{display:flex}

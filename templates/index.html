@@ -19,6 +19,17 @@
 
   {% include 'partials/signal_chips.html' %}
 
+  <!-- SIGNAL BAR (per-ticker position sizing) -->
+  <div class="signal-bar" id="signal-bar" style="display:none">
+    <span class="sb-badge" id="sb-badge">—</span>
+    <span class="sb-item"><span class="sb-label">Shares</span><span class="sb-val" id="sb-shares">—</span></span>
+    <span class="sb-item"><span class="sb-label">Notional</span><span class="sb-val" id="sb-notional">—</span></span>
+    <span class="sb-item"><span class="sb-label">Stop</span><span class="sb-val" id="sb-stop">—</span></span>
+    <span class="sb-item"><span class="sb-label">Risk</span><span class="sb-val" id="sb-risk">—</span></span>
+    <span class="sb-item"><span class="sb-label">Weight</span><span class="sb-val" id="sb-weight">—</span></span>
+    <a href="/signals" class="sb-link" title="Open Signal Dashboard">Dashboard →</a>
+  </div>
+
   <!-- CHART -->
   <div class="chart-area">
     <button class="wl-toggle" id="wl-toggle" onclick="toggleWatchlist()" title="Toggle Watchlist">&#9654;</button>
@@ -66,6 +77,7 @@
 <script src="{{ url_for('static', filename='js/url_state.js') }}"></script>
 <script src="{{ url_for('static', filename='js/backtest_panel.js') }}"></script>
 <script src="{{ url_for('static', filename='js/chart_load.js') }}"></script>
+<script src="{{ url_for('static', filename='js/signal_bar.js') }}"></script>
 <script src="{{ url_for('static', filename='js/watchlist.js') }}"></script>
 <script src="{{ url_for('static', filename='js/app_init.js') }}"></script>
 </body>

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Signal Dashboard — TriedingView</title>
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+<style>
+body.sig-page{display:flex;flex-direction:column;height:100vh;overflow:hidden;background:var(--bg-0)}
+.sig-top{display:flex;align-items:center;gap:14px;padding:14px 20px;background:var(--bg-1);border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.sig-brand{font-size:16px;font-weight:800;letter-spacing:-.3px;color:var(--text-1);text-decoration:none;display:flex;align-items:center;gap:8px}
+.sig-brand:hover{color:var(--accent)}
+.sig-brand span{font-size:10px;font-weight:700;color:var(--accent);background:var(--accent-g);padding:2px 7px;border-radius:999px;letter-spacing:.3px}
+.sig-ctrl{display:flex;align-items:center;gap:8px}
+.sig-ctrl label{font-size:10px;font-weight:700;color:var(--text-4);text-transform:uppercase;letter-spacing:.4px}
+.sig-inp{background:var(--bg-3);border:1px solid var(--border);color:var(--text-1);padding:5px 10px;border-radius:4px;font-size:12px;font-family:inherit;width:110px;text-align:right;font-variant-numeric:tabular-nums;transition:all var(--t)}
+.sig-inp:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-g)}
+.sig-sel{background:var(--bg-3);border:1px solid var(--border);color:var(--text-1);padding:5px 8px;border-radius:4px;font-size:11px;font-family:inherit;cursor:pointer}
+.sig-sep{width:1px;height:22px;background:var(--border);margin:0 4px}
+
+/* Heat meter */
+.heat-wrap{display:flex;align-items:center;gap:10px;margin-left:auto}
+.heat-bar-outer{width:160px;height:10px;background:var(--bg-3);border-radius:5px;overflow:hidden;border:1px solid var(--border)}
+.heat-bar-inner{height:100%;border-radius:4px;transition:width .4s,background .4s;min-width:0}
+.heat-lbl{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.heat-ok{color:var(--green)}.heat-warn{color:var(--orange)}.heat-over{color:var(--red)}
+
+/* Signal table */
+.sig-body{flex:1;overflow:auto;padding:16px 20px 20px}
+.sig-table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.sig-table th{background:var(--bg-4);font-size:9px;font-weight:700;color:var(--text-4);text-transform:uppercase;letter-spacing:.7px;padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);position:sticky;top:0;z-index:2}
+.sig-table th.right,.sig-table td.right{text-align:right}
+.sig-table td{padding:10px 12px;font-size:12px;font-variant-numeric:tabular-nums;border-bottom:1px solid var(--border);color:var(--text-2)}
+.sig-table tr:last-child td{border-bottom:none}
+.sig-table tr.sig-row{cursor:pointer;transition:background .15s}
+.sig-table tr.sig-row:hover{background:var(--bg-hover)}
+.sig-table tr.sig-summary{background:var(--bg-3)}
+.sig-table tr.sig-summary td{font-weight:700;color:var(--text-1);border-top:2px solid var(--border-2)}
+.sig-ticker{font-weight:700;color:var(--text-1);font-size:13px}
+.sig-badge{display:inline-flex;align-items:center;padding:3px 9px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.2px}
+.sig-badge-long{background:rgba(0,230,138,.10);color:var(--green);border:1px solid rgba(0,230,138,.18)}
+.sig-badge-flat{background:var(--bg-4);color:var(--text-3);border:1px solid var(--border)}
+.sig-badge-nodata{background:var(--bg-4);color:var(--text-4);border:1px solid var(--border)}
+.sig-date{color:var(--text-3);font-size:11px}
+.sig-risk-warn{color:var(--orange)}
+
+/* Loading & empty */
+.sig-loading{display:flex;align-items:center;gap:8px;padding:40px 20px;font-size:13px;color:var(--text-3)}
+.sig-empty{padding:40px 20px;text-align:center;color:var(--text-3);font-size:13px}
+</style>
+</head>
+<body class="sig-page">
+
+<div class="sig-top">
+  <a href="/" class="sig-brand">TriedingView <span>Signals</span></a>
+
+  <div class="sig-sep"></div>
+
+  <div class="sig-ctrl">
+    <label>Capital</label>
+    <input type="text" id="sig-capital" class="sig-inp" value="100,000">
+  </div>
+
+  <div class="sig-ctrl">
+    <label>Sizing</label>
+    <select id="sig-sizing" class="sig-sel">
+      <option value="vol">Vol-Normalised</option>
+      <option value="fixed_fraction">Fixed Fraction</option>
+    </select>
+  </div>
+
+  <div class="sig-ctrl">
+    <label>Heat Limit</label>
+    <input type="text" id="sig-heat-limit" class="sig-inp" style="width:60px" value="20%">
+  </div>
+
+  <div class="heat-wrap">
+    <div class="heat-bar-outer"><div class="heat-bar-inner" id="heat-bar"></div></div>
+    <span class="heat-lbl" id="heat-lbl">—</span>
+  </div>
+</div>
+
+<div class="sig-body">
+  <div class="sig-loading" id="sig-loading">
+    <div class="spin" style="width:14px;height:14px;border:2px solid var(--bg-4);border-top-color:var(--accent);border-radius:50%;animation:sp .6s linear infinite"></div>
+    Loading signals…
+  </div>
+  <table class="sig-table" id="sig-table" style="display:none">
+    <thead>
+      <tr>
+        <th>Ticker</th>
+        <th>Direction</th>
+        <th>Last Flip</th>
+        <th class="right">Price</th>
+        <th class="right">ATR</th>
+        <th class="right">Shares</th>
+        <th class="right">Notional</th>
+        <th class="right">Stop</th>
+        <th class="right">Risk</th>
+        <th class="right">Weight</th>
+      </tr>
+    </thead>
+    <tbody id="sig-tbody"></tbody>
+  </table>
+  <div class="sig-empty" id="sig-empty" style="display:none">
+    No tickers in watchlist. Add tickers from the <a href="/" style="color:var(--accent)">chart page</a>.
+  </div>
+</div>
+
+<script>
+(function(){
+  const capitalEl = document.getElementById('sig-capital');
+  const sizingEl  = document.getElementById('sig-sizing');
+  const heatLimitEl = document.getElementById('sig-heat-limit');
+  const heatBar   = document.getElementById('heat-bar');
+  const heatLbl   = document.getElementById('heat-lbl');
+  const loading   = document.getElementById('sig-loading');
+  const tableEl   = document.getElementById('sig-table');
+  const tbody     = document.getElementById('sig-tbody');
+  const emptyEl   = document.getElementById('sig-empty');
+
+  function fmtNum(n, dec){
+    if(n == null || isNaN(n)) return '—';
+    return Number(n).toLocaleString('en-US',{minimumFractionDigits:dec||0,maximumFractionDigits:dec||0});
+  }
+  function fmtPct(n){
+    if(n == null || isNaN(n)) return '—';
+    return (n*100).toFixed(1)+'%';
+  }
+  function parseCapital(s){
+    return parseFloat(s.replace(/[^0-9.]/g,''))||0;
+  }
+  function parseHeatLimit(s){
+    let v = parseFloat(s.replace(/[^0-9.]/g,''));
+    if(isNaN(v)) return 0.20;
+    return v > 1 ? v/100 : v;
+  }
+
+  function loadSettings(){
+    return fetch('/api/settings').then(r=>r.json()).then(s=>{
+      capitalEl.value = fmtNum(s.portfolio_capital);
+      sizingEl.value = s.sizing_model||'vol';
+      heatLimitEl.value = fmtPct(s.heat_limit);
+      return s;
+    });
+  }
+
+  function saveSettings(){
+    const body = {
+      portfolio_capital: parseCapital(capitalEl.value),
+      sizing_model: sizingEl.value,
+      heat_limit: parseHeatLimit(heatLimitEl.value),
+    };
+    return fetch('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  }
+
+  function renderHeat(portfolio){
+    const heat = portfolio.total_heat||0;
+    const limit = portfolio.heat_limit||0.20;
+    const pct = Math.min(heat/Math.max(limit,0.01),1)*100;
+    heatBar.style.width = pct+'%';
+    const cls = heat > limit ? 'heat-over' : heat > limit*0.7 ? 'heat-warn' : 'heat-ok';
+    heatBar.style.background = cls === 'heat-ok' ? 'var(--green)' : cls === 'heat-warn' ? 'var(--orange)' : 'var(--red)';
+    heatLbl.className = 'heat-lbl '+cls;
+    heatLbl.textContent = fmtPct(heat)+' / '+fmtPct(limit);
+  }
+
+  function renderTable(data){
+    tbody.innerHTML = '';
+    const signals = data.signals||[];
+    const portfolio = data.portfolio||{};
+
+    if(!signals.length){
+      tableEl.style.display='none';
+      emptyEl.style.display='block';
+      return;
+    }
+    tableEl.style.display='';
+    emptyEl.style.display='none';
+
+    signals.sort((a,b)=>{
+      if(a.direction==='LONG' && b.direction!=='LONG') return -1;
+      if(a.direction!=='LONG' && b.direction==='LONG') return 1;
+      return (b.notional||0)-(a.notional||0);
+    });
+
+    for(const s of signals){
+      const tr = document.createElement('tr');
+      tr.className = 'sig-row';
+      const dirClass = s.direction==='LONG'?'sig-badge-long':s.direction==='FLAT'?'sig-badge-flat':'sig-badge-nodata';
+      tr.innerHTML = `
+        <td class="sig-ticker">${s.ticker}</td>
+        <td><span class="sig-badge ${dirClass}">${s.direction}</span></td>
+        <td class="sig-date">${s.last_flip_date||'—'}</td>
+        <td class="right">${s.price!=null?fmtNum(s.price,2):'—'}</td>
+        <td class="right">${s.atr!=null?fmtNum(s.atr,2):'—'}</td>
+        <td class="right">${s.shares||'—'}</td>
+        <td class="right">${s.notional?'$'+fmtNum(s.notional):'—'}</td>
+        <td class="right">${s.stop_level!=null?fmtNum(s.stop_level,2):'—'}</td>
+        <td class="right${s.position_risk>0?' sig-risk-warn':''}">${s.position_risk?'$'+fmtNum(s.position_risk):'—'}</td>
+        <td class="right">${s.weight?fmtPct(s.weight):'—'}</td>
+      `;
+      tr.addEventListener('click',()=>{ window.location.href='/?ticker='+encodeURIComponent(s.ticker); });
+      tbody.appendChild(tr);
+    }
+
+    const sumTr = document.createElement('tr');
+    sumTr.className = 'sig-summary';
+    sumTr.innerHTML = `
+      <td colspan="5">Portfolio Summary — ${portfolio.positions_count||0} position${portfolio.positions_count===1?'':'s'}</td>
+      <td class="right"></td>
+      <td class="right">$${fmtNum(portfolio.total_notional)}</td>
+      <td class="right"></td>
+      <td class="right${portfolio.heat_exceeded?' sig-risk-warn':''}">$${fmtNum(portfolio.total_risk)}</td>
+      <td class="right">Cash $${fmtNum(portfolio.cash_remaining)}</td>
+    `;
+    tbody.appendChild(sumTr);
+
+    renderHeat(portfolio);
+  }
+
+  function refresh(){
+    loading.style.display='flex';
+    tableEl.style.display='none';
+    emptyEl.style.display='none';
+    fetch('/api/signals').then(r=>r.json()).then(data=>{
+      loading.style.display='none';
+      renderTable(data);
+    }).catch(()=>{
+      loading.style.display='none';
+      emptyEl.style.display='block';
+      emptyEl.textContent='Error loading signals.';
+    });
+  }
+
+  let saveTimer = null;
+  function debouncedSave(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(()=>{ saveSettings().then(refresh); }, 600);
+  }
+  capitalEl.addEventListener('input', debouncedSave);
+  sizingEl.addEventListener('change', ()=>{ saveSettings().then(refresh); });
+  heatLimitEl.addEventListener('input', debouncedSave);
+
+  loadSettings().then(refresh);
+})();
+</script>
+</body>
+</html>

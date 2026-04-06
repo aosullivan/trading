@@ -13,6 +13,11 @@ def backtest_report():
     return render_template("backtest.html")
 
 
+@bp.route("/signals")
+def signals_dashboard():
+    return render_template("signals.html")
+
+
 @bp.route("/favicon.ico")
 def favicon():
     return send_from_directory(
