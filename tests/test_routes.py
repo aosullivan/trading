@@ -8,7 +8,8 @@ import pandas as pd
 import numpy as np
 import pytest
 
-from routes.chart import _carry_neutral_direction
+from lib.backtesting import build_weekly_confirmed_ribbon_direction
+from routes.chart import _align_weekly_direction_to_daily, _carry_neutral_direction
 
 
 class TestIndexRoute:
@@ -31,6 +32,17 @@ class TestChartHelpers:
         carried = _carry_neutral_direction(direction)
 
         assert carried.tolist() == [0, 1, 1, 1, -1, -1, 1, 1]
+
+    def test_weekly_alignment_does_not_backfill_into_pre_signal_daily_bars(self):
+        idx = pd.date_range("2025-01-01", periods=6, freq="D")
+        daily_direction = pd.Series([1, 1, 1, 1, 1, 1], index=idx)
+        weekly_direction = pd.Series([1], index=[idx[4]])
+
+        aligned_weekly = _align_weekly_direction_to_daily(weekly_direction, idx)
+        confirmed = build_weekly_confirmed_ribbon_direction(daily_direction, aligned_weekly)
+
+        assert aligned_weekly.tolist() == [0, 0, 0, 0, 1, 1]
+        assert confirmed.tolist() == [0, 0, 0, 0, 1, 1]
 
 
 class TestWatchlistAPI:
