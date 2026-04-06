@@ -7,12 +7,12 @@
   --r:6px; --t:0.2s cubic-bezier(.4,0,.2,1);
 }
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;display:flex;height:100vh;overflow:hidden;font-size:13px;-webkit-font-smoothing:antialiased}
-body.bt-page{display:block}
+body{background:var(--bg-0);color:var(--text-1);font-family:'Inter',sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden;font-size:13px;-webkit-font-smoothing:antialiased}
+body.bt-page{display:block;overflow-y:auto}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--bg-4);border-radius:3px}
 
 /* === LAYOUT === */
-.app{display:flex;flex:1;overflow:hidden}
+.app{display:flex;flex:1;overflow:hidden;min-height:0}
 .center{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
 
 /* === TOOLBAR === */
@@ -353,3 +353,29 @@ body.bt-page{display:block}
 .wl-trend-section-bear{color:var(--red)}
 .wl-trend-section-mixed{color:var(--yellow)}
 .wl-trend-empty-group{padding:12px 14px;font-size:11px;color:var(--text-4);background:var(--bg-1)}
+
+/* === TOP NAV BAR === */
+.top-nav{display:flex;align-items:center;gap:0;background:var(--bg-1);border-bottom:1px solid var(--border);padding:0 14px;flex-shrink:0}
+.top-nav-link{display:inline-flex;align-items:center;padding:10px 16px;font-size:12px;font-weight:700;color:var(--text-3);text-decoration:none;letter-spacing:.3px;border-bottom:2px solid transparent;transition:all .15s}
+.top-nav-link:hover{color:var(--text-1)}
+.top-nav-link.active{color:var(--accent);border-bottom-color:var(--accent)}
+.top-nav-title{font-size:14px;font-weight:800;color:var(--text-1);letter-spacing:-.3px;margin-right:20px;padding:10px 0}
+
+/* === PORTFOLIO PAGE === */
+body.pf-page{display:block;overflow-y:auto}
+.pf-wrap{max-width:1100px;margin:0 auto;padding:20px 24px 40px}
+.pf-controls{display:flex;align-items:flex-end;gap:12px;padding:12px 16px;background:var(--bg-2);border:1px solid var(--border);border-radius:var(--r);margin-bottom:20px;flex-wrap:wrap}
+.pf-ctrl-group{display:flex;flex-direction:column;gap:4px}
+.pf-ctrl-group .tb-lbl{margin-bottom:0}
+.pf-section{margin-bottom:20px}
+.pf-section-title{font-size:13px;font-weight:700;color:var(--text-1);margin-bottom:10px;display:flex;align-items:baseline;gap:8px}
+.pf-section-sub{font-size:10px;font-weight:500;color:var(--text-3)}
+.pf-equity-card{background:linear-gradient(180deg,#161927,#10131d);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.pf-stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.pf-stats-grid .sc{min-height:80px}
+.pf-config-bar{display:flex;gap:8px;flex-wrap:wrap;padding:10px 0}
+.pf-cfg-tag{display:inline-flex;padding:4px 10px;border-radius:999px;background:var(--bg-3);border:1px solid var(--border);font-size:10px;font-weight:600;color:var(--text-3);letter-spacing:.2px}
+.pf-progress{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.pf-progress-track{flex:1;height:4px;background:var(--bg-3);border-radius:2px;overflow:hidden}
+.pf-progress-bar{height:100%;background:linear-gradient(90deg,var(--accent),#4a5cff);border-radius:2px;transition:width .3s ease}
+.pf-progress-text{font-size:11px;color:var(--text-3);white-space:nowrap;min-width:120px}

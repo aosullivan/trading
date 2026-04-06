@@ -11,7 +11,7 @@
   "expected_hodl_net_profit_pct": 1490.84,
   "strategies": {
     "ribbon": {
-      "min_net_profit_pct": 2343.96,
+      "min_net_profit_pct": 2138.72,
       "source_url": "http://127.0.0.1:5056/backtest?ticker=BTC-USD&interval=1d&start=2017-10-05&end=2026-04-04&domain_start=2015-01-01&domain_end=2026-04-04&period=10&multiplier=2.5&strategy=ribbon"
     },
     "cb50": {

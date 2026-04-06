@@ -196,6 +196,48 @@ def build_buy_hold_equity_curve(df, contributions=None):
     return equity_curve
 
 
+def _compute_risk_metrics(equity_curve, initial_capital):
+    """Derive Sharpe, Sortino, and return/max-drawdown from an equity curve."""
+    if len(equity_curve) < 2:
+        return None, None, None
+
+    values = [p["value"] for p in equity_curve]
+    returns = []
+    for i in range(1, len(values)):
+        prev = values[i - 1]
+        returns.append((values[i] - prev) / prev if prev else 0.0)
+
+    if not returns:
+        return None, None, None
+
+    mean_r = sum(returns) / len(returns)
+    var_r = sum((r - mean_r) ** 2 for r in returns) / len(returns)
+    std_r = var_r ** 0.5
+
+    annualize = 252 ** 0.5
+    sharpe = round(annualize * mean_r / std_r, 2) if std_r > 0 else None
+
+    downside = [r for r in returns if r < 0]
+    if downside:
+        down_var = sum(r ** 2 for r in downside) / len(returns)
+        down_std = down_var ** 0.5
+        sortino = round(annualize * mean_r / down_std, 2) if down_std > 0 else None
+    else:
+        sortino = None
+
+    peak = initial_capital
+    max_dd_pct = 0.0
+    for v in values:
+        peak = max(peak, v)
+        dd_pct = (peak - v) / peak * 100 if peak else 0
+        max_dd_pct = max(max_dd_pct, dd_pct)
+
+    net_pct = ((values[-1] / initial_capital) - 1) * 100 if initial_capital else 0
+    return_over_dd = round(net_pct / max_dd_pct, 2) if max_dd_pct > 0 else None
+
+    return sharpe, sortino, return_over_dd
+
+
 def compute_summary(trades, equity_curve, initial_capital=INITIAL_CAPITAL):
     """Compute enhanced summary stats for a list of trades."""
     empty_summary = {
@@ -220,6 +262,9 @@ def compute_summary(trades, equity_curve, initial_capital=INITIAL_CAPITAL):
         "avg_loser": 0,
         "ending_equity": initial_capital,
         "initial_capital": initial_capital,
+        "sharpe_ratio": None,
+        "sortino_ratio": None,
+        "return_over_max_dd": None,
     }
     if not trades:
         return empty_summary
@@ -248,6 +293,10 @@ def compute_summary(trades, equity_curve, initial_capital=INITIAL_CAPITAL):
             max_dd = drawdown
             max_dd_pct = drawdown_pct
 
+    sharpe, sortino, return_over_dd = _compute_risk_metrics(
+        equity_curve, initial_capital
+    )
+
     return {
         "total_trades": len(closed_trades),
         "open_trades": len(open_trades),
@@ -272,6 +321,9 @@ def compute_summary(trades, equity_curve, initial_capital=INITIAL_CAPITAL):
         "avg_loser": round(gross_loss / len(losers), 2) if losers else 0,
         "ending_equity": round(ending_equity, 2),
         "initial_capital": round(initial_capital, 2),
+        "sharpe_ratio": sharpe,
+        "sortino_ratio": sortino,
+        "return_over_max_dd": return_over_dd,
     }
 
 

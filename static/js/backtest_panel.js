@@ -274,6 +274,21 @@ function renderStats(s){
       <div class="sc-v">${fmtCurrencyPlain(s.ending_equity)}</div>
       <div class="sc-sub">From ${fmtCurrencyPlain(s.initial_capital)}</div>
     </div>
+    <div class="sc">
+      <div class="sc-l">Sharpe Ratio</div>
+      <div class="sc-v ${(s.sharpe_ratio||0)>=1?'vg':(s.sharpe_ratio||0)>=0?'':'vr'}">${s.sharpe_ratio==null?'N/A':s.sharpe_ratio.toFixed(2)}</div>
+      <div class="sc-sub">Annualized (√252)</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Sortino Ratio</div>
+      <div class="sc-v ${(s.sortino_ratio||0)>=1?'vg':(s.sortino_ratio||0)>=0?'':'vr'}">${s.sortino_ratio==null?'N/A':s.sortino_ratio.toFixed(2)}</div>
+      <div class="sc-sub">Downside risk only</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Return / Max DD</div>
+      <div class="sc-v ${(s.return_over_max_dd||0)>=1?'vg':(s.return_over_max_dd||0)>=0?'':'vr'}">${s.return_over_max_dd==null?'N/A':s.return_over_max_dd.toFixed(2)}</div>
+      <div class="sc-sub">Net profit % ÷ max drawdown %</div>
+    </div>
   `;
 }
 
