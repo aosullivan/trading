@@ -226,7 +226,7 @@ def _align_weekly_direction_to_daily(
     weekly_direction: pd.Series,
     daily_index: pd.Index,
 ) -> pd.Series:
-    return weekly_direction.reindex(daily_index).ffill().bfill().fillna(0).astype(int)
+    return weekly_direction.reindex(daily_index).ffill().fillna(0).astype(int)
 
 
 def _trend_ribbon_kwargs(ticker: str, timeframe: str = "daily") -> dict:
