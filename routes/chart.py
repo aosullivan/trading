@@ -209,6 +209,15 @@ def _run_ribbon_regime_backtest(
     view_index,
 ):
     prior_direction = _prior_direction(confirmed_direction, full_index, view_index)
+    mm_config = _parse_mm_config()
+    if mm_config is not None:
+        return backtest_managed(
+            df_view,
+            confirmed_direction.loc[view_index],
+            config=mm_config,
+            start_in_position=prior_direction == 1,
+            prior_direction=prior_direction,
+        )
     return backtest_direction(
         df_view,
         confirmed_direction.loc[view_index],

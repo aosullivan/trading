@@ -31,7 +31,7 @@ TREND_RIBBON_WEEKLY_SIGNAL_PROFILE = {
 
 TREND_RIBBON_REGIME_PROFILE = {
     "reentry_cooldown_bars": 0,
-    "reentry_cooldown_ratio": 0.70,
+    "reentry_cooldown_ratio": 0.20,
     "weekly_nonbull_confirm_bars": 1,
 }
 
@@ -80,29 +80,43 @@ TREND_RIBBON_V2_BACKTEST_PROFILE = {
     "commission_per_trade": 0.0,
 }
 
+TREND_RIBBON_TICKER_OVERRIDES: dict[str, dict[str, dict]] = {
+    "BTC-USD": {
+        "regime": {"reentry_cooldown_ratio": 0.60},
+    },
+}
+
+
+def _apply_overrides(profile: dict, ticker: str | None, section: str) -> dict:
+    """Return a copy of *profile* with ticker-specific overrides merged in."""
+    result = dict(profile)
+    overrides = TREND_RIBBON_TICKER_OVERRIDES.get((ticker or "").upper(), {})
+    result.update(overrides.get(section, {}))
+    return result
+
 
 def trend_ribbon_signal_kwargs(
-    _ticker: str | None = None,
+    ticker: str | None = None,
     timeframe: str = "daily",
 ) -> dict[str, int | float]:
-    if timeframe == "weekly":
-        return dict(TREND_RIBBON_WEEKLY_SIGNAL_PROFILE)
-    return dict(TREND_RIBBON_SIGNAL_PROFILE)
+    section = "weekly_signal" if timeframe == "weekly" else "signal"
+    base = TREND_RIBBON_WEEKLY_SIGNAL_PROFILE if timeframe == "weekly" else TREND_RIBBON_SIGNAL_PROFILE
+    return _apply_overrides(base, ticker, section)
 
 
-def trend_ribbon_backtest_kwargs(_ticker: str | None = None) -> dict[str, float]:
-    return dict(TREND_RIBBON_BACKTEST_PROFILE)
+def trend_ribbon_backtest_kwargs(ticker: str | None = None) -> dict[str, float]:
+    return _apply_overrides(TREND_RIBBON_BACKTEST_PROFILE, ticker, "backtest")
 
 
-def trend_ribbon_regime_kwargs(_ticker: str | None = None) -> dict[str, int | float]:
-    return dict(TREND_RIBBON_REGIME_PROFILE)
+def trend_ribbon_regime_kwargs(ticker: str | None = None) -> dict[str, int | float]:
+    return _apply_overrides(TREND_RIBBON_REGIME_PROFILE, ticker, "regime")
 
 
 def trend_ribbon_v2_signal_kwargs(
-    _ticker: str | None = None,
+    ticker: str | None = None,
     timeframe: str = "daily",
 ) -> dict[str, int | float | bool]:
-    profile = dict(TREND_RIBBON_V2_SIGNAL_PROFILE)
+    profile = _apply_overrides(TREND_RIBBON_V2_SIGNAL_PROFILE, ticker, "v2_signal")
     daily_confirm_bars = int(profile.pop("daily_confirm_bars"))
     weekly_confirm_bars = int(profile.pop("weekly_confirm_bars"))
     profile["confirm_bars"] = (
@@ -112,17 +126,17 @@ def trend_ribbon_v2_signal_kwargs(
 
 
 def trend_ribbon_v2_backtest_kwargs(
-    _ticker: str | None = None,
+    ticker: str | None = None,
 ) -> dict[str, int | float]:
-    return dict(TREND_RIBBON_V2_BACKTEST_PROFILE)
+    return _apply_overrides(TREND_RIBBON_V2_BACKTEST_PROFILE, ticker, "v2_backtest")
 
 
-def trend_ribbon_profile_signature(_ticker: str | None = None) -> str:
+def trend_ribbon_profile_signature(ticker: str | None = None) -> str:
     payload = {
-        "signal": TREND_RIBBON_SIGNAL_PROFILE,
-        "weekly_signal": TREND_RIBBON_WEEKLY_SIGNAL_PROFILE,
-        "backtest": TREND_RIBBON_BACKTEST_PROFILE,
-        "regime": TREND_RIBBON_REGIME_PROFILE,
+        "signal": trend_ribbon_signal_kwargs(ticker, "daily"),
+        "weekly_signal": trend_ribbon_signal_kwargs(ticker, "weekly"),
+        "backtest": trend_ribbon_backtest_kwargs(ticker),
+        "regime": trend_ribbon_regime_kwargs(ticker),
         "v2_signal": TREND_RIBBON_V2_SIGNAL_PROFILE,
         "v2_backtest": TREND_RIBBON_V2_BACKTEST_PROFILE,
     }

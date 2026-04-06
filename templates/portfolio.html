@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Backtest</title>
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="pf-page">
+
+{% include 'partials/nav.html' %}
+
+<div class="pf-wrap">
+  <!-- Controls bar -->
+  <div class="pf-controls">
+    <div class="pf-ctrl-group">
+      <label class="tb-lbl">Start</label>
+      <input type="date" id="pf-start" class="inp inp-d" value="2017-10-05">
+    </div>
+    <div class="pf-ctrl-group">
+      <label class="tb-lbl">End</label>
+      <input type="date" id="pf-end" class="inp inp-d">
+    </div>
+    <div class="pf-ctrl-group">
+      <label class="tb-lbl">Strategy</label>
+      <select id="pf-strategy" class="inp" style="width:100px">
+        <option value="ribbon" selected>Ribbon</option>
+      </select>
+    </div>
+    <div class="pf-ctrl-group">
+      <label class="tb-lbl">Heat Limit</label>
+      <input type="number" id="pf-heat-limit" class="inp inp-n" value="20" min="1" max="100" step="1" title="Max % of equity at risk">
+      <span class="tb-lbl">%</span>
+    </div>
+    <button class="btn-go" id="pf-run" onclick="runPortfolio()">Run</button>
+    <div class="ld" id="pf-loading"><div class="spin"></div><span>Loading&hellip;</span></div>
+  </div>
+
+  <!-- Progress bar -->
+  <div class="pf-progress" id="pf-progress" style="display:none">
+    <div class="pf-progress-track">
+      <div class="pf-progress-bar" id="pf-progress-bar" style="width:0%"></div>
+    </div>
+    <span class="pf-progress-text" id="pf-progress-text"></span>
+  </div>
+
+  <!-- Equity chart -->
+  <div class="pf-section">
+    <h3 class="pf-section-title">Portfolio Equity</h3>
+    <div class="pf-equity-card">
+      <div id="pf-equity-chart" style="height:360px"></div>
+    </div>
+  </div>
+
+  <!-- Heat chart -->
+  <div class="pf-section">
+    <h3 class="pf-section-title">Portfolio Heat <span class="pf-section-sub">% of equity at risk</span></h3>
+    <div class="pf-equity-card">
+      <div id="pf-heat-chart" style="height:140px"></div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="pf-section">
+    <h3 class="pf-section-title">Portfolio Summary</h3>
+    <div id="pf-stats" class="pf-stats-grid"></div>
+  </div>
+
+  <!-- Per-ticker breakdown -->
+  <div class="pf-section">
+    <h3 class="pf-section-title">Per-Ticker Breakdown</h3>
+    <div class="t-scroll">
+      <table class="ttbl">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Trades</th>
+            <th>Win Rate</th>
+            <th>Net P&amp;L</th>
+            <th>Net %</th>
+            <th>Max DD %</th>
+            <th>Profit Factor</th>
+          </tr>
+        </thead>
+        <tbody id="pf-ticker-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Config info -->
+  <div class="pf-section pf-config-bar" id="pf-config-info"></div>
+</div>
+
+<script src="{{ url_for('static', filename='js/portfolio.js') }}"></script>
+</body>
+</html>

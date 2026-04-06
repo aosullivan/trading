@@ -13,6 +13,11 @@ def backtest_report():
     return render_template("backtest.html")
 
 
+@bp.route("/portfolio")
+def portfolio():
+    return render_template("portfolio.html")
+
+
 @bp.route("/favicon.ico")
 def favicon():
     return send_from_directory(
