@@ -13,7 +13,7 @@ source venv/bin/activate
 TRIEDINGVIEW_USER_DATA_DIR=/tmp/tv_user python3 app.py
 ```
 
-The `TRIEDINGVIEW_USER_DATA_DIR` env var isolates user data (watchlist, cache) from the repo working tree. The app opens at http://localhost:5050.
+The `TRIEDINGVIEW_USER_DATA_DIR` env var isolates user data (watchlist, cache) from the repo working tree. The app opens at [http://localhost:5050](http://localhost:5050).
 
 ### Running tests
 
@@ -34,3 +34,4 @@ No linter is configured in this project. A compile-all check (`python3 -m compil
 - Internet access is required for chart data (yfinance calls Yahoo Finance). Tests mock yfinance, so they work offline.
 - There is no database to start; SQLite is only used by the optimizer CLI scripts and is built into Python.
 - `python3.12-venv` system package must be installed before creating the virtualenv (not available by default on Ubuntu 24.04 minimal).
+

@@ -218,6 +218,7 @@ body.bt-page{display:block}
 		.bt-equity-meta{display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end}
 		.bt-equity-key{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:var(--text-3);letter-spacing:.4px}
 		.bt-equity-dot{display:inline-block;width:16px;height:3px;border-radius:999px}
+		.bt-equity-dot-price{background:linear-gradient(90deg,#ff5274 0%,#ff5274 50%,#00e68a 50%,#00e68a 100%)}
 		.bt-equity-dot-strategy{background:#7f98ff}
 		.bt-equity-dot-hold{background:#ffd644}
 		.bt-equity-sub{font-size:10px;font-weight:600;color:var(--text-4);letter-spacing:.4px}

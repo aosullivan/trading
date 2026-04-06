@@ -1,4 +1,4 @@
-let chart,candleSeries,stUpFill,stDownFill,stUpMid,stDownMid,volumeSeries,btEquityChart,btEquitySeries,btHoldSeries;
+let chart,candleSeries,stUpFill,stDownFill,stUpMid,stDownMid,volumeSeries,btEquityChart,btPriceSeries,btEquitySeries,btHoldSeries;
 let stUpSeries=[],stDownSeries=[];
 let sma50Series,sma100Series,sma180Series,sma200Series,sma50wSeries,sma100wSeries,sma200wSeries,ema9Series,ema21Series;
 // Indicator overlay series — price overlays
@@ -226,8 +226,20 @@ function ensureBTChart(){
     layout:{background:{color:'#10131d'},textColor:'#6a7090',fontFamily:'Inter,sans-serif'},
     grid:{vertLines:{color:'#181c28'},horzLines:{color:'#181c28'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#5b7fff22',labelBackgroundColor:'#5b7fff'},horzLine:{color:'#5b7fff22',labelBackgroundColor:'#5b7fff'}},
-    rightPriceScale:{borderColor:'#1c1f30',scaleMargins:{top:.12,bottom:.08}},
+    leftPriceScale:{visible:true,borderColor:'#1c1f30',scaleMargins:{top:.12,bottom:.08},entireTextOnly:true},
+    rightPriceScale:{borderColor:'#1c1f30',scaleMargins:{top:.12,bottom:.08},entireTextOnly:true},
     timeScale:{borderColor:'#1c1f30',timeVisible:false,secondsVisible:false},
+  });
+  btPriceSeries=btEquityChart.addCandlestickSeries({
+    priceScaleId:'left',
+    upColor:'#00e68a',
+    downColor:'#ff5274',
+    borderUpColor:'#00e68a',
+    borderDownColor:'#ff5274',
+    wickUpColor:'#00e68a80',
+    wickDownColor:'#ff527480',
+    priceLineVisible:false,
+    lastValueVisible:false,
   });
   btEquitySeries=btEquityChart.addAreaSeries({
     topColor:'rgba(91,127,255,0.28)',

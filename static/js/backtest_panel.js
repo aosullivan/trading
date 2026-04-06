@@ -197,6 +197,9 @@ function buildBTTradeMarkers(trades){
 
 function renderEquityCurve(points,holdPoints,trades){
   if(!btEquityChart||!btEquitySeries) return;
+  if(btPriceSeries){
+    btPriceSeries.setData(_lastCandles&&_lastCandles.length?_lastCandles:[]);
+  }
   btEquitySeries.setData(points);
   btEquitySeries.setMarkers(buildBTTradeMarkers(trades));
   if(btHoldSeries)btHoldSeries.setData(holdPoints||[]);
