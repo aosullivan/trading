@@ -745,7 +745,6 @@ def build_weekly_confirmed_ribbon_direction(
     weekly_raw_state = (
         weekly_direction.reindex(daily_direction.index)
         .ffill()
-        .bfill()
         .fillna(0)
         .astype(int)
     )

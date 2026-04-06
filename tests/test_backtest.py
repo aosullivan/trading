@@ -368,6 +368,16 @@ class TestBuildWeeklyConfirmedRibbonDirection:
 
         assert confirmed.tolist() == [1, 1, 1, -1, -1, -1]
 
+    def test_does_not_backfill_future_weekly_signal_into_past(self):
+        idx = pd.date_range("2025-01-01", periods=6, freq="D")
+        daily = pd.Series([1, 1, 1, 1, 1, 1], index=idx)
+        # First weekly datapoint appears late; earlier daily bars must stay neutral.
+        weekly = pd.Series([1], index=[idx[4]])
+
+        confirmed = build_weekly_confirmed_ribbon_direction(daily, weekly)
+
+        assert confirmed.tolist() == [0, 0, 0, 0, 1, 1]
+
 
 class TestBacktestRibbonRegime:
     def test_enters_on_weekly_confirmed_bull_and_exits_on_weekly_confirmed_bear(self):
