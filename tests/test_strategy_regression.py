@@ -50,8 +50,22 @@ def _run_ribbon_regime(sample_df: pd.DataFrame) -> dict:
     return summary
 
 
+def _run_ribbon_regime_dd_gate(sample_df: pd.DataFrame) -> dict:
+    _, _, _, _, daily = compute_trend_ribbon(sample_df)
+    _, _, _, _, weekly = compute_trend_ribbon(sample_df, ema_period=21)
+    _trades, summary, _eq = backtest_ribbon_regime(
+        sample_df,
+        daily,
+        weekly,
+        max_dd_exit_gate=-0.35,
+        price_series=sample_df["Close"],
+    )
+    return summary
+
+
 _HANDLERS = {
     "ribbon_regime": _run_ribbon_regime,
+    "ribbon_regime_dd_gate": _run_ribbon_regime_dd_gate,
 }
 
 
