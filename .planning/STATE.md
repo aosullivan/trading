@@ -2,35 +2,35 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: verifying
-stopped_at: Phase 2 complete; ready for manual spot-check of corpus_trend
-last_updated: "2026-04-07T01:28:00.000Z"
-last_activity: 2026-04-07
+status: Defining requirements
+stopped_at: Phase 3 context gathered
+last_updated: "2026-04-07T21:30:09.314Z"
+last_activity: 2026-04-07 — Milestone v1.1 started
 progress:
-  total_phases: 2
+  total_phases: 5
   completed_phases: 2
   total_plans: 4
   completed_plans: 4
-  percent: 100
+  percent: 40
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-04)
+See: .planning/PROJECT.md (updated 2026-04-07)
 
-**Core value:** The strategy should be grounded in what the `audio/` transcripts actually say about trend following, not just manually invented indicator tweaks.
-**Current focus:** Phase 02 — implement-corpus-derived-strategy (complete)
+**Core value:** Strategy changes should stay grounded in the `audio/` transcripts' trend-following principles and only be promoted when they measurably improve the ratchet benchmark across the focus basket without introducing avoidable regressions.
+**Current focus:** Milestone v1.1 — Strategy Ratchet Optimization
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-04-04
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-04-07 — Milestone v1.1 started
 
-Progress: [██████████] 100%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
@@ -67,6 +67,9 @@ Recent decisions affecting current work:
 
 - Phase 1 should build a trend-following knowledge base from the `audio/` transcript files before any strategy implementation.
 - Phase 2 should derive and implement the strategy from that extracted knowledge.
+- Milestone v1.1 should evaluate strategy changes on the fixed basket `BTC-USD`, `ETH-USD`, `COIN`, `TSLA`, `AAPL`, `NVDA`, and `GOOG`.
+- Milestone v1.1 should ratchet improvements so future strategy changes do not become the new baseline if they worsen results.
+- Milestone v1.1 should investigate layered in/out position management and explain why current sizing knobs degrade performance.
 
 ### Pending Todos
 
@@ -76,9 +79,10 @@ Recent decisions affecting current work:
 ### Blockers/Concerns
 
 - Playwright browser tests are currently skipped until the local Chromium binary is installed with `playwright install`.
+- We do not yet have an agreed ratchet scorecard definition for balancing return, buy-and-hold comparison, and drawdown across the focus basket.
 
 ## Session Continuity
 
-Last session: 2026-04-04T18:39:11.024Z
-Stopped at: Phase 2 complete; ready for manual spot-check of corpus_trend
-Resume file: .planning/phases/02-implement-corpus-derived-strategy/02-02-SUMMARY.md
+Last session: 2026-04-07T21:30:09.301Z
+Stopped at: Phase 3 context gathered
+Resume file: .planning/phases/03-build-ratchet-benchmark-and-diagnostics/03-CONTEXT.md
