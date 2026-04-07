@@ -614,4 +614,22 @@ STRATEGIES = {
     "Parabolic SAR (0.01/0.01/0.1)": lambda df: compute_parabolic_sar(df)[1],
     "CCI Trend (30/80)": lambda df: compute_cci_trend(df)[1],
     "Regime Router": lambda df: compute_regime_router(df)[1],
+    "Polymarket Signal": lambda df: _polymarket_direction_for_df(df),
 }
+
+
+def _polymarket_direction_for_df(df):
+    """Compute Polymarket-based direction for a given OHLCV DataFrame.
+
+    Uses cached probability history if available, otherwise falls back
+    to live Polymarket data. Only applicable to BTC-USD.
+    """
+    from lib.polymarket import (
+        compute_polymarket_direction_series,
+        load_probability_history,
+    )
+    prob_history = load_probability_history()
+    return compute_polymarket_direction_series(
+        df,
+        probability_history_df=prob_history if not prob_history.empty else None,
+    )
