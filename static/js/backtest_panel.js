@@ -44,6 +44,12 @@ function onMMChange(){
   }
 }
 
+function updateRibbonStrategyHint(strategyKey){
+  const el=document.getElementById('bt-ribbon-hint');
+  if(!el)return;
+  el.hidden=strategyKey!=='ribbon';
+}
+
 function fmtCurrency(value){
   const n=Number(value||0);
   return `${n>=0?'+':'-'}$${Math.abs(n).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}`;
@@ -87,7 +93,7 @@ function getBTLaunchRanges(){
 
 function openBacktestTab(){
   const p=new URLSearchParams();
-  const ticker=document.getElementById('ticker')?.value?.toUpperCase()||'TSLA';
+  const ticker=document.getElementById('ticker')?.value?.toUpperCase()||'BTC-USD';
   const interval=document.getElementById('interval')?.value||'1d';
   const period=document.getElementById('period')?.value||'10';
   const mult=document.getElementById('multiplier')?.value||'2.5';
@@ -277,7 +283,7 @@ function renderStats(s){
     <div class="sc">
       <div class="sc-l">Sharpe Ratio</div>
       <div class="sc-v ${(s.sharpe_ratio||0)>=1?'vg':(s.sharpe_ratio||0)>=0?'':'vr'}">${s.sharpe_ratio==null?'N/A':s.sharpe_ratio.toFixed(2)}</div>
-      <div class="sc-sub">Annualized (√252)</div>
+      <div class="sc-sub">Annualized from bar spacing</div>
     </div>
     <div class="sc">
       <div class="sc-l">Sortino Ratio</div>
@@ -322,9 +328,11 @@ function _btSliderMinGap(){
   return n<=1?0:1/(n-1);
 }
 
-function initBTSlider(){
-  if(!_lastCandles||!_lastCandles.length)return;
-  _btSliderDates=_lastCandles.map(c=>{
+/** @param {Array<{time:number}>|null|undefined} candlesSource — full domain for standalone slider; defaults to _lastCandles (main chart). */
+function initBTSlider(candlesSource){
+  const src=candlesSource||_lastCandles;
+  if(!src||!src.length)return;
+  _btSliderDates=src.map(c=>{
     const d=new Date(c.time*1000);
     return d.toISOString().split('T')[0];
   });

@@ -196,8 +196,30 @@ def build_buy_hold_equity_curve(df, contributions=None):
     return equity_curve
 
 
-def _compute_risk_metrics(equity_curve, initial_capital):
-    """Derive Sharpe, Sortino, and return/max-drawdown from an equity curve."""
+def _infer_periods_per_year_from_equity_curve(equity_curve):
+    """Estimate observation frequency from timestamps for Sharpe/Sortino scaling."""
+    if len(equity_curve) < 2:
+        return None
+    times = [p.get("time") for p in equity_curve]
+    if any(t is None for t in times):
+        return None
+    span_sec = float(times[-1]) - float(times[0])
+    n_returns = len(equity_curve) - 1
+    if span_sec <= 0 or n_returns <= 0:
+        return None
+    span_years = span_sec / (365.25 * 86400.0)
+    if span_years <= 0:
+        return None
+    periods = n_returns / span_years
+    return periods if periods > 0 else None
+
+
+def _compute_risk_metrics(equity_curve, initial_capital, bars_per_year=None):
+    """Derive Sharpe, Sortino, and return/max-drawdown from an equity curve.
+
+    When ``bars_per_year`` is None, infer annualization from equity point timestamps
+    (calendar span). If timestamps are missing, fall back to 252 (daily trading).
+    """
     if len(equity_curve) < 2:
         return None, None, None
 
@@ -214,7 +236,12 @@ def _compute_risk_metrics(equity_curve, initial_capital):
     var_r = sum((r - mean_r) ** 2 for r in returns) / len(returns)
     std_r = var_r ** 0.5
 
-    annualize = 252 ** 0.5
+    if bars_per_year is not None and bars_per_year > 0:
+        annualize = bars_per_year ** 0.5
+    else:
+        inferred = _infer_periods_per_year_from_equity_curve(equity_curve)
+        annualize = inferred ** 0.5 if inferred is not None else 252 ** 0.5
+
     sharpe = round(annualize * mean_r / std_r, 2) if std_r > 0 else None
 
     downside = [r for r in returns if r < 0]
@@ -238,7 +265,9 @@ def _compute_risk_metrics(equity_curve, initial_capital):
     return sharpe, sortino, return_over_dd
 
 
-def compute_summary(trades, equity_curve, initial_capital=INITIAL_CAPITAL):
+def compute_summary(
+    trades, equity_curve, initial_capital=INITIAL_CAPITAL, bars_per_year=None
+):
     """Compute enhanced summary stats for a list of trades."""
     empty_summary = {
         "total_trades": 0,
@@ -294,7 +323,7 @@ def compute_summary(trades, equity_curve, initial_capital=INITIAL_CAPITAL):
             max_dd_pct = drawdown_pct
 
     sharpe, sortino, return_over_dd = _compute_risk_metrics(
-        equity_curve, initial_capital
+        equity_curve, initial_capital, bars_per_year=bars_per_year
     )
 
     return {
@@ -777,6 +806,7 @@ def build_weekly_confirmed_ribbon_direction(
     reentry_cooldown_bars: int = 0,
     reentry_cooldown_ratio: float = 0.0,
     weekly_nonbull_confirm_bars: int = 1,
+    asymmetric_exit: bool = False,
 ) -> pd.Series:
     """Build a cycle-level ribbon regime from daily flips and weekly confirmation.
 
@@ -784,6 +814,10 @@ def build_weekly_confirmed_ribbon_direction(
     daily bear flip once the raw weekly ribbon has been non-bull for enough bars.
     After each exit, re-entry can be locked out for either a fixed number of bars
     or a fraction of the just-completed bull regime's duration.
+
+    When *asymmetric_exit* is True, exits fire on a daily bear flip alone —
+    the weekly non-bull confirmation is skipped. Entries still require weekly
+    agreement, giving fast crash protection with filtered entries.
     """
     if daily_direction.empty:
         return pd.Series(dtype=int, index=daily_direction.index)
@@ -825,11 +859,13 @@ def build_weekly_confirmed_ribbon_direction(
             weekly_nonbull_streak + 1 if weekly_raw_value != 1 else 0
         )
 
-        if (
+        exit_triggered = (
             state == 1
             and daily_value == -1
-            and weekly_nonbull_streak >= nonbull_confirm_bars
-        ):
+            and (asymmetric_exit or weekly_nonbull_streak >= nonbull_confirm_bars)
+        )
+
+        if exit_triggered:
             state = -1
             ratio_cooldown = int(round(bull_duration_bars * cooldown_ratio))
             cooldown_remaining = max(cooldown_floor, ratio_cooldown)
@@ -854,6 +890,7 @@ def backtest_ribbon_regime(
     reentry_cooldown_bars=0,
     reentry_cooldown_ratio=0.0,
     weekly_nonbull_confirm_bars=1,
+    asymmetric_exit=False,
 ):
     """Backtest a weekly-confirmed bull/bear ribbon regime: long in bull, cash in bear."""
     confirmed_direction = build_weekly_confirmed_ribbon_direction(
@@ -863,6 +900,7 @@ def backtest_ribbon_regime(
         reentry_cooldown_bars=reentry_cooldown_bars,
         reentry_cooldown_ratio=reentry_cooldown_ratio,
         weekly_nonbull_confirm_bars=weekly_nonbull_confirm_bars,
+        asymmetric_exit=asymmetric_exit,
     )
     return backtest_direction(
         df,

@@ -25,6 +25,7 @@ function queueTickerNameRefresh(ticker,url,token,attempt=1){
 async function loadChart(){
   const ld=document.getElementById('loading');
   ld.classList.add('on');
+  if(typeof setBacktestLoading==='function')setBacktestLoading(true);
   const ticker=document.getElementById('ticker').value.toUpperCase();
   const nameRefreshToken=++tickerNameRefreshToken;
   const interval=document.getElementById('interval').value;
@@ -116,6 +117,7 @@ async function loadChart(){
     updateMarkers();
   }catch(e){alert('Error: '+e.message)}
   finally{
+    if(typeof setBacktestLoading==='function')setBacktestLoading(false);
     ld.classList.remove('on');
     pushURLParams();
     if(typeof queueWatchlistTrendPreload==='function')queueWatchlistTrendPreload();
@@ -138,4 +140,5 @@ function switchStrategy(name){
   );
   renderStats(s.summary);
   renderTrades(s.trades);
+  if(typeof updateRibbonStrategyHint==='function')updateRibbonStrategyHint(name);
 }

@@ -13,10 +13,12 @@ from lib.technical_indicators import (
     compute_ema_crossover,
     compute_macd_crossover,
     compute_donchian_breakout,
+    compute_red_day_dip,
     compute_bollinger_breakout,
     compute_keltner_breakout,
     compute_parabolic_sar,
     compute_cci_trend,
+    compute_tone,
     compute_trend_ribbon,
 )
 
@@ -148,6 +150,45 @@ class TestDonchianBreakout:
         assert (upper[valid] >= lower[valid]).all()
 
 
+class TestRedDayDip:
+    def test_first_bar_flat(self):
+        idx = pd.bdate_range("2024-01-01", periods=4)
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 100.0, 100.0],
+                "High": [101.0, 101.0, 101.0, 101.0],
+                "Low": [99.0, 99.0, 99.0, 99.0],
+                "Close": [100.0, 94.0, 93.0, 100.0],
+                "Volume": [1e6] * 4,
+            },
+            index=idx,
+        )
+        direction = compute_red_day_dip(df)
+        assert direction.iloc[0] == -1
+        assert direction.iloc[1] == 1
+        assert direction.iloc[2] == -1
+        assert direction.iloc[3] == -1
+
+    def test_exactly_negative_five_percent_is_long(self):
+        idx = pd.bdate_range("2024-01-01", periods=2)
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 95.0],
+                "High": [101.0, 96.0],
+                "Low": [99.0, 94.0],
+                "Close": [100.0, 95.0],
+                "Volume": [1e6, 1e6],
+            },
+            index=idx,
+        )
+        direction = compute_red_day_dip(df)
+        assert direction.iloc[1] == 1
+
+    def test_direction_values_subset(self, sample_df):
+        direction = compute_red_day_dip(sample_df)
+        assert len(direction) == len(sample_df)
+        assert set(direction.unique()).issubset({-1, 1})
+
 
 class TestBollingerBreakout:
     def test_returns_correct_shape(self, sample_df):
@@ -185,6 +226,19 @@ class TestParabolicSAR:
         _, direction = compute_parabolic_sar(sample_df)
         unique = set(direction.iloc[1:].unique())
         assert unique.issubset({-1, 1})
+
+
+class TestTone:
+    def test_returns_three_series(self, sample_df):
+        sma, rsi, direction = compute_tone(sample_df)
+        assert len(sma) == len(sample_df)
+        assert len(rsi) == len(sample_df)
+        assert len(direction) == len(sample_df)
+
+    def test_direction_values(self, sample_df):
+        _, _, direction = compute_tone(sample_df)
+        unique = set(direction.unique())
+        assert unique.issubset({-1, 0, 1})
 
 
 class TestCCITrend:

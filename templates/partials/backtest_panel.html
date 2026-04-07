@@ -25,10 +25,21 @@
         <option value="keltner">Keltner Breakout (30/10/1.5)</option>
         <option value="parabolic_sar">Parabolic SAR (0.01/0.01/0.1)</option>
         <option value="cci_trend">CCI Trend (30/80)</option>
+        <option value="red_day_dip">Red day dip (-5%)</option>
         <option value="regime_router">Regime Router</option>
+        <option value="tone">Tone</option>
       </select>
-      <button class="bt-close" onclick="closeBacktestView()">&times;</button>
+      <div class="bt-head-actions">
+        <div class="bt-head-loading" id="bt-head-loading" aria-live="polite" aria-hidden="true">
+          <div class="spin bt-head-spin"></div>
+          <span class="bt-head-loading-txt">Updating…</span>
+        </div>
+        <button class="bt-close" onclick="closeBacktestView()">&times;</button>
+      </div>
     </div>
+    <p class="bt-ribbon-hint" id="bt-ribbon-hint" hidden>
+      Trend-Driven is <strong>not</strong> the daily ribbon alone: it only goes long when <strong>daily and weekly</strong> ribbon regimes both agree, then uses cooldowns after exits. The main chart colors are daily-only, so you will often see green price action while this curve stays flat in cash.
+    </p>
     <div class="bt-mm-bar" id="bt-mm-bar">
       <label class="bt-mm-label">Sizing</label>
       <select id="mm-sizing" class="inp inp-mm" onchange="onMMChange()">
@@ -77,6 +88,12 @@
       <span class="bt-range-label" id="bt-range-end"></span>
     </div>
 	    <div class="bt-body">
+	      <div class="bt-loading" id="bt-loading" aria-live="polite" aria-busy="false">
+	        <div class="bt-loading-card">
+	          <div class="spin bt-loading-spin"></div>
+	          <span class="bt-loading-label">Loading backtest…</span>
+	        </div>
+	      </div>
 	        <div class="bt-metrics">
 	          <div class="bt-equity-card">
 		          <div class="bt-equity-head">

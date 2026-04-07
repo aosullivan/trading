@@ -91,5 +91,6 @@ def compute_confirmed_ribbon_direction(
         reentry_cooldown_bars=regime_kw["reentry_cooldown_bars"],
         reentry_cooldown_ratio=regime_kw["reentry_cooldown_ratio"],
         weekly_nonbull_confirm_bars=regime_kw["weekly_nonbull_confirm_bars"],
+        asymmetric_exit=regime_kw.get("asymmetric_exit", False),
     )
     return confirmed

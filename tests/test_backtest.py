@@ -6,6 +6,7 @@ import pytest
 
 from lib.backtesting import (
     MoneyManagementConfig,
+    _compute_risk_metrics,
     backtest_direction,
     backtest_managed,
     backtest_ribbon_accumulation,
@@ -16,6 +17,7 @@ from lib.backtesting import (
     build_equity_curve,
     compute_summary,
 )
+from lib.portfolio_backtesting import backtest_portfolio
 from lib.technical_indicators import (
     compute_supertrend,
     compute_ema_crossover,
@@ -508,6 +510,59 @@ class TestComputeSummary:
         assert summary["total_pnl"] == 200
         assert summary["avg_pnl"] == 120
         assert summary["best_trade"] == 120
+
+    def test_sharpe_annualization_from_equity_timestamps(self):
+        """Wider bar spacing should reduce sqrt(periods_per_year), not daily 252."""
+        base = 1_000_000_000  # arbitrary epoch anchor
+        day = 86400
+        values = [100.0, 101.0, 102.0]
+        daily_eq = [
+            {"time": base + i * day, "value": values[i]} for i in range(3)
+        ]
+        weekly_eq = [
+            {"time": base + i * 7 * day, "value": values[i]} for i in range(3)
+        ]
+        sh_daily, _, _ = _compute_risk_metrics(daily_eq, 100.0)
+        sh_weekly, _, _ = _compute_risk_metrics(weekly_eq, 100.0)
+        assert sh_daily is not None and sh_weekly is not None
+        assert sh_daily > sh_weekly * 2.0
+
+    def test_sharpe_falls_back_to_daily_when_no_timestamps(self):
+        eq = [{"value": 100.0}, {"value": 101.0}, {"value": 102.0}]
+        sh, _, _ = _compute_risk_metrics(eq, 100.0)
+        sh_explicit, _, _ = _compute_risk_metrics(eq, 100.0, bars_per_year=252)
+        assert sh == sh_explicit
+
+
+class TestPortfolioBacktestDirectionAlignment:
+    def test_direction_reindexed_to_visible_df_not_warmup_positions(self):
+        """Full-series direction must align to visible OHLC rows (Codex P1)."""
+        idx_full = pd.date_range("2024-01-01", periods=5, freq="D")
+        idx_vis = idx_full[2:]
+        df_vis = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 100.0],
+                "High": [101.0, 101.0, 101.0],
+                "Low": [99.0, 99.0, 99.0],
+                "Close": [100.0, 100.0, 100.0],
+                "Volume": [1, 1, 1],
+            },
+            index=idx_vis,
+        )
+        direction_full = pd.Series([1, 0, 0, 0, 0], index=idx_full)
+        cfg = MoneyManagementConfig(
+            sizing_method="fixed_fraction",
+            risk_fraction=0.5,
+            stop_type="pct",
+            stop_pct=0.5,
+        )
+        result = backtest_portfolio(
+            {"T": df_vis},
+            {"T": direction_full},
+            config=cfg,
+            heat_limit=1.0,
+        )
+        assert result.per_ticker["T"]["summary"]["total_trades"] == 0
 
 
 class TestBacktestManaged:

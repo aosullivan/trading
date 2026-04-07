@@ -11,7 +11,7 @@ TREND_RIBBON_SIGNAL_PROFILE = {
     "expand_threshold": 0.15,
     "bull_expand_threshold": 0.22,
     "bear_expand_threshold": 0.15,
-    "bull_confirm_bars": 3,
+    "bull_confirm_bars": 2,
     "bear_confirm_bars": 1,
 }
 
@@ -25,14 +25,15 @@ TREND_RIBBON_WEEKLY_SIGNAL_PROFILE = {
     "expand_threshold": 0.15,
     "bull_expand_threshold": 0.22,
     "bear_expand_threshold": 0.15,
-    "bull_confirm_bars": 2,
+    "bull_confirm_bars": 1,
     "bear_confirm_bars": 1,
 }
 
 TREND_RIBBON_REGIME_PROFILE = {
     "reentry_cooldown_bars": 0,
-    "reentry_cooldown_ratio": 0.20,
+    "reentry_cooldown_ratio": 0.05,
     "weekly_nonbull_confirm_bars": 1,
+    "asymmetric_exit": True,
 }
 
 TREND_RIBBON_BACKTEST_PROFILE = {
@@ -80,11 +81,7 @@ TREND_RIBBON_V2_BACKTEST_PROFILE = {
     "commission_per_trade": 0.0,
 }
 
-TREND_RIBBON_TICKER_OVERRIDES: dict[str, dict[str, dict]] = {
-    "BTC-USD": {
-        "regime": {"reentry_cooldown_ratio": 0.60},
-    },
-}
+TREND_RIBBON_TICKER_OVERRIDES: dict[str, dict[str, dict]] = {}
 
 
 def _apply_overrides(profile: dict, ticker: str | None, section: str) -> dict:

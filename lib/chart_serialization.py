@@ -21,8 +21,10 @@ from lib.technical_indicators import (
     compute_keltner_breakout,
     compute_macd_crossover,
     compute_parabolic_sar,
+    compute_red_day_dip,
     compute_regime_router,
     compute_sma_crossover,
+    compute_tone,
     compute_supertrend,
     compute_trend_ribbon,
     compute_yearly_ma_trend,
@@ -92,7 +94,9 @@ def compute_all_trend_flips(
         ("keltner", lambda d: compute_keltner_breakout(d)[3]),
         ("parabolic_sar", lambda d: compute_parabolic_sar(d)[1]),
         ("cci_trend", lambda d: compute_cci_trend(d)[1]),
+        ("red_day_dip", lambda d: compute_red_day_dip(d)),
         ("regime_router", lambda d: compute_regime_router(d)[1]),
+        ("tone", lambda d: compute_tone(d)[2]),
         ("ribbon", lambda d: compute_trend_ribbon(d, **ribbon_kwargs)[4]),
     ]
     for key, compute_dir in computations:

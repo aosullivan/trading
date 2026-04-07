@@ -1,8 +1,8 @@
   <!-- TOOLBAR -->
   <div class="toolbar">
     <div class="tk-head">
-      <input type="text" id="ticker" value="TSLA" class="inp" style="width:68px;font-weight:700;font-size:13px;text-transform:uppercase;display:none">
-      <span class="tk-sym" id="tk-sym">TSLA</span>
+      <input type="text" id="ticker" value="BTC-USD" class="inp" style="width:88px;font-weight:700;font-size:13px;text-transform:uppercase;display:none">
+      <span class="tk-sym" id="tk-sym">BTC-USD</span>
       <button type="button" class="tk-action" id="financials-btn" onclick="openFinancials()">Financials</button>
       <span class="tk-price" id="tk-price">--</span>
       <span class="tk-chg" id="tk-chg">--</span>
@@ -25,5 +25,5 @@
       </button>
       <div id="trend-flip-aggregate-popover" class="trend-flip-aggregate-popover" onclick="event.stopPropagation()"></div>
     </div>
-    <div class="ld" id="loading"><div class="spin"></div>Loading...</div>
+    <div class="ld" id="loading"><div class="spin"></div><span id="loading-label">Loading chart…</span></div>
   </div>

@@ -46,6 +46,8 @@ from lib.technical_indicators import (
     compute_cci_trend,
     compute_trend_ribbon,
     compute_regime_router,
+    compute_red_day_dip,
+    compute_tone,
 )
 from lib.backtesting import (
     MoneyManagementConfig,
@@ -309,6 +311,8 @@ def _get_indicator_bundle(
     psar_line, psar_direction = compute_parabolic_sar(df)
     cci_val, cci_direction = compute_cci_trend(df)
     regime, rr_direction = compute_regime_router(df)
+    _, _, tone_direction = compute_tone(df)
+    red_day_dip_direction = compute_red_day_dip(df)
     ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(
         df,
         **_trend_ribbon_kwargs(ticker),
@@ -330,6 +334,8 @@ def _get_indicator_bundle(
         "parabolic_sar": psar_direction,
         "cci_trend": cci_direction,
         "regime_router": rr_direction,
+        "tone": tone_direction,
+        "red_day_dip": red_day_dip_direction,
         "ribbon": ribbon_dir,
     }
     bundle = {
@@ -365,6 +371,8 @@ def _get_indicator_bundle(
         "cci_direction": cci_direction,
         "regime": regime,
         "rr_direction": rr_direction,
+        "tone_direction": tone_direction,
+        "red_day_dip_direction": red_day_dip_direction,
         "ribbon_center": ribbon_center,
         "ribbon_upper": ribbon_upper,
         "ribbon_lower": ribbon_lower,
@@ -423,6 +431,23 @@ def _resolve_cached_ticker_name(ticker: str) -> str:
     return ""
 
 
+def _ohlcv_df_to_candles(df_view: pd.DataFrame) -> list[dict]:
+    """Serialize visible OHLCV rows for lightweight-charts (no indicators)."""
+    candles = []
+    for i in range(len(df_view)):
+        ts = int(df_view.index[i].timestamp())
+        candles.append(
+            {
+                "time": ts,
+                "open": round(float(df_view["Open"].iloc[i]), 2),
+                "high": round(float(df_view["High"].iloc[i]), 2),
+                "low": round(float(df_view["Low"].iloc[i]), 2),
+                "close": round(float(df_view["Close"].iloc[i]), 2),
+            }
+        )
+    return candles
+
+
 # ---------------------------------------------------------------------------
 # Chart API route
 # ---------------------------------------------------------------------------
@@ -440,7 +465,7 @@ def chart_data():
         timings_ms[name] = _elapsed_ms(phase_started_at)
         phase_started_at = time.perf_counter()
 
-    ticker = normalize_ticker(request.args.get("ticker", "TSLA"))
+    ticker = normalize_ticker(request.args.get("ticker", "BTC-USD"))
     data_ticker = normalize_ticker(resolve_treasury_price_proxy_ticker(ticker))
     interval = request.args.get("interval", "1d")
     source_interval = _source_interval(interval)
@@ -452,26 +477,41 @@ def chart_data():
         request.args.get(k, "")
         for k in ("mm_sizing", "mm_stop", "mm_stop_val", "mm_risk_cap", "mm_compound")
     )
+    candles_only = request.args.get("candles_only", "").lower() in ("1", "true", "yes")
+    candles_cache_key = f"chart:candles:{ticker}:{interval}:{start}:{end or 'latest'}"
     chart_cache_key = (
         f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
         f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}"
     )
-    cached_chart = _cache_get(chart_cache_key)
-    if cached_chart is not None:
-        if not cached_chart.get("ticker_name"):
-            ticker_name = _resolve_cached_ticker_name(ticker)
-            if ticker_name:
-                cached_chart = {**cached_chart, "ticker_name": ticker_name}
-                _cache_set(chart_cache_key, cached_chart, ttl=_CHART_CACHE_TTL)
-        current_app.logger.info(
-            "chart_data cache_hit ticker=%s interval=%s range=%s..%s total_ms=%s",
-            ticker,
-            interval,
-            start,
-            end or "latest",
-            _elapsed_ms(request_started_at),
-        )
-        return jsonify(cached_chart)
+    if candles_only:
+        cached_candles = _cache_get(candles_cache_key)
+        if cached_candles is not None:
+            current_app.logger.info(
+                "chart_data candles_only_cache_hit ticker=%s interval=%s range=%s..%s total_ms=%s",
+                ticker,
+                interval,
+                start,
+                end or "latest",
+                _elapsed_ms(request_started_at),
+            )
+            return jsonify(cached_candles)
+    else:
+        cached_chart = _cache_get(chart_cache_key)
+        if cached_chart is not None:
+            if not cached_chart.get("ticker_name"):
+                ticker_name = _resolve_cached_ticker_name(ticker)
+                if ticker_name:
+                    cached_chart = {**cached_chart, "ticker_name": ticker_name}
+                    _cache_set(chart_cache_key, cached_chart, ttl=_CHART_CACHE_TTL)
+            current_app.logger.info(
+                "chart_data cache_hit ticker=%s interval=%s range=%s..%s total_ms=%s",
+                ticker,
+                interval,
+                start,
+                end or "latest",
+                _elapsed_ms(request_started_at),
+            )
+            return jsonify(cached_chart)
 
     # Fetch full name for display
     ticker_name = _resolve_cached_ticker_name(ticker)
@@ -539,6 +579,22 @@ def chart_data():
         )
         return jsonify({"error": f"No data for {ticker} in selected range"}), 400
     mark_phase("frame_ms")
+
+    if candles_only:
+        candles = _ohlcv_df_to_candles(df_view)
+        payload = {"candles": candles, "ticker_name": ticker_name}
+        _cache_set(candles_cache_key, payload, ttl=_CHART_CACHE_TTL)
+        current_app.logger.info(
+            "chart_data candles_only ticker=%s interval=%s range=%s..%s bars=%s fetch_ms=%s total_ms=%s",
+            ticker,
+            interval,
+            start,
+            end or "latest",
+            len(candles),
+            timings_ms.get("fetch_ms", 0),
+            _elapsed_ms(request_started_at),
+        )
+        return jsonify(payload)
 
     # --- Compute all indicators ---
     indicator_bundle, indicator_bundle_hit = _get_indicator_bundle(
@@ -638,6 +694,16 @@ def chart_data():
         df_view, rr_direction, df.index, df_view.index
     )
 
+    tone_direction = indicator_bundle["tone_direction"]
+    tone_trades, tone_summary, tone_equity_curve = _run_direction_backtest(
+        df_view, tone_direction, df.index, df_view.index
+    )
+
+    red_day_dip_direction = indicator_bundle["red_day_dip_direction"]
+    red_day_dip_trades, red_day_dip_summary, red_day_dip_equity_curve = _run_direction_backtest(
+        df_view, red_day_dip_direction, df.index, df_view.index
+    )
+
     ribbon_center = indicator_bundle["ribbon_center"]
     ribbon_upper = indicator_bundle["ribbon_upper"]
     ribbon_lower = indicator_bundle["ribbon_lower"]
@@ -673,18 +739,7 @@ def chart_data():
     mark_phase("daily_flips_ms")
 
     # --- Candles ---
-    candles = []
-    for i in range(len(df_view)):
-        ts = int(df_view.index[i].timestamp())
-        candles.append(
-            {
-                "time": ts,
-                "open": round(float(df_view["Open"].iloc[i]), 2),
-                "high": round(float(df_view["High"].iloc[i]), 2),
-                "low": round(float(df_view["Low"].iloc[i]), 2),
-                "close": round(float(df_view["Close"].iloc[i]), 2),
-            }
-        )
+    candles = _ohlcv_df_to_candles(df_view)
 
     # --- Supertrend lines ---
     st_up = []
@@ -807,6 +862,9 @@ def chart_data():
                     weekly_nonbull_confirm_bars=ribbon_regime_kwargs[
                         "weekly_nonbull_confirm_bars"
                     ],
+                    asymmetric_exit=ribbon_regime_kwargs.get(
+                        "asymmetric_exit", False
+                    ),
                 )
                 (
                     ribbon_trades,
@@ -820,7 +878,11 @@ def chart_data():
                 )
                 ribbon_hold_equity_curve = buy_hold_equity_curve
     except Exception:
-        pass
+        current_app.logger.exception(
+            "chart_data weekly_ms failed ticker=%s interval=%s (ribbon falls back to daily-only)",
+            ticker,
+            interval,
+        )
     mark_phase("weekly_ms")
 
     # --- Support / Resistance levels ---
@@ -966,6 +1028,12 @@ def chart_data():
             "parabolic_sar": {"trades": psar_trades, "summary": psar_summary, "equity_curve": psar_equity_curve},
             "cci_trend": {"trades": cci_trades, "summary": cci_summary, "equity_curve": cci_equity_curve},
             "regime_router": {"trades": rr_trades, "summary": rr_summary, "equity_curve": rr_equity_curve},
+            "tone": {"trades": tone_trades, "summary": tone_summary, "equity_curve": tone_equity_curve},
+            "red_day_dip": {
+                "trades": red_day_dip_trades,
+                "summary": red_day_dip_summary,
+                "equity_curve": red_day_dip_equity_curve,
+            },
         },
         "ema9": ema9_data,
         "ema21": ema21_data,

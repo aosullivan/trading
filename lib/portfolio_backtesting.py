@@ -124,6 +124,13 @@ def backtest_portfolio(
         )
 
     tickers = sorted(ticker_data.keys())
+    # Align each direction series to that ticker's OHLC index (e.g. visible window
+    # vs full warmup+visible); positional iloc[idx] would otherwise read the wrong bar.
+    aligned_directions: dict[str, pd.Series] = {}
+    for t in tickers:
+        aligned_directions[t] = ticker_directions[t].reindex(ticker_data[t].index)
+    ticker_directions = aligned_directions
+
     union_index = _build_union_index(ticker_data)
     if union_index.empty:
         empty_summary = compute_summary([], [], initial_capital=config.initial_capital)

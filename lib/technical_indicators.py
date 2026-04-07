@@ -10,6 +10,7 @@ MACD_FAST_PERIOD = 16
 MACD_SLOW_PERIOD = 32
 MACD_SIGNAL_PERIOD = 9
 DONCHIAN_PERIOD = 10
+RED_DAY_DIP_THRESHOLD = -0.05  # close-to-close, inclusive (≤ -5%)
 BOLLINGER_PERIOD = 30
 BOLLINGER_STD_DEV = 1.5
 KELTNER_EMA_PERIOD = 30
@@ -41,6 +42,11 @@ EMA_TREND_DECAY_DAYS = 105  # ~5 months of trading days
 # Long only when normalized signal exceeds this (0 = paper spec). Used by tests/CI benchmarks.
 EMA_TREND_LONG_THRESHOLD = 0.0
 YEARLY_MA_PERIOD = 252
+# Tone: TD Sequential–style setup vs close[4]; confluence filters (not a commercial MRI clone).
+TONE_TD_LOOKBACK = 4
+TONE_TD_SETUP = 9
+TONE_MA_PERIOD = 128
+TONE_RSI_PERIOD = 14
 
 
 def _compute_wilder_atr(high, low, close, period):
@@ -234,6 +240,22 @@ def compute_donchian_breakout(df, period=DONCHIAN_PERIOD):
     return upper, lower, direction
 
 
+def compute_red_day_dip(df, threshold=RED_DAY_DIP_THRESHOLD):
+    """Long bias on bars whose close fell ≥|threshold| vs prior close; flat otherwise.
+
+    Fills next-bar open via backtest_direction. Consecutive red days stay long until
+    a bar that is not a red day.
+    """
+    close = df["Close"]
+    ret = close.pct_change()
+    direction = pd.Series(-1, index=df.index, dtype=int)
+    for i in range(len(df)):
+        r = ret.iloc[i]
+        if pd.isna(r):
+            direction.iloc[i] = -1
+        else:
+            direction.iloc[i] = 1 if r <= threshold else -1
+    return direction
 
 
 def compute_bollinger_breakout(
@@ -343,6 +365,132 @@ def compute_parabolic_sar(
         direction.iloc[i] = 1 if bull else -1
 
     return sar, direction
+
+
+def _wilder_rsi(close: pd.Series, period: int = TONE_RSI_PERIOD) -> pd.Series:
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+    avg_g = gain.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+    avg_l = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
+    rs = avg_g / avg_l.replace(0, np.nan)
+    return 100.0 - (100.0 / (1.0 + rs))
+
+
+def _tone_is_doji(open_: float, high: float, low: float, close: float, body_frac: float = 0.1) -> bool:
+    rng = high - low
+    if rng <= 0:
+        return False
+    return abs(close - open_) / rng < body_frac
+
+
+def _tone_is_hammer(open_: float, high: float, low: float, close: float) -> bool:
+    body = abs(close - open_)
+    rng = high - low
+    if rng <= 0:
+        return False
+    upper = high - max(open_, close)
+    lower = min(open_, close) - low
+    if body < 1e-12:
+        return lower >= 0.5 * rng and upper <= 0.15 * rng
+    return lower >= 2.0 * body and upper <= body * 1.2
+
+
+def _tone_is_shooting_star(open_: float, high: float, low: float, close: float) -> bool:
+    body = abs(close - open_)
+    rng = high - low
+    if rng <= 0:
+        return False
+    upper = high - max(open_, close)
+    lower = min(open_, close) - low
+    b = max(body, 1e-12)
+    return upper >= 2.0 * b and lower <= b * 1.2
+
+
+def compute_tone(
+    df,
+    td_lookback: int = TONE_TD_LOOKBACK,
+    td_setup: int = TONE_TD_SETUP,
+    ma_period: int = TONE_MA_PERIOD,
+    rsi_period: int = TONE_RSI_PERIOD,
+):
+    """Tone-style confluence: TD setup vs close[td_lookback], RSI, MACD histogram slope, candlesticks, 128 SMA.
+
+    Approximates themes from sequential / exhaustion counting and popular oscillator confluence.
+    This is not a replication of any proprietary MRI implementation.
+    """
+    close = df["Close"]
+    open_ = df["Open"]
+    high = df["High"]
+    low = df["Low"]
+
+    _macd, _sig, macd_hist, _ = compute_macd_crossover(df)
+    rsi = _wilder_rsi(close, rsi_period)
+    sma_long = close.rolling(window=ma_period).mean()
+
+    direction = pd.Series(0, index=df.index, dtype=int)
+    buy_streak = 0
+    sell_streak = 0
+    d = 0
+
+    start = td_lookback
+    for i in range(start, len(df)):
+        c = float(close.iloc[i])
+        c_ref = float(close.iloc[i - td_lookback])
+
+        if c < c_ref:
+            buy_streak += 1
+        else:
+            buy_streak = 0
+        if c > c_ref:
+            sell_streak += 1
+        else:
+            sell_streak = 0
+
+        o = float(open_.iloc[i])
+        h = float(high.iloc[i])
+        l = float(low.iloc[i])
+        cl = c
+
+        r = float(rsi.iloc[i]) if not pd.isna(rsi.iloc[i]) else 50.0
+        ma = sma_long.iloc[i]
+        below_ma = not pd.isna(ma) and cl < float(ma)
+        above_ma = not pd.isna(ma) and cl > float(ma)
+
+        mh = macd_hist.iloc[i]
+        mh1 = macd_hist.iloc[i - 1] if i >= 1 else np.nan
+        mh2 = macd_hist.iloc[i - 2] if i >= 2 else np.nan
+        macd_hist_rising = (
+            not pd.isna(mh)
+            and not pd.isna(mh1)
+            and not pd.isna(mh2)
+            and mh > mh1
+            and mh1 > mh2
+        )
+
+        doji = _tone_is_doji(o, h, l, cl)
+        hammer = _tone_is_hammer(o, h, l, cl)
+        star = _tone_is_shooting_star(o, h, l, cl)
+
+        if buy_streak == td_setup:
+            long_ok = r < 55.0 or doji or hammer or macd_hist_rising
+            if below_ma:
+                long_ok = long_ok and (r < 45.0 or hammer or macd_hist_rising)
+            if long_ok:
+                d = 1
+            buy_streak = 0
+
+        if sell_streak == td_setup:
+            short_ok = r > 45.0 or star
+            if above_ma:
+                short_ok = short_ok and (r > 58.0 or star)
+            if short_ok:
+                d = -1
+            sell_streak = 0
+
+        direction.iloc[i] = d
+
+    return sma_long, rsi, direction
 
 
 def compute_cci_trend(df, period=CCI_PERIOD, threshold=CCI_THRESHOLD):
@@ -614,4 +762,6 @@ STRATEGIES = {
     "Parabolic SAR (0.01/0.01/0.1)": lambda df: compute_parabolic_sar(df)[1],
     "CCI Trend (30/80)": lambda df: compute_cci_trend(df)[1],
     "Regime Router": lambda df: compute_regime_router(df)[1],
+    "Tone (TD9 + confluence)": lambda df: compute_tone(df)[2],
+    "Red day dip (-5%)": lambda df: compute_red_day_dip(df),
 }

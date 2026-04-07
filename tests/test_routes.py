@@ -333,6 +333,35 @@ class TestChartAPI:
         assert len(data["buy_hold_equity_curve"]) == n
 
     @patch("lib.cache.yf.download")
+    def test_chart_candles_only_minimal_payload(self, mock_download, client):
+        n = 100
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(42)
+        close = 100 + np.cumsum(np.random.randn(n))
+        df = pd.DataFrame(
+            {
+                "Open": close + 0.5,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get(
+            "/api/chart?ticker=TSLA&start=2023-01-01&candles_only=1&period=10&multiplier=3"
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "candles" in data
+        assert "ticker_name" in data
+        assert len(data["candles"]) == n
+        assert "strategies" not in data
+        assert "supertrend_up" not in data
+
+    @patch("lib.cache.yf.download")
     def test_supertrend_payload_includes_whitespace_breaks(self, mock_download, client):
         close = [10, 11, 12, 13, 14, 15, 5, 4, 3, 2, 6, 7, 8]
         dates = pd.bdate_range("2024-01-01", periods=len(close))
@@ -393,7 +422,7 @@ class TestChartAPI:
             "ema_trend", "yearly_ma",
             "supertrend", "ema_crossover", "macd",
             "donchian", "bb_breakout",
-            "keltner", "parabolic_sar", "cci_trend", "regime_router",
+            "keltner", "parabolic_sar", "cci_trend", "red_day_dip", "regime_router", "tone",
         ]
         for key in expected_keys:
             assert key in strategies, f"Missing strategy: {key}"

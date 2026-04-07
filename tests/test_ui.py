@@ -226,7 +226,7 @@ class TestBacktestPanel:
         try:
             assert "/backtest" in popup.url
             expect(popup.locator("#bt-panel-wrap")).to_be_visible()
-            expect(popup.locator("#bt-symbol-label")).to_contain_text("TSLA", timeout=20000)
+            expect(popup.locator("#bt-symbol-label")).to_contain_text("BTC-USD", timeout=20000)
         finally:
             popup.close()
 
@@ -235,7 +235,7 @@ class TestBacktestPanel:
         try:
             select = popup.locator("#strategy-select")
             options = select.locator("option")
-            assert options.count() == 16
+            assert options.count() == 18
             assert options.first.get_attribute("value") == "ribbon"
             assert options.first.text_content().strip() == "Trend-Driven"
             assert options.nth(1).get_attribute("value") == "cb50"
@@ -282,7 +282,7 @@ class TestToolbarControls:
         btn.click()
         modal = browser_page.locator("#financials-modal")
         expect(modal).to_have_class(re.compile(r"\bopen\b"))
-        expect(browser_page.locator("#financials-title")).to_contain_text("TSLA")
+        expect(browser_page.locator("#financials-title")).to_contain_text("BTC-USD")
         browser_page.locator(".fin-close").click()
         expect(modal).not_to_have_class(re.compile(r"\bopen\b"))
 

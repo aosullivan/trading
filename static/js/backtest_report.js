@@ -1,7 +1,7 @@
 let activeBacktestStrat=BT_DEFAULT_STRATEGY;
 
 const btReportState={
-  ticker:'TSLA',
+  ticker:'BTC-USD',
   interval:'1d',
   period:'10',
   multiplier:'2.5',
@@ -36,7 +36,7 @@ function updateBacktestReportTitle(){
 
 function readBacktestReportParams(){
   const p=new URLSearchParams(window.location.search);
-  btReportState.ticker=(p.get('ticker')||'TSLA').toUpperCase();
+  btReportState.ticker=(p.get('ticker')||'BTC-USD').toUpperCase();
   btReportState.interval=p.get('interval')||'1d';
   btReportState.period=p.get('period')||'10';
   btReportState.multiplier=p.get('multiplier')||'2.5';
@@ -61,45 +61,53 @@ function sameBTDateRange(startA,endA,startB,endB){
   return String(startA||'')===String(startB||'')&&String(endA||'')===String(endB||'');
 }
 
-async function fetchBacktestPayload(start,end){
+async function fetchBacktestPayload(start,end,opts={}){
   let url=`/api/chart?ticker=${encodeURIComponent(btReportState.ticker)}&interval=${encodeURIComponent(btReportState.interval)}&start=${encodeURIComponent(start)}&period=${encodeURIComponent(btReportState.period)}&multiplier=${encodeURIComponent(btReportState.multiplier)}`;
   if(end)url+=`&end=${encodeURIComponent(end)}`;
+  if(opts.candlesOnly)url+='&candles_only=1';
   const mmqs=typeof buildMMQueryString==='function'?buildMMQueryString():'';
-  if(mmqs)url+=`&${mmqs}`;
+  if(mmqs&&!opts.candlesOnly)url+=`&${mmqs}`;
   const res=await fetch(url);
   return res.json();
 }
 
 async function loadBacktestReport(){
-  ensureBTChart();
-  if(
-    !_btSliderInitialized&&
-    !sameBTDateRange(chartStart,chartEnd,btReportState.domainStart,btReportState.domainEnd)
-  ){
-    const domainData=await fetchBacktestPayload(btReportState.domainStart,btReportState.domainEnd);
-    if(domainData.error){
-      alert(domainData.error);
+  if(typeof setBacktestLoading==='function')setBacktestLoading(true);
+  try{
+    ensureBTChart();
+    if(
+      !_btSliderInitialized&&
+      !sameBTDateRange(chartStart,chartEnd,btReportState.domainStart,btReportState.domainEnd)
+    ){
+      const domainData=await fetchBacktestPayload(btReportState.domainStart,btReportState.domainEnd,{candlesOnly:true});
+      if(domainData.error){
+        alert(domainData.error);
+        return;
+      }
+      // Slider dates span the full domain; price underlay must use the backtest window (second fetch).
+      initBTSlider(domainData.candles||[]);
+    }
+
+    const data=await fetchBacktestPayload(chartStart,chartEnd);
+    if(data.error){
+      alert(data.error);
       return;
     }
-    _lastCandles=domainData.candles||[];
-    initBTSlider();
-  }
-
-  const data=await fetchBacktestPayload(chartStart,chartEnd);
-  if(data.error){
-    alert(data.error);
-    return;
-  }
-  btOpen=true;
-  lastData=data;
-  if(!_btSliderInitialized){
+    btOpen=true;
+    lastData=data;
     _lastCandles=data.candles||[];
-    initBTSlider();
-  }else{
-    updateBTSliderUI();
+    if(!_btSliderInitialized){
+      initBTSlider();
+    }else{
+      updateBTSliderUI();
+    }
+    updateBacktestReportTitle();
+    switchStrategy(activeBacktestStrat);
+  }catch(e){
+    alert('Error: '+(e?.message||String(e)));
+  }finally{
+    if(typeof setBacktestLoading==='function')setBacktestLoading(false);
   }
-  updateBacktestReportTitle();
-  switchStrategy(activeBacktestStrat);
 }
 
 function switchStrategy(name){
@@ -116,6 +124,7 @@ function switchStrategy(name){
   );
   renderStats(s.summary||{});
   renderTrades(s.trades||[]);
+  if(typeof updateRibbonStrategyHint==='function')updateRibbonStrategyHint(resolved);
   syncBacktestReportURL();
 }
 

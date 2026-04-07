@@ -20,7 +20,7 @@ function pushURLParams(){
   const interval=document.getElementById('interval').value;
   const period=document.getElementById('period').value;
   const mult=document.getElementById('multiplier').value;
-  if(ticker&&ticker!=='TSLA')p.set('ticker',ticker);
+  if(ticker&&ticker!=='BTC-USD')p.set('ticker',ticker);
   if(interval&&interval!=='1d')p.set('interval',interval);
   if(period&&period!=='10')p.set('period',period);
   if(mult&&mult!=='2.5')p.set('multiplier',mult);
