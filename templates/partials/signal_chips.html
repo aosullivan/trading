@@ -232,12 +232,12 @@
 	    <div class="chip" onclick="toggleSignal(this,'red_day_dip')"><span class="cd" style="background:#ff5252"></span>Red dip<div class="chip-tip" onclick="event.stopPropagation()">
 	      <h4>Red day dip (-5%)</h4>
 	      <div class="tip-sub">Close-to-close crash filter</div>
-	      <p>Goes <strong>long</strong> when today’s close is down <strong>at least 5%</strong> versus yesterday’s close. Stays long through consecutive such days; goes <strong>flat</strong> on the first bar that is not a ≥5% down day. Entries and exits fill at the <strong>next bar’s open</strong>, same as other direction strategies.</p>
+	      <p>Goes <strong>long</strong> when today’s close is down <strong>at least 5%</strong> versus yesterday’s close. Stays long through consecutive dip days; goes <strong>flat</strong> on the first bar whose close is <strong>above the prior week’s last close</strong> (week-over-week green), using weeks ending Friday. The first week in the chart has no prior reference, so the weekly exit applies only after a second week of data. Entries and exits fill at the <strong>next bar’s open</strong>, same as other direction strategies.</p>
 	      <div class="tip-section">Calculation</div>
 	      <ul>
 	        <li><strong>Daily return</strong> = <code>Close[t] / Close[t−1] − 1</code></li>
-	        <li><strong>Long signal</strong> when return ≤ −5%</li>
-	        <li><strong>Flat</strong> otherwise</li>
+	        <li><strong>Long signal arm</strong> when return ≤ −5%</li>
+	        <li><strong>Flat</strong> when not in a dip position, or when <code>Close[t]</code> &gt; prior week’s last close (after being long)</li>
 	      </ul>
 	    </div></div>
 	    <div class="chip" onclick="toggleSignal(this,'regime_router')"><span class="cd" style="background:#00fff7"></span>Regime Router<div class="chip-tip" onclick="event.stopPropagation()">

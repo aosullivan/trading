@@ -11,6 +11,8 @@ MACD_SLOW_PERIOD = 32
 MACD_SIGNAL_PERIOD = 9
 DONCHIAN_PERIOD = 10
 RED_DAY_DIP_THRESHOLD = -0.05  # close-to-close, inclusive (≤ -5%)
+# Week-over-week exit: require close > prior week's last close times (1 + eps).
+RED_DAY_DIP_WEEK_EXIT_EPS = 0.0
 BOLLINGER_PERIOD = 30
 BOLLINGER_STD_DEV = 1.5
 KELTNER_EMA_PERIOD = 30
@@ -240,21 +242,58 @@ def compute_donchian_breakout(df, period=DONCHIAN_PERIOD):
     return upper, lower, direction
 
 
-def compute_red_day_dip(df, threshold=RED_DAY_DIP_THRESHOLD):
-    """Long bias on bars whose close fell ≥|threshold| vs prior close; flat otherwise.
+def _red_day_dip_prior_week_last_close(close: pd.Series) -> pd.Series:
+    """Last close of the prior week (weeks end Friday) for each bar; NaN if unknown."""
+    if close.empty:
+        return pd.Series(dtype=float, index=close.index)
+    period = close.index.to_period("W-FRI")
+    week_last = close.groupby(period, sort=False).last()
+    weeks_chrono = week_last.index.sort_values()
+    prior_last_by_week: dict = {}
+    for j in range(1, len(weeks_chrono)):
+        prior_last_by_week[weeks_chrono[j]] = float(week_last.loc[weeks_chrono[j - 1]])
+    vals = [prior_last_by_week.get(p, np.nan) for p in period]
+    return pd.Series(vals, index=close.index, dtype=float)
 
-    Fills next-bar open via backtest_direction. Consecutive red days stay long until
-    a bar that is not a red day.
+
+def compute_red_day_dip(
+    df,
+    threshold=RED_DAY_DIP_THRESHOLD,
+    week_exit_eps=RED_DAY_DIP_WEEK_EXIT_EPS,
+):
+    """Long when daily close-to-close return ≤ threshold (default −5%).
+
+    Stays long across consecutive qualifying dip days until the first bar whose close
+    is above the prior week's last close (week-over-week green), i.e. the first
+    materially positive outcome vs the prior trading week. The first calendar week in
+    the series has no prior reference, so weekly exit does not apply until a second
+    week of data exists.
+
+    Fills next-bar open via backtest_direction.
     """
     close = df["Close"]
     ret = close.pct_change()
+    prior_wk_last = _red_day_dip_prior_week_last_close(close)
     direction = pd.Series(-1, index=df.index, dtype=int)
+    in_long = False
     for i in range(len(df)):
         r = ret.iloc[i]
-        if pd.isna(r):
-            direction.iloc[i] = -1
-        else:
-            direction.iloc[i] = 1 if r <= threshold else -1
+        c = float(close.iloc[i])
+        pwl = prior_wk_last.iloc[i]
+
+        exited_this_bar = False
+        if in_long:
+            need = float(pwl) * (1.0 + week_exit_eps) if not pd.isna(pwl) else float("nan")
+            weekly_green = not pd.isna(pwl) and c > need
+            if weekly_green:
+                in_long = False
+                exited_this_bar = True
+
+        if not in_long and not exited_this_bar:
+            if not pd.isna(r) and r <= threshold:
+                in_long = True
+
+        direction.iloc[i] = 1 if in_long else -1
     return direction
 
 

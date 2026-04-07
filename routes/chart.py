@@ -704,6 +704,14 @@ def chart_data():
         df_view, red_day_dip_direction, df.index, df_view.index
     )
 
+    # Polymarket prediction-market signal
+    from lib.polymarket import compute_polymarket_direction_series, load_probability_history
+    poly_history = load_probability_history()
+    poly_direction = compute_polymarket_direction_series(df, poly_history)
+    poly_trades, poly_summary, poly_equity_curve = _run_direction_backtest(
+        df_view, poly_direction, df.index, df_view.index
+    )
+
     ribbon_center = indicator_bundle["ribbon_center"]
     ribbon_upper = indicator_bundle["ribbon_upper"]
     ribbon_lower = indicator_bundle["ribbon_lower"]
@@ -1033,6 +1041,11 @@ def chart_data():
                 "trades": red_day_dip_trades,
                 "summary": red_day_dip_summary,
                 "equity_curve": red_day_dip_equity_curve,
+            },
+            "polymarket": {
+                "trades": poly_trades,
+                "summary": poly_summary,
+                "equity_curve": poly_equity_curve,
             },
         },
         "ema9": ema9_data,

@@ -166,8 +166,37 @@ class TestRedDayDip:
         direction = compute_red_day_dip(df)
         assert direction.iloc[0] == -1
         assert direction.iloc[1] == 1
-        assert direction.iloc[2] == -1
+        # No prior week in-sample: weekly exit never arms; stay long after dip entry.
+        assert direction.iloc[2] == 1
+        assert direction.iloc[3] == 1
+
+    def test_weekly_exit_when_close_beats_prior_week(self):
+        idx = pd.to_datetime(
+            [
+                "2023-12-27",
+                "2023-12-28",
+                "2023-12-29",
+                "2024-01-02",
+                "2024-01-03",
+                "2024-01-04",
+                "2024-01-05",
+            ]
+        )
+        df = pd.DataFrame(
+            {
+                "Open": [100.0] * 7,
+                "High": [101.0] * 7,
+                "Low": [99.0] * 7,
+                "Close": [100.0, 100.0, 100.0, 100.0, 94.0, 93.0, 101.0],
+                "Volume": [1e6] * 7,
+            },
+            index=idx,
+        )
+        direction = compute_red_day_dip(df)
         assert direction.iloc[3] == -1
+        assert direction.iloc[4] == 1
+        assert direction.iloc[5] == 1
+        assert direction.iloc[6] == -1
 
     def test_exactly_negative_five_percent_is_long(self):
         idx = pd.bdate_range("2024-01-01", periods=2)
