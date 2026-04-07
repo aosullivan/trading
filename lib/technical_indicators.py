@@ -764,4 +764,22 @@ STRATEGIES = {
     "Regime Router": lambda df: compute_regime_router(df)[1],
     "Tone (TD9 + confluence)": lambda df: compute_tone(df)[2],
     "Red day dip (-5%)": lambda df: compute_red_day_dip(df),
+    "Polymarket Signal": lambda df: _polymarket_direction_for_df(df),
 }
+
+
+def _polymarket_direction_for_df(df):
+    """Compute Polymarket-based direction for a given OHLCV DataFrame.
+
+    Uses cached probability history if available, otherwise falls back
+    to live Polymarket data. Only applicable to BTC-USD.
+    """
+    from lib.polymarket import (
+        compute_polymarket_direction_series,
+        load_probability_history,
+    )
+    prob_history = load_probability_history()
+    return compute_polymarket_direction_series(
+        df,
+        probability_history_df=prob_history if not prob_history.empty else None,
+    )
