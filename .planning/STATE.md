@@ -4,8 +4,8 @@ milestone: v1.0
 milestone_name: milestone
 status: verifying
 stopped_at: Phase 2 complete; ready for manual spot-check of corpus_trend
-last_updated: "2026-04-04T18:39:11.071Z"
-last_activity: 2026-04-04
+last_updated: "2026-04-07T01:28:00.000Z"
+last_activity: 2026-04-07
 progress:
   total_phases: 2
   completed_phases: 2
@@ -70,7 +70,8 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+- [Test portfolio-level multi-pair buy and sell strategies](.planning/todos/pending/2026-04-07-test-portfolio-level-multi-pair-buy-and-sell-strategies.md)
+- [Test index tracker parking when out of market vs cash](.planning/todos/pending/2026-04-07-test-index-tracker-parking-when-out-of-market-vs-cash.md)
 
 ### Blockers/Concerns
 
