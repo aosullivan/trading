@@ -1,62 +1,70 @@
 # Requirements: TriedingView
 
-**Defined:** 2026-04-04
-**Core Value:** The strategy should be grounded in what the `audio/` transcripts actually say about trend following, not just manually invented indicator tweaks.
+**Defined:** 2026-04-07
+**Core Value:** Strategy changes should stay grounded in the `audio/` transcripts' trend-following principles and only be promoted when they measurably improve the ratchet benchmark across the focus basket without introducing avoidable regressions.
 
 ## v1 Requirements
 
-### Corpus Knowledge Extraction
+### Ratchet Benchmarking
 
-- [x] **KB-01**: All transcript `.txt` files in `audio/` are read in a deterministic order and processed into a structured trend-following knowledge base
-- [x] **KB-02**: The knowledge base captures strategy-relevant concepts such as entry/exit principles, position sizing, risk control, drawdown discipline, trend persistence, whipsaw handling, and market regime assumptions
-- [x] **KB-03**: Extracted knowledge is saved in a reusable artifact that can be inspected, cited back to source transcript files/chapters, and used as the basis for strategy design
+- [ ] **RATCHET-01**: Backtest evaluation uses a fixed focus basket of `BTC-USD`, `ETH-USD`, `COIN`, `TSLA`, `AAPL`, `NVDA`, and `GOOG`
+- [ ] **RATCHET-02**: The project stores a repeatable current-best baseline artifact or scorecard for the focus basket so candidate changes can be compared against it
+- [ ] **RATCHET-03**: Strategy improvements are only promoted when they do not regress the agreed benchmark scorecard across the focus basket
 
-### Strategy Synthesis And Implementation
+### Strategy Diagnostics
 
-- [ ] **STRAT-01**: A concrete trend-following strategy specification is derived from the knowledge base before implementation begins
-- [ ] **STRAT-02**: The derived strategy is implemented in the backend indicator/backtest stack and exposed through `/api/chart`
-- [ ] **STRAT-03**: The strategy is selectable/inspectable in the UI with clear naming and explanatory text that reflects the corpus-derived rules
-- [ ] **STRAT-04**: Automated tests cover transcript processing, strategy implementation, route payload integration, and regression protection for existing app behavior
+- [ ] **DIAG-01**: Backtest analysis explains why vol-normalized sizing and fixed-fraction sizing are currently making results worse
+- [ ] **DIAG-02**: Backtest analysis explains which existing strategy/backtest parameters degrade performance and under what conditions
+- [ ] **DIAG-03**: Diagnostic outputs are reproducible enough to support future ratchet decisions rather than one-off observations
+
+### Strategy Improvement
+
+- [ ] **STRAT-05**: Strategy behavior supports layered entries and layered exits instead of relying solely on all-in/all-out position changes
+- [ ] **STRAT-06**: Strategy changes continue to reflect transcript-derived trend-following principles around trend capture, whipsaw handling, and drawdown discipline
+- [ ] **STRAT-07**: Promoted strategy variants aim to beat buy-and-hold on the focus basket while reducing major drawdowns versus the current baseline
 
 ### Brownfield Compatibility
 
-- [ ] **COMP-01**: Existing chart, watchlist, financials, and current strategy flows continue working after the new ribbon strategy is added
-- [ ] **COMP-02**: Any new config/profile values follow existing path, cache, and serialization conventions documented in `.planning/codebase/`
+- [ ] **COMP-03**: Existing chart, watchlist, financials, optimizer, and current strategy flows continue working after ratchet and strategy changes are added
+- [ ] **COMP-04**: Any new benchmark/profile/baseline values follow existing path, cache, and serialization conventions documented in `.planning/codebase/`
 
 ## v2 Requirements
 
 ### Future Strategy Research
 
-- **RIBV2-01**: Run large benchmark/optimizer sweeps for the new ribbon strategy after the initial implementation stabilizes
-- **RIBV2-02**: Add richer per-ticker profile selection or automatic regime-aware profile routing if the first variant proves useful
+- **OPTV2-01**: Expand the ratchet basket or weighting model beyond the initial focus set once the first benchmark gate is stable
+- **OPTV2-02**: Add richer regime detection or per-ticker adaptation if the benchmark harness shows consistent benefit
+- **OPTV2-03**: Add deeper portfolio-level capital allocation once single-strategy ratcheting is trustworthy
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
 | Auth, cloud sync, or a hosted multi-user backend | Not needed for this local-first feature |
-| Replacing all existing strategy implementations | Current scope is corpus-derived trend-following strategy design plus one implementation |
+| Live trading, broker execution, or intraday order management | This milestone is about offline backtest quality and benchmarking |
 | Full frontend architecture migration to a bundler/framework | Too large and unrelated to the strategy feature |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| KB-01 | Phase 1 | Complete |
-| KB-02 | Phase 1 | Complete |
-| KB-03 | Phase 1 | Complete |
-| STRAT-01 | Phase 2 | Pending |
-| STRAT-02 | Phase 2 | Pending |
-| STRAT-03 | Phase 2 | Pending |
-| STRAT-04 | Phase 2 | Pending |
-| COMP-01 | Phase 2 | Pending |
-| COMP-02 | Phase 2 | Pending |
+| RATCHET-01 | Phase 3 | Pending |
+| RATCHET-02 | Phase 3 | Pending |
+| RATCHET-03 | Phase 5 | Pending |
+| DIAG-01 | Phase 3 | Pending |
+| DIAG-02 | Phase 3 | Pending |
+| DIAG-03 | Phase 3 | Pending |
+| STRAT-05 | Phase 4 | Pending |
+| STRAT-06 | Phase 4 | Pending |
+| STRAT-07 | Phase 5 | Pending |
+| COMP-03 | Phase 5 | Pending |
+| COMP-04 | Phase 3 | Pending |
 
 **Coverage:**
-- v1 requirements: 9 total
-- Mapped to phases: 9
+- v1 requirements: 11 total
+- Mapped to phases: 11
 - Unmapped: 0
 
 ---
-*Requirements defined: 2026-04-04*
-*Last updated: 2026-04-04 after initial definition*
+*Requirements defined: 2026-04-07*
+*Last updated: 2026-04-07 for milestone v1.1 Strategy Ratchet Optimization*
