@@ -191,9 +191,13 @@ body.bt-page{display:block;overflow-y:auto}
 .bt-symbol-ticker{font-size:14px;font-weight:800;color:var(--text-1);letter-spacing:.4px}
 .bt-symbol-meta{font-size:12px;font-weight:600;color:var(--text-2);letter-spacing:.2px}
 .bt-head-actions{display:flex;align-items:center;gap:6px;margin-left:auto;flex-shrink:0}
-.bt-head-loading{display:none;align-items:center;gap:8px;font-size:11px;font-weight:600;color:var(--text-3)}
-.bt-head-loading.on{display:flex}
-.bt-head-spin{flex-shrink:0}
+.bt-head-loading{display:none;align-items:center;gap:8px;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--bg-3);font-size:11px;font-weight:600;color:var(--text-3)}
+.bt-head-loading.on,.bt-head-loading.ready{display:flex}
+.bt-head-loading.on{color:var(--accent);border-color:rgba(91,127,255,.28);background:rgba(91,127,255,.08)}
+.bt-head-loading.ready{color:var(--green);border-color:rgba(0,230,138,.22);background:rgba(0,230,138,.08)}
+.bt-head-indicator{width:10px;height:10px;border-radius:50%;background:currentColor;flex-shrink:0;opacity:.9}
+.bt-head-loading.on .bt-head-indicator{background:transparent}
+.bt-head-loading.on .bt-head-indicator.spin{width:12px;height:12px;border-radius:50%}
 .bt-head-loading-txt{white-space:nowrap}
 .bt-close{background:none;border:none;color:var(--text-3);font-size:18px;cursor:pointer;padding:2px 6px;border-radius:4px;transition:all .15s;line-height:1}
 .bt-close:hover{background:var(--bg-4);color:var(--text-1)}

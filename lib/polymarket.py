@@ -21,6 +21,12 @@ _POLYMARKET_HISTORY_CACHE_TTL = 3600  # 1 hour for historical snapshots
 _POLYMARKET_DISK_CACHE_DIR = os.path.join(_PROJECT_CACHE_ROOT, "polymarket")
 os.makedirs(_POLYMARKET_DISK_CACHE_DIR, exist_ok=True)
 _POLYMARKET_AUTOSEED_FAILURE_TTL = 1800  # 30 minutes
+_POLYMARKET_DEFAULT_BULL_THRESHOLD = 1.05
+_POLYMARKET_DEFAULT_BEAR_THRESHOLD = 0.95
+_POLYMARKET_RELEVANCE_DISTANCE_SCALE = 4.0
+_POLYMARKET_RELEVANCE_POWER = 2.0
+_POLYMARKET_NEAR_STRIKE_PCT = 0.12
+_POLYMARKET_NEAR_STRIKE_BONUS = 0.5
 
 # ---------------------------------------------------------------------------
 # API endpoints
@@ -331,6 +337,7 @@ def build_implied_distribution(markets):
             "probability": m["yes_price"],
             "question": m["question"],
             "volume": m["volume"],
+            "direction": m["direction"],
         }
         if m["direction"] == "above":
             upside.append(entry)
@@ -355,13 +362,134 @@ def build_implied_distribution(markets):
     # Skew ratio: > 1 means market is more bullish than bearish
     skew = bull_prob / bear_prob if bear_prob > 0 else float("inf")
 
-    return {
+    distribution = {
         "upside_strikes": upside,
         "downside_strikes": downside,
         "skew_ratio": round(skew, 4),
         "bull_probability": round(bull_prob, 4),
         "bear_probability": round(bear_prob, 4),
     }
+    signal_metrics = _build_signal_distribution_from_entries(
+        upside + downside,
+        spot_price=fetch_btc_spot_price(),
+    )
+    distribution.update(signal_metrics)
+    return distribution
+
+
+def _build_signal_distribution_from_entries(entries, spot_price):
+    """Build the Polymarket signal from strike relevance around spot price."""
+    if not spot_price:
+        return _fallback_signal_distribution()
+
+    upside_weighted = []
+    downside_weighted = []
+
+    for entry in entries:
+        strike = _safe_float(entry.get("strike"))
+        probability = _safe_float(entry.get("probability"))
+        volume = _safe_float(entry.get("volume"))
+        direction = entry.get("direction")
+        if (
+            strike is None
+            or probability is None
+            or volume is None
+            or volume <= 0
+            or probability <= 0
+            or direction not in {"above", "below"}
+        ):
+            continue
+
+        distance_pct = abs(strike - spot_price) / spot_price if spot_price else None
+        if distance_pct is None:
+            continue
+        weight = volume / (
+            (1 + distance_pct * _POLYMARKET_RELEVANCE_DISTANCE_SCALE)
+            ** _POLYMARKET_RELEVANCE_POWER
+        )
+        if distance_pct <= _POLYMARKET_NEAR_STRIKE_PCT:
+            weight *= 1 + _POLYMARKET_NEAR_STRIKE_BONUS
+        bucket = upside_weighted if direction == "above" else downside_weighted
+        bucket.append((probability, weight))
+
+    if not upside_weighted or not downside_weighted:
+        return _fallback_signal_distribution()
+
+    total_up_weight = sum(weight for _, weight in upside_weighted) or 1
+    total_down_weight = sum(weight for _, weight in downside_weighted) or 1
+    signal_bull = sum(
+        probability * weight / total_up_weight for probability, weight in upside_weighted
+    )
+    signal_bear = sum(
+        probability * weight / total_down_weight for probability, weight in downside_weighted
+    )
+    signal_skew = signal_bull / signal_bear if signal_bear > 0 else float("inf")
+    if signal_skew == float("inf"):
+        signal_skew = 10.0
+
+    return {
+        "signal_source": "relevance_weighted",
+        "signal_skew_ratio": round(signal_skew, 4),
+        "signal_bull_probability": round(signal_bull, 4),
+        "signal_bear_probability": round(signal_bear, 4),
+    }
+
+
+def _fallback_signal_distribution():
+    return {
+        "signal_source": "raw_skew",
+        "signal_skew_ratio": None,
+        "signal_bull_probability": None,
+        "signal_bear_probability": None,
+    }
+
+
+def _safe_float(value):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _compute_snapshot_signal_metrics(snapshot):
+    """Compute a strategy-ready skew series from a saved snapshot row."""
+    signal_skew = snapshot.get("signal_skew_ratio")
+    signal_bull = snapshot.get("signal_bull_probability")
+    signal_bear = snapshot.get("signal_bear_probability")
+    if signal_skew is not None and signal_bull is not None and signal_bear is not None:
+        return {
+            "signal_source": snapshot.get("signal_source", "persisted"),
+            "signal_skew_ratio": _safe_float(signal_skew),
+            "signal_bull_probability": _safe_float(signal_bull),
+            "signal_bear_probability": _safe_float(signal_bear),
+        }
+
+    spot_price = _safe_float(snapshot.get("spot_price"))
+    strikes = snapshot.get("strikes") or []
+    entries = []
+    for strike in strikes:
+        entries.append(
+            {
+                "strike": strike.get("strike"),
+                "probability": strike.get("probability"),
+                "volume": strike.get("volume"),
+                "direction": strike.get("direction"),
+            }
+        )
+    signal_metrics = _build_signal_distribution_from_entries(entries, spot_price)
+    if signal_metrics["signal_skew_ratio"] is None:
+        signal_metrics.update(
+            {
+                "signal_skew_ratio": _safe_float(snapshot.get("skew_ratio")),
+                "signal_bull_probability": _safe_float(
+                    snapshot.get("bull_probability")
+                ),
+                "signal_bear_probability": _safe_float(
+                    snapshot.get("bear_probability")
+                ),
+            }
+        )
+    return signal_metrics
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +516,26 @@ def fetch_btc_spot_price():
             return price
     except Exception:
         pass
+    latest_snapshot_spot = _latest_saved_spot_price()
+    if latest_snapshot_spot is not None:
+        _cache_set(cache_key, latest_snapshot_spot, ttl=300)
+        return latest_snapshot_spot
+    return None
+
+
+def _latest_saved_spot_price():
+    history_file = _probability_history_file()
+    if not os.path.exists(history_file):
+        return None
+    try:
+        with open(history_file) as f:
+            history = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return None
+    for snapshot in reversed(history):
+        spot_price = _safe_float(snapshot.get("spot_price"))
+        if spot_price is not None:
+            return round(spot_price, 2)
     return None
 
 
@@ -552,6 +700,10 @@ def save_probability_snapshot(distribution, spot_price=None):
         "skew_ratio": distribution["skew_ratio"],
         "bull_probability": distribution["bull_probability"],
         "bear_probability": distribution["bear_probability"],
+        "signal_source": distribution.get("signal_source"),
+        "signal_skew_ratio": distribution.get("signal_skew_ratio"),
+        "signal_bull_probability": distribution.get("signal_bull_probability"),
+        "signal_bear_probability": distribution.get("signal_bear_probability"),
         "upside_count": len(distribution.get("upside_strikes", [])),
         "downside_count": len(distribution.get("downside_strikes", [])),
         "total_markets": len(strikes_snapshot),
@@ -630,7 +782,11 @@ def load_probability_history(auto_seed=False):
 # ---------------------------------------------------------------------------
 
 
-def compute_polymarket_signal(markets, skew_bull_threshold=1.2, skew_bear_threshold=0.8):
+def compute_polymarket_signal(
+    markets,
+    skew_bull_threshold=_POLYMARKET_DEFAULT_BULL_THRESHOLD,
+    skew_bear_threshold=_POLYMARKET_DEFAULT_BEAR_THRESHOLD,
+):
     """Compute a directional trading signal from Polymarket data.
 
     Signal logic:
@@ -643,7 +799,7 @@ def compute_polymarket_signal(markets, skew_bull_threshold=1.2, skew_bear_thresh
         distribution (dict): full implied distribution data
     """
     distribution = build_implied_distribution(markets)
-    skew = distribution["skew_ratio"]
+    skew = distribution.get("signal_skew_ratio") or distribution["skew_ratio"]
 
     if skew > skew_bull_threshold:
         direction = 1
@@ -658,9 +814,9 @@ def compute_polymarket_signal(markets, skew_bull_threshold=1.2, skew_bear_thresh
 def compute_polymarket_direction_series(
     ohlcv_df,
     probability_history_df=None,
-    skew_bull_threshold=1.2,
-    skew_bear_threshold=0.8,
-    momentum_window=5,
+    skew_bull_threshold=_POLYMARKET_DEFAULT_BULL_THRESHOLD,
+    skew_bear_threshold=_POLYMARKET_DEFAULT_BEAR_THRESHOLD,
+    momentum_window=3,
 ):
     """Build a direction Series aligned to an OHLCV DataFrame using Polymarket data.
 
@@ -694,14 +850,20 @@ def compute_polymarket_direction_series(
 
     # Merge probability history with OHLCV index
     prob_df = probability_history_df.copy()
+    if "signal_skew_ratio" not in prob_df.columns:
+        signal_rows = []
+        for _, row in prob_df.iterrows():
+            signal_rows.append(_compute_snapshot_signal_metrics(row))
+        signal_df = pd.DataFrame(signal_rows, index=prob_df.index)
+        prob_df = pd.concat([prob_df, signal_df], axis=1)
 
     # Reindex to match OHLCV dates, forward-fill probabilities
     prob_aligned = prob_df.reindex(ohlcv_df.index, method="ffill")
 
-    if "skew_ratio" not in prob_aligned.columns:
+    if "signal_skew_ratio" not in prob_aligned.columns and "skew_ratio" not in prob_aligned.columns:
         return direction
 
-    skew = prob_aligned["skew_ratio"]
+    skew = prob_aligned["signal_skew_ratio"].fillna(prob_aligned.get("skew_ratio"))
 
     # Component 1: Level signal
     level_signal = pd.Series(0, index=ohlcv_df.index)

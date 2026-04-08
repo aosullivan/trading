@@ -105,6 +105,18 @@ def test_backtest_launches_in_new_tab_and_standalone_page_uses_report_script():
     assert "function loadBacktestReport(){" in report_js_source
 
 
+def test_backtest_panel_has_shared_loading_and_ready_status():
+    partial_source = BACKTEST_PANEL_PARTIAL_PATH.read_text()
+    panel_source = BACKTEST_PANEL_JS_PATH.read_text()
+
+    assert 'id="bt-head-indicator"' in partial_source
+    assert 'id="bt-head-loading-txt"' in partial_source
+    assert 'id="bt-loading-label"' in partial_source
+    assert "function setBacktestLoading(isLoading){" in panel_source
+    assert "headLabel.textContent=loading?'Updating…':'Ready';" in panel_source
+    assert "bodyLabel.textContent=loading?'Updating backtest…':'Backtest ready';" in panel_source
+
+
 def test_backtest_equity_chart_renders_buy_hold_comparison_series():
     core_source = CHART_CORE_JS_PATH.read_text()
     panel_source = BACKTEST_PANEL_JS_PATH.read_text()

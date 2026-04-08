@@ -15,6 +15,8 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 1: Build Trend-Following Knowledge Base** - Read the transcript corpus and extract a reusable, source-cited set of trend-following rules and principles.
 - [x] **Phase 2: Implement Corpus-Derived Strategy** - Turn the extracted knowledge into a concrete strategy spec, implement it in the existing backend/UI stack without breaking current app behavior. (completed 2026-04-04)
 - [x] **Phase 3: Build Ratchet Benchmark And Diagnostics** - Fix the milestone evaluation basket, capture the current-best baseline, and explain why current sizing/backtest options degrade performance. (completed 2026-04-07)
+- [x] **Phase 03.1: Lock Polymarket ratchet benchmark** - Freeze the improved BTC Polymarket behavior into a deterministic route-level ratchet before broader strategy changes continue. (completed 2026-04-08)
+- [x] **Phase 03.2: Lock Current Strategy Configuration Ratchet** - Freeze the current backtest defaults, option ordering, and `/api/chart` strategy contract so later changes cannot silently drift the current configuration. (completed 2026-04-08)
 - [ ] **Phase 4: Design Layered Position Management** - Use transcript principles plus diagnostics to define layered entry/exit behavior and risk controls that are more realistic than all-in/all-out trades.
 - [ ] **Phase 5: Implement And Promote Improved Strategy Variants** - Ship the best validated improvements, enforce the ratchet gate, and verify the focus basket results against buy-and-hold and drawdown goals.
 
@@ -65,6 +67,36 @@ Plans:
 - [x] 03-01: Build the focus-basket benchmark workflow and baseline artifact for current strategy results.
 - [x] 03-02: Diagnose performance degradation from sizing and backtest parameters, and summarize the failure modes.
 
+### Phase 03.1: Lock Polymarket ratchet benchmark (INSERTED)
+
+**Goal**: Freeze the newly improved BTC Polymarket strategy behavior into a deterministic benchmark artifact and regression guard before broader strategy work continues.
+**Depends on**: Phase 3
+**Requirements**: [RATCHET-03, COMP-03]
+**Success Criteria** (what must be TRUE):
+  1. The improved Polymarket BTC result is pinned behind a fixture-backed route-level regression test.
+  2. The benchmark uses the real Polymarket history window starting `2025-08-08`, not a misleading longer flat-history span.
+  3. The baseline artifacts document that the promoted behavior preserves the relevance-weighted signal path rather than raw aggregate skew.
+  4. Existing app flows continue working while the benchmark guard is added.
+**Plans:** 1 plan
+
+Plans:
+- [x] 03.1-01: Freeze deterministic Polymarket fixtures, add the route-level ratchet test, and document the promoted BTC baseline.
+
+### Phase 03.2: Lock Current Strategy Configuration Ratchet (INSERTED)
+
+**Goal**: Freeze the current backtest configuration surface so defaults, option ordering, and the backend strategy inventory cannot silently drift while later strategy work continues.
+**Depends on**: Phase 03.1
+**Requirements**: [RATCHET-03, COMP-03]
+**Success Criteria** (what must be TRUE):
+  1. A machine-readable spec records the current backtest defaults, strategy selector order, money-management controls, and route strategy inventory.
+  2. A deterministic pytest guard proves `/backtest`, the JS default strategy, and `/api/chart` still match that current config contract.
+  3. The strengthened ratchet reuses frozen BTC and Polymarket fixtures instead of live data.
+  4. Completing the phase does not change the current baseline; it only makes future drift explicit.
+**Plans:** 1 plan
+
+Plans:
+- [x] 03.2-01: Freeze the current config contract, add deterministic template/JS/route ratchet tests, and document the baseline.
+
 ### Phase 4: Design Layered Position Management
 **Goal**: Translate transcript-derived trend-following principles and Phase 3 diagnostics into a concrete strategy design that layers into and out of positions while protecting against major drawdowns.
 **Depends on**: Phase 3
@@ -97,12 +129,14 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
+Phases execute in numeric order: 1 -> 2 -> 3 -> 3.1 -> 3.2 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Build Trend-Following Knowledge Base | 2/2 | Complete | 2026-04-04 |
 | 2. Implement Corpus-Derived Strategy | 2/2 | Complete | 2026-04-04 |
 | 3. Build Ratchet Benchmark And Diagnostics | 2/2 | Complete | 2026-04-07 |
-| 4. Design Layered Position Management | 0/2 | Not Started | — |
+| 3.1. Lock Polymarket ratchet benchmark | 1/1 | Complete | 2026-04-08 |
+| 3.2. Lock Current Strategy Configuration Ratchet | 1/1 | Complete | 2026-04-08 |
+| 4. Design Layered Position Management | 0/2 | Planned | — |
 | 5. Implement And Promote Improved Strategy Variants | 0/2 | Not Started | — |

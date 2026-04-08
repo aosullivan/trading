@@ -1,0 +1,31 @@
+{
+  "_comment": "Pinned route-level Polymarket benchmark using frozen BTC OHLCV + Polymarket probability history fixtures. Regenerate with: python scripts/regen_polymarket_benchmark_fixtures.py",
+  "chart_request": {
+    "ticker": "BTC-USD",
+    "interval": "1d",
+    "start": "2025-08-08",
+    "end": "2026-04-08",
+    "period": 10,
+    "multiplier": 2.5
+  },
+  "strategy_key": "polymarket",
+  "fixtures": {
+    "ohlcv_csv": "tests/fixtures/btc_usd_polymarket_1d_benchmark.csv",
+    "probability_history_json": "tests/fixtures/polymarket_probability_history_benchmark.json"
+  },
+  "history_window": {
+    "start": "2025-11-25",
+    "end": "2026-04-08"
+  },
+  "promoted_floor": {
+    "ending_equity": 9494.0,
+    "total_pnl": -505.99,
+    "net_profit_pct": -5.06,
+    "max_drawdown_pct": 8.89,
+    "total_trades": 3
+  },
+  "signal_contract": {
+    "source": "relevance-weighted",
+    "note": "Benchmark protects the improved relevance-weighted Polymarket signal path rather than the old raw aggregate skew behavior."
+  }
+}

@@ -2,6 +2,31 @@ const BT_DEFAULT_STRATEGY='ribbon';
 const BT_IS_STANDALONE=document.body?.dataset?.backtestMode==='standalone';
 let _btSliderInitialized=false;
 let _lastMMParams='';
+let _btLoadingDepth=0;
+
+function setBacktestLoading(isLoading){
+  if(isLoading)_btLoadingDepth+=1;
+  else _btLoadingDepth=Math.max(0,_btLoadingDepth-1);
+  const loading=_btLoadingDepth>0;
+  const head=document.getElementById('bt-head-loading');
+  const headIndicator=document.getElementById('bt-head-indicator');
+  const headLabel=document.getElementById('bt-head-loading-txt');
+  const body=document.getElementById('bt-loading');
+  const bodyLabel=document.getElementById('bt-loading-label');
+  if(head){
+    head.classList.toggle('on',loading);
+    head.classList.toggle('ready',!loading);
+    head.dataset.state=loading?'loading':'ready';
+    head.setAttribute('aria-hidden','false');
+  }
+  if(headIndicator)headIndicator.classList.toggle('spin',loading);
+  if(headLabel)headLabel.textContent=loading?'Updating…':'Ready';
+  if(body){
+    body.classList.toggle('on',loading);
+    body.setAttribute('aria-busy',loading?'true':'false');
+  }
+  if(bodyLabel)bodyLabel.textContent=loading?'Updating backtest…':'Backtest ready';
+}
 
 function getMMParams(){
   const sizing=document.getElementById('mm-sizing')?.value||'';

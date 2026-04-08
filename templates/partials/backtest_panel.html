@@ -32,9 +32,9 @@
         <option value="polymarket">Polymarket Skew</option>
       </select>
       <div class="bt-head-actions">
-        <div class="bt-head-loading" id="bt-head-loading" aria-live="polite" aria-hidden="true">
-          <div class="spin bt-head-spin"></div>
-          <span class="bt-head-loading-txt">Updating…</span>
+        <div class="bt-head-loading" id="bt-head-loading" aria-live="polite" aria-hidden="true" data-state="idle">
+          <div class="bt-head-indicator" id="bt-head-indicator" aria-hidden="true"></div>
+          <span class="bt-head-loading-txt" id="bt-head-loading-txt">Ready</span>
         </div>
         <button class="bt-close" onclick="closeBacktestView()">&times;</button>
       </div>
@@ -93,7 +93,7 @@
 	      <div class="bt-loading" id="bt-loading" aria-live="polite" aria-busy="false">
 	        <div class="bt-loading-card">
 	          <div class="spin bt-loading-spin"></div>
-	          <span class="bt-loading-label">Loading backtest…</span>
+	          <span class="bt-loading-label" id="bt-loading-label">Updating backtest…</span>
 	        </div>
 	      </div>
 	        <div class="bt-metrics">

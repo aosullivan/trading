@@ -1,0 +1,108 @@
+{
+  "_comment": "Pinned current backtest configuration contract. This is a no-drift ratchet for defaults, selector ordering, money-management controls, and the /api/chart strategy inventory. Update intentionally with tests/docs together.",
+  "backtest_defaults": {
+    "default_strategy": "ribbon",
+    "ticker": "BTC-USD",
+    "interval": "1d",
+    "period": "10",
+    "multiplier": "2.5"
+  },
+  "strategy_options": [
+    {"value": "ribbon", "label": "Trend-Driven"},
+    {"value": "corpus_trend", "label": "Corpus Trend (Donchian/ATR)"},
+    {"value": "cb50", "label": "Channel Breakout 50"},
+    {"value": "cb150", "label": "Channel Breakout 150"},
+    {"value": "sma_10_100", "label": "SMA 10/100 Cross"},
+    {"value": "sma_10_200", "label": "SMA 10/200 Cross"},
+    {"value": "ema_trend", "label": "EMA Trend (5mo)"},
+    {"value": "yearly_ma", "label": "1-Year MA Trend"},
+    {"value": "supertrend", "label": "Supertrend (10/2.5)"},
+    {"value": "ema_crossover", "label": "EMA 5/20 Cross"},
+    {"value": "macd", "label": "MACD Signal (16/32/9)"},
+    {"value": "donchian", "label": "Donchian Breakout (10)"},
+    {"value": "bb_breakout", "label": "Bollinger Breakout (30/1.5)"},
+    {"value": "keltner", "label": "Keltner Breakout (30/10/1.5)"},
+    {"value": "parabolic_sar", "label": "Parabolic SAR (0.01/0.01/0.1)"},
+    {"value": "cci_trend", "label": "CCI Trend (30/80)"},
+    {"value": "red_day_dip", "label": "Red day dip (-5%)"},
+    {"value": "regime_router", "label": "Regime Router"},
+    {"value": "tone", "label": "Tone"},
+    {"value": "polymarket", "label": "Polymarket Skew"}
+  ],
+  "money_management": {
+    "stop_input_default_value": "3",
+    "sizing": {
+      "default": "",
+      "options": [
+        {"value": "", "label": "All-In"},
+        {"value": "vol", "label": "Vol-Normalised"},
+        {"value": "fixed_fraction", "label": "Fixed Fraction"}
+      ]
+    },
+    "stop": {
+      "default": "",
+      "options": [
+        {"value": "", "label": "None"},
+        {"value": "atr", "label": "ATR Trail"},
+        {"value": "pct", "label": "% Trail"}
+      ]
+    },
+    "risk_cap": {
+      "default": "",
+      "options": [
+        {"value": "", "label": "None"},
+        {"value": "0.01", "label": "1%"},
+        {"value": "0.005", "label": "0.5%"},
+        {"value": "0.02", "label": "2%"}
+      ]
+    },
+    "compound": {
+      "default": "trade",
+      "options": [
+        {"value": "trade", "label": "Per Trade"},
+        {"value": "monthly", "label": "Monthly"},
+        {"value": "fixed", "label": "Fixed"}
+      ]
+    }
+  },
+  "route_contract": {
+    "chart_request": {
+      "ticker": "BTC-USD",
+      "interval": "1d",
+      "start": "2025-08-08",
+      "end": "2026-04-04",
+      "period": 10,
+      "multiplier": 2.5
+    },
+    "fixtures": {
+      "ohlcv_csv": "tests/fixtures/btc_usd_1d_benchmark.csv",
+      "probability_history_json": "tests/fixtures/polymarket_probability_history_benchmark.json"
+    },
+    "strategy_keys": [
+      "ribbon",
+      "cb50",
+      "cb150",
+      "sma_10_100",
+      "sma_10_200",
+      "ema_trend",
+      "yearly_ma",
+      "supertrend",
+      "ema_crossover",
+      "macd",
+      "donchian",
+      "corpus_trend",
+      "bb_breakout",
+      "keltner",
+      "parabolic_sar",
+      "cci_trend",
+      "regime_router",
+      "tone",
+      "red_day_dip",
+      "polymarket"
+    ],
+    "strategy_keys_with_local_buy_hold": [
+      "ribbon",
+      "corpus_trend"
+    ]
+  }
+}

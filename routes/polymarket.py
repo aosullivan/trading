@@ -41,8 +41,8 @@ def polymarket_signal():
     """Return the current Polymarket trading signal for BTC.
 
     Query params:
-        bull_threshold: skew ratio above which we go long (default 1.2)
-        bear_threshold: skew ratio below which we go flat (default 0.8)
+        bull_threshold: signal skew ratio above which we go long (default 1.05)
+        bear_threshold: signal skew ratio below which we go flat (default 0.95)
     """
     from lib.polymarket import (
         fetch_btc_price_markets,
@@ -50,8 +50,8 @@ def polymarket_signal():
         save_probability_snapshot,
     )
 
-    bull_threshold = float(request.args.get("bull_threshold", 1.2))
-    bear_threshold = float(request.args.get("bear_threshold", 0.8))
+    bull_threshold = float(request.args.get("bull_threshold", 1.05))
+    bear_threshold = float(request.args.get("bear_threshold", 0.95))
 
     try:
         markets = fetch_btc_price_markets()
@@ -68,8 +68,12 @@ def polymarket_signal():
             "signal": signal_label,
             "direction": direction,
             "skew_ratio": distribution["skew_ratio"],
+            "signal_skew_ratio": distribution.get("signal_skew_ratio"),
             "bull_probability": distribution["bull_probability"],
             "bear_probability": distribution["bear_probability"],
+            "signal_bull_probability": distribution.get("signal_bull_probability"),
+            "signal_bear_probability": distribution.get("signal_bear_probability"),
+            "signal_source": distribution.get("signal_source"),
             "upside_strikes": distribution["upside_strikes"],
             "downside_strikes": distribution["downside_strikes"],
             "thresholds": {
@@ -96,8 +100,12 @@ def polymarket_history():
         records.append({
             "date": date.strftime("%Y-%m-%d"),
             "skew_ratio": row.get("skew_ratio"),
+            "signal_skew_ratio": row.get("signal_skew_ratio"),
             "bull_probability": row.get("bull_probability"),
             "bear_probability": row.get("bear_probability"),
+            "signal_bull_probability": row.get("signal_bull_probability"),
+            "signal_bear_probability": row.get("signal_bear_probability"),
+            "signal_source": row.get("signal_source"),
             "spot_price": row.get("spot_price"),
         })
 

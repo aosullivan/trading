@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: strategy-ratchet-optimization
-status: Phase 4 context gathered
-stopped_at: Phase 4 ready for planning
-last_updated: "2026-04-07T17:53:13-0700"
-last_activity: 2026-04-07 — Phase 3 completed and Phase 4 context drafted
+status: Phase 4 ready for execution
+stopped_at: Phase 4 ready for execution
+last_updated: "2026-04-08T14:49:17-0700"
+last_activity: 2026-04-08 — Completed urgent Phase 03.2 to ratchet the current config contract and returned focus to Phase 4
 progress:
-  total_phases: 5
-  completed_phases: 3
-  total_plans: 10
-  completed_plans: 6
-  percent: 60
+  total_phases: 7
+  completed_phases: 5
+  total_plans: 12
+  completed_plans: 8
+  percent: 67
 ---
 
 # Project State
@@ -26,19 +26,19 @@ See: .planning/PROJECT.md (updated 2026-04-07)
 ## Current Position
 
 Phase: 4
-Plan: Context ready
-Status: Phase 4 context gathered
-Last activity: 2026-04-07 — Phase 3 completed and Phase 4 context drafted
+Plan: Planned (2 execution waves)
+Status: Phase 4 ready for execution
+Last activity: 2026-04-08 — Completed inserted Phase 03.2 to freeze current defaults, option ordering, and route strategy inventory
 
-Progress: [██████░░░░] 60%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 6
-- Milestone is now through Phase 3 and ready to plan Phase 4.
-- The latest completed wave focused on benchmark/diagnostic artifacts rather than quick feature edits, so historical per-plan timing is no longer directly comparable.
+- Total plans completed: 8
+- Milestone is now through Phase 03.2 and back on the mainline roadmap at Phase 4 execution.
+- The latest completed wave focused on ratchet hardening rather than strategy redesign, so historical per-plan timing is no longer directly comparable.
 
 **By Phase:**
 
@@ -47,11 +47,13 @@ Progress: [██████░░░░] 60%
 | 1 | 2/2 | 9 min | 4.5 min |
 | 2 | 2/2 | 15 min | 7.5 min |
 | 3 | 2/2 | artifact-heavy | artifact-heavy |
+| 03.1 | 1/1 | ratchet insertion | ratchet insertion |
+| 03.2 | 1/1 | config ratchet | config ratchet |
 
 **Recent Trend:**
 
-- Last completed milestone work: Phase 3 ratchet benchmark and diagnostics
-- Trend: Moving from measurement into layered strategy design
+- Last completed milestone work: Phase 03.2 current-configuration ratchet after the earlier Polymarket ratchet and Phase 4 planning
+- Trend: Both performance and current configuration are now locked more tightly, so the next mainline work can proceed into Phase 4 execution with lower regression risk.
 
 *Updated after each plan completion*
 | Phase 01 P01 | 4 min | 2 tasks | 3 files |
@@ -74,6 +76,13 @@ Recent decisions affecting current work:
 - Milestone v1.1 should ratchet improvements so future strategy changes do not become the new baseline if they worsen results.
 - Milestone v1.1 should investigate layered in/out position management and explain why current sizing knobs degrade performance.
 - Phase 3 established the promoted baseline and showed that the current vol and fixed-fraction sizing options mostly hurt by collapsing exposure on the basket winners.
+- Phase 03.1 locked the improved BTC Polymarket route behavior behind deterministic fixtures and a route-level ratchet benchmark before later strategy phases continue.
+- Phase 03.2 locked the current backtest defaults, selector order, money-management controls, and `/api/chart` strategy inventory behind a deterministic config-contract ratchet.
+
+### Roadmap Evolution
+
+- Phase 03.1 inserted after Phase 3: Lock Polymarket ratchet benchmark (URGENT)
+- Phase 03.2 inserted after Phase 03.1: Lock current strategy configuration ratchet (URGENT)
 
 ### Pending Todos
 
@@ -87,6 +96,6 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-04-07T17:53:13-0700
-Stopped at: Phase 4 ready for planning
-Resume file: .planning/phases/04-design-layered-position-management/04-CONTEXT.md
+Last session: 2026-04-08T00:00:00-0700
+Stopped at: Phase 4 ready for execution
+Resume file: .planning/phases/04-design-layered-position-management/04-01-PLAN.md
