@@ -13,6 +13,7 @@ from lib.technical_indicators import (
     compute_ema_crossover,
     compute_macd_crossover,
     compute_donchian_breakout,
+    compute_corpus_trend_signal,
     compute_red_day_dip,
     compute_bollinger_breakout,
     compute_keltner_breakout,
@@ -148,6 +149,40 @@ class TestDonchianBreakout:
         upper, lower, _ = compute_donchian_breakout(sample_df, period=20)
         valid = upper.dropna().index
         assert (upper[valid] >= lower[valid]).all()
+
+
+class TestCorpusTrendSignal:
+    def test_breakout_entry_trailing_stop_and_channel_exit(self):
+        idx = pd.date_range("2024-01-01", periods=9, freq="D")
+        close = [10, 10, 10, 12, 13, 14, 13, 11, 8]
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": [c + 0.5 for c in close],
+                "Low": [c - 0.5 for c in close],
+                "Close": close,
+                "Volume": [100] * len(close),
+            },
+            index=idx,
+        )
+
+        entry_upper, exit_lower, atr, stop_line, direction = compute_corpus_trend_signal(
+            df,
+            entry_period=3,
+            exit_period=2,
+            atr_period=2,
+            stop_multiplier=1.0,
+        )
+
+        assert direction.iloc[:3].tolist() == [-1, -1, -1]
+        assert direction.iloc[3] == 1
+        assert direction.iloc[8] == -1
+        assert entry_upper.iloc[3] == pytest.approx(10.5)
+        assert exit_lower.iloc[8] == pytest.approx(10.5)
+        active_stops = stop_line.dropna()
+        assert not active_stops.empty
+        assert (active_stops.diff().dropna() >= 0).all()
+        assert not atr.dropna().empty
 
 
 class TestRedDayDip:

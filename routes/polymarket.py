@@ -87,7 +87,7 @@ def polymarket_history():
     """Return accumulated probability history for backtesting."""
     from lib.polymarket import load_probability_history
 
-    df = load_probability_history()
+    df = load_probability_history(auto_seed=True)
     if df.empty:
         return jsonify({"history": [], "count": 0})
 

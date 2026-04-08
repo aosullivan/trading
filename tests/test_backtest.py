@@ -7,6 +7,7 @@ import pytest
 from lib.backtesting import (
     MoneyManagementConfig,
     _compute_risk_metrics,
+    backtest_corpus_trend,
     backtest_direction,
     backtest_managed,
     backtest_ribbon_accumulation,
@@ -138,6 +139,60 @@ class TestBacktestSupertrend:
         assert trades1 == trades2
         assert summary1 == summary2
 
+
+
+class TestBacktestCorpusTrend:
+    def test_uses_full_cash_entries_and_leaves_idle_cash_when_flat(self):
+        idx = pd.date_range("2024-01-01", periods=5, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 100.0, 110.0, 110.0],
+                "High": [101.0, 101.0, 101.0, 111.0, 111.0],
+                "Low": [99.0, 99.0, 99.0, 109.0, 109.0],
+                "Close": [100.0, 100.0, 100.0, 110.0, 110.0],
+                "Volume": [1, 1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        direction = pd.Series([-1, 1, 1, -1, -1], index=idx)
+        stop_line = pd.Series([np.nan, 95.0, 96.0, 97.0, 97.0], index=idx)
+
+        trades, summary, equity = backtest_corpus_trend(df, direction, stop_line)
+
+        assert len(trades) == 1
+        assert trades[0]["entry_date"] == "2024-01-03"
+        assert trades[0]["exit_date"] == "2024-01-05"
+        assert trades[0]["quantity"] == pytest.approx(100.0)
+        assert trades[0]["pnl_pct"] == pytest.approx(10.0)
+        assert summary["total_trades"] == 1
+        assert summary["open_trades"] == 0
+        assert equity[2]["value"] == pytest.approx(10000.0)
+        assert equity[-1]["value"] == pytest.approx(11000.0)
+
+    def test_marks_final_open_trade_to_last_close(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 102.0, 103.0],
+                "High": [101.0, 101.0, 103.0, 104.0],
+                "Low": [99.0, 99.0, 101.0, 102.0],
+                "Close": [100.0, 100.0, 102.0, 104.0],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        direction = pd.Series([-1, 1, 1, 1], index=idx)
+        stop_line = pd.Series([np.nan, 98.0, 99.0, 100.0], index=idx)
+
+        trades, summary, equity = backtest_corpus_trend(df, direction, stop_line)
+
+        assert len(trades) == 1
+        assert trades[0]["open"] is True
+        assert trades[0]["exit_date"] == "2024-01-04"
+        assert trades[0]["exit_price"] == pytest.approx(104.0)
+        assert trades[0]["quantity"] == pytest.approx(98.03921569, rel=1e-6)
+        assert summary["open_trades"] == 1
+        assert equity[-1]["value"] == pytest.approx(10196.08, rel=1e-4)
 
 
 class TestBacktestRibbonAccumulation:

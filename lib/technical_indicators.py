@@ -10,6 +10,10 @@ MACD_FAST_PERIOD = 16
 MACD_SLOW_PERIOD = 32
 MACD_SIGNAL_PERIOD = 9
 DONCHIAN_PERIOD = 10
+CORPUS_TREND_ENTRY_PERIOD = 55
+CORPUS_TREND_EXIT_PERIOD = 20
+CORPUS_TREND_ATR_PERIOD = 14
+CORPUS_TREND_STOP_MULTIPLIER = 2.0
 RED_DAY_DIP_THRESHOLD = -0.05  # close-to-close, inclusive (≤ -5%)
 # Week-over-week exit: require close > prior week's last close times (1 + eps).
 RED_DAY_DIP_WEEK_EXIT_EPS = 0.0
@@ -240,6 +244,62 @@ def compute_donchian_breakout(df, period=DONCHIAN_PERIOD):
         else:
             direction.iloc[i] = direction.iloc[i - 1]
     return upper, lower, direction
+
+
+def compute_corpus_trend_signal(
+    df,
+    entry_period=CORPUS_TREND_ENTRY_PERIOD,
+    exit_period=CORPUS_TREND_EXIT_PERIOD,
+    atr_period=CORPUS_TREND_ATR_PERIOD,
+    stop_multiplier=CORPUS_TREND_STOP_MULTIPLIER,
+):
+    """Compute a long/cash Donchian breakout with trailing ATR stop discipline."""
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+    entry_upper = high.rolling(window=entry_period).max().shift(1)
+    exit_lower = low.rolling(window=exit_period).min().shift(1)
+    atr = _compute_wilder_atr(high, low, close, atr_period)
+    stop_line = pd.Series(np.nan, index=df.index, dtype=float)
+    direction = pd.Series(-1, index=df.index, dtype=int)
+
+    in_position = False
+    trailing_stop = np.nan
+    start = max(entry_period, exit_period, atr_period)
+    for i in range(start, len(df)):
+        price = float(close.iloc[i])
+        upper = entry_upper.iloc[i]
+        lower = exit_lower.iloc[i]
+        atr_value = atr.iloc[i]
+
+        if in_position and not pd.isna(atr_value):
+            candidate_stop = price - (stop_multiplier * float(atr_value))
+            trailing_stop = (
+                candidate_stop
+                if pd.isna(trailing_stop)
+                else max(trailing_stop, candidate_stop)
+            )
+
+        if in_position and (
+            (not pd.isna(lower) and price < float(lower))
+            or (not pd.isna(trailing_stop) and price < float(trailing_stop))
+        ):
+            in_position = False
+            trailing_stop = np.nan
+        elif (
+            not in_position
+            and not pd.isna(upper)
+            and not pd.isna(atr_value)
+            and price > float(upper)
+        ):
+            in_position = True
+            trailing_stop = price - (stop_multiplier * float(atr_value))
+
+        direction.iloc[i] = 1 if in_position else -1
+        if in_position:
+            stop_line.iloc[i] = trailing_stop
+
+    return entry_upper, exit_lower, atr, stop_line, direction
 
 
 def _red_day_dip_prior_week_last_close(close: pd.Series) -> pd.Series:
@@ -817,7 +877,7 @@ def _polymarket_direction_for_df(df):
         compute_polymarket_direction_series,
         load_probability_history,
     )
-    prob_history = load_probability_history()
+    prob_history = load_probability_history(auto_seed=True)
     return compute_polymarket_direction_series(
         df,
         probability_history_df=prob_history if not prob_history.empty else None,

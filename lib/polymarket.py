@@ -20,6 +20,7 @@ _POLYMARKET_CACHE_TTL = 900  # 15 minutes for live market data
 _POLYMARKET_HISTORY_CACHE_TTL = 3600  # 1 hour for historical snapshots
 _POLYMARKET_DISK_CACHE_DIR = os.path.join(_PROJECT_CACHE_ROOT, "polymarket")
 os.makedirs(_POLYMARKET_DISK_CACHE_DIR, exist_ok=True)
+_POLYMARKET_AUTOSEED_FAILURE_TTL = 1800  # 30 minutes
 
 # ---------------------------------------------------------------------------
 # API endpoints
@@ -146,13 +147,14 @@ def fetch_btc_price_markets():
 def _parse_price_markets(raw_markets):
     """Extract structured data from raw Gamma API market responses.
 
-    Keeps all BTC markets that express a view on price direction:
-    price targets, ATH timing, relative performance, best month, etc.
+    Keeps only direct BTC price-target questions.
     """
     parsed = []
     for m in raw_markets:
         question = m.get("question", "")
         q_lower = question.lower()
+        if not _is_price_target_question(question):
+            continue
 
         # Parse outcome prices
         try:
@@ -230,6 +232,28 @@ def _extract_strike_price(question):
     return None
 
 
+def _is_price_target_question(question: str) -> bool:
+    """Return True only for direct BTC price-target questions."""
+    q_lower = question.lower().strip()
+    if not any(token in q_lower for token in ["bitcoin", "btc"]):
+        return False
+
+    price_patterns = [
+        "price of bitcoin be above",
+        "price of bitcoin be below",
+        "price of bitcoin be between",
+        "bitcoin reach $",
+        "bitcoin hit $",
+        "bitcoin dip to $",
+        "btc reach $",
+        "btc hit $",
+        "btc dip to $",
+        "bitcoin be above $",
+        "bitcoin be below $",
+    ]
+    return any(pattern in q_lower for pattern in price_patterns)
+
+
 # ---------------------------------------------------------------------------
 # Price history for probability tracking
 # ---------------------------------------------------------------------------
@@ -259,6 +283,10 @@ def fetch_price_history(token_id, interval="1d", fidelity=60):
     history = data.get("history", [])
     _cache_set(cache_key, history, ttl=_POLYMARKET_HISTORY_CACHE_TTL)
     return history
+
+
+def _probability_history_file() -> str:
+    return os.path.join(_POLYMARKET_DISK_CACHE_DIR, "probability_history.json")
 
 
 def fetch_midpoint(token_id):
@@ -363,6 +391,135 @@ def fetch_btc_spot_price():
     return None
 
 
+def seed_probability_history():
+    """Backfill historical Polymarket probability snapshots from CLOB history."""
+    markets = fetch_btc_price_markets()
+    markets_with_tokens = [
+        m
+        for m in markets
+        if m["clob_token_ids"]
+        and m["volume"]
+        and m["volume"] > 1000
+        and m["strike_price"]
+        and m["strike_price"] >= 1000
+    ]
+    if not markets_with_tokens:
+        return pd.DataFrame()
+
+    all_histories = {}
+    for m in markets_with_tokens:
+        token_id = m["clob_token_ids"][0]
+        history = fetch_price_history(token_id, interval="max", fidelity=1440)
+        if history:
+            all_histories[f"{m['direction']}_{m['strike_price']:.0f}"] = {
+                "question": m["question"],
+                "strike": m["strike_price"],
+                "direction": m["direction"],
+                "volume": m["volume"],
+                "history": history,
+            }
+
+    if not all_histories:
+        return pd.DataFrame()
+
+    all_dates = set()
+    for data in all_histories.values():
+        for point in data["history"]:
+            all_dates.add(pd.Timestamp(point["t"], unit="s").normalize())
+    if not all_dates:
+        return pd.DataFrame()
+
+    all_dates = sorted(all_dates)
+
+    from lib.data_fetching import cached_download
+
+    start_str = all_dates[0].strftime("%Y-%m-%d")
+    end_str = all_dates[-1].strftime("%Y-%m-%d")
+    btc_df = cached_download("BTC-USD", interval="1d", start=start_str, end=end_str)
+    spot_prices = {}
+    if btc_df is not None and not btc_df.empty:
+        for dt, row in btc_df.iterrows():
+            spot_prices[dt.normalize()] = round(float(row["Close"]), 2)
+
+    daily_snapshots = []
+    for date in all_dates:
+        upside_probs = []
+        downside_probs = []
+        strikes_snapshot = []
+
+        for data in all_histories.values():
+            closest = None
+            for point in data["history"]:
+                pt = pd.Timestamp(point["t"], unit="s").normalize()
+                if pt <= date:
+                    closest = point
+                elif closest is not None:
+                    break
+
+            if closest is None:
+                continue
+
+            prob = closest["p"]
+            vol = data["volume"]
+            strikes_snapshot.append(
+                {
+                    "strike": data["strike"],
+                    "direction": data["direction"],
+                    "probability": round(prob, 4),
+                    "volume": vol,
+                }
+            )
+            if data["direction"] == "above":
+                upside_probs.append((prob, vol))
+            else:
+                downside_probs.append((prob, vol))
+
+        if not upside_probs and not downside_probs:
+            continue
+
+        total_up_vol = sum(v for _, v in upside_probs) or 1
+        total_down_vol = sum(v for _, v in downside_probs) or 1
+        bull_prob = sum(p * v / total_up_vol for p, v in upside_probs) if upside_probs else 0
+        bear_prob = sum(p * v / total_down_vol for p, v in downside_probs) if downside_probs else 0
+        skew = bull_prob / bear_prob if bear_prob > 0 else float("inf")
+        if skew == float("inf"):
+            skew = 10.0
+
+        spot = spot_prices.get(date)
+        if spot is None:
+            for offset in range(1, 5):
+                spot = spot_prices.get(date - pd.Timedelta(days=offset))
+                if spot is not None:
+                    break
+
+        daily_snapshots.append(
+            {
+                "timestamp": date.timestamp(),
+                "date": date.strftime("%Y-%m-%d"),
+                "spot_price": spot,
+                "skew_ratio": round(skew, 4),
+                "bull_probability": round(bull_prob, 4),
+                "bear_probability": round(bear_prob, 4),
+                "upside_count": len(upside_probs),
+                "downside_count": len(downside_probs),
+                "total_markets": len(strikes_snapshot),
+                "strikes": strikes_snapshot,
+            }
+        )
+
+    if not daily_snapshots:
+        return pd.DataFrame()
+
+    history_file = _probability_history_file()
+    os.makedirs(_POLYMARKET_DISK_CACHE_DIR, exist_ok=True)
+    with open(history_file, "w") as f:
+        json.dump(daily_snapshots, f, indent=2)
+
+    df = pd.DataFrame(daily_snapshots)
+    df["date"] = pd.to_datetime(df["date"])
+    return df.set_index("date").sort_index()
+
+
 def save_probability_snapshot(distribution, spot_price=None):
     """Save current probability distribution snapshot to disk for historical tracking.
 
@@ -401,7 +558,7 @@ def save_probability_snapshot(distribution, spot_price=None):
         "strikes": strikes_snapshot,
     }
 
-    history_file = os.path.join(_POLYMARKET_DISK_CACHE_DIR, "probability_history.json")
+    history_file = _probability_history_file()
     history = []
     if os.path.exists(history_file):
         try:
@@ -421,14 +578,25 @@ def save_probability_snapshot(distribution, spot_price=None):
     return snapshot
 
 
-def load_probability_history():
+def load_probability_history(auto_seed=False):
     """Load accumulated probability snapshots from disk.
 
     Returns a DataFrame with columns: date, skew_ratio, bull_probability,
     bear_probability, spot_price.
     """
-    history_file = os.path.join(_POLYMARKET_DISK_CACHE_DIR, "probability_history.json")
+    history_file = _probability_history_file()
     if not os.path.exists(history_file):
+        if auto_seed and _cache_get("polymarket:history_autoseed_failed") is None:
+            try:
+                seeded = seed_probability_history()
+                if not seeded.empty:
+                    return seeded
+            except Exception:
+                _cache_set(
+                    "polymarket:history_autoseed_failed",
+                    True,
+                    ttl=_POLYMARKET_AUTOSEED_FAILURE_TTL,
+                )
         return pd.DataFrame()
 
     try:
@@ -438,6 +606,17 @@ def load_probability_history():
         return pd.DataFrame()
 
     if not history:
+        if auto_seed and _cache_get("polymarket:history_autoseed_failed") is None:
+            try:
+                seeded = seed_probability_history()
+                if not seeded.empty:
+                    return seeded
+            except Exception:
+                _cache_set(
+                    "polymarket:history_autoseed_failed",
+                    True,
+                    ttl=_POLYMARKET_AUTOSEED_FAILURE_TTL,
+                )
         return pd.DataFrame()
 
     df = pd.DataFrame(history)

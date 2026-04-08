@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Build Trend-Following Knowledge Base** - Read the transcript corpus and extract a reusable, source-cited set of trend-following rules and principles.
 - [x] **Phase 2: Implement Corpus-Derived Strategy** - Turn the extracted knowledge into a concrete strategy spec, implement it in the existing backend/UI stack without breaking current app behavior. (completed 2026-04-04)
-- [ ] **Phase 3: Build Ratchet Benchmark And Diagnostics** - Fix the milestone evaluation basket, capture the current-best baseline, and explain why current sizing/backtest options degrade performance.
+- [x] **Phase 3: Build Ratchet Benchmark And Diagnostics** - Fix the milestone evaluation basket, capture the current-best baseline, and explain why current sizing/backtest options degrade performance. (completed 2026-04-07)
 - [ ] **Phase 4: Design Layered Position Management** - Use transcript principles plus diagnostics to define layered entry/exit behavior and risk controls that are more realistic than all-in/all-out trades.
 - [ ] **Phase 5: Implement And Promote Improved Strategy Variants** - Ship the best validated improvements, enforce the ratchet gate, and verify the focus basket results against buy-and-hold and drawdown goals.
 
@@ -62,8 +62,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01: Build the focus-basket benchmark workflow and baseline artifact for current strategy results.
-- [ ] 03-02: Diagnose performance degradation from sizing and backtest parameters, and summarize the failure modes.
+- [x] 03-01: Build the focus-basket benchmark workflow and baseline artifact for current strategy results.
+- [x] 03-02: Diagnose performance degradation from sizing and backtest parameters, and summarize the failure modes.
 
 ### Phase 4: Design Layered Position Management
 **Goal**: Translate transcript-derived trend-following principles and Phase 3 diagnostics into a concrete strategy design that layers into and out of positions while protecting against major drawdowns.
@@ -103,6 +103,6 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 |-------|----------------|--------|-----------|
 | 1. Build Trend-Following Knowledge Base | 2/2 | Complete | 2026-04-04 |
 | 2. Implement Corpus-Derived Strategy | 2/2 | Complete | 2026-04-04 |
-| 3. Build Ratchet Benchmark And Diagnostics | 0/2 | Not Started | — |
+| 3. Build Ratchet Benchmark And Diagnostics | 2/2 | Complete | 2026-04-07 |
 | 4. Design Layered Position Management | 0/2 | Not Started | — |
 | 5. Implement And Promote Improved Strategy Variants | 0/2 | Not Started | — |

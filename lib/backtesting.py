@@ -443,6 +443,115 @@ def backtest_supertrend(df, direction, start_in_position=False):
     return backtest_direction(df, direction, start_in_position=start_in_position)
 
 
+def backtest_corpus_trend(
+    df,
+    direction,
+    stop_line,
+    start_in_position=False,
+    prior_direction=None,
+    risk_fraction=0.01,
+):
+    """Backtest corpus-trend long/cash entries with ATR-guided exits."""
+    if df.empty:
+        summary = compute_summary([], [], initial_capital=INITIAL_CAPITAL)
+        return [], summary, []
+
+    direction = direction.reindex(df.index).ffill().fillna(-1).astype(int)
+    stop_line = stop_line.reindex(df.index)
+    open_prices = df["Open"]
+    close_prices = df["Close"]
+    dates = df.index
+    trades = []
+    equity_curve = []
+    cash = float(INITIAL_CAPITAL)
+    position = None
+
+    initial_prev_dir = prior_direction
+    if initial_prev_dir is None:
+        initial_prev_dir = 1 if start_in_position else int(direction.iloc[0])
+
+    if start_in_position:
+        entry_price = round(float(open_prices.iloc[0]), 2)
+        qty = cash / entry_price if entry_price else 0.0
+        position = {
+            "entry_date": str(dates[0].date()),
+            "entry_price": entry_price,
+            "type": "long",
+            "quantity": round(qty, 8),
+        }
+        cash -= qty * entry_price
+
+    for i in range(len(df)):
+        close_price = float(close_prices.iloc[i])
+        shares = position["quantity"] if position is not None else 0.0
+        equity_curve.append(
+            {
+                "time": int(dates[i].timestamp()),
+                "value": round(cash + (shares * close_price), 2),
+            }
+        )
+
+        if i >= len(df) - 1:
+            continue
+
+        prev_dir = initial_prev_dir if i == 0 else int(direction.iloc[i - 1])
+        curr_dir = int(direction.iloc[i])
+        execution_price = round(float(open_prices.iloc[i + 1]), 2)
+        execution_date = str(dates[i + 1].date())
+
+        if prev_dir != 1 and curr_dir == 1 and position is None:
+            qty = cash / execution_price if execution_price else 0.0
+            qty = round(max(0.0, qty), 8)
+            if qty > 0:
+                position = {
+                    "entry_date": execution_date,
+                    "entry_price": execution_price,
+                    "type": "long",
+                    "quantity": qty,
+                }
+                cash -= qty * execution_price
+        elif prev_dir == 1 and curr_dir != 1 and position is not None:
+            pnl = (execution_price - position["entry_price"]) * position["quantity"]
+            pnl_pct = (
+                ((execution_price / position["entry_price"]) - 1) * 100
+                if position["entry_price"]
+                else 0
+            )
+            cash += execution_price * position["quantity"]
+            trades.append(
+                {
+                    **position,
+                    "exit_date": execution_date,
+                    "exit_price": execution_price,
+                    "pnl": round(pnl, 2),
+                    "pnl_pct": round(pnl_pct, 2),
+                }
+            )
+            position = None
+
+    if position is not None:
+        last_close = round(float(close_prices.iloc[-1]), 2)
+        pnl = (last_close - position["entry_price"]) * position["quantity"]
+        pnl_pct = (
+            ((last_close / position["entry_price"]) - 1) * 100
+            if position["entry_price"]
+            else 0
+        )
+        trades.append(
+            {
+                **position,
+                "exit_date": str(dates[-1].date()),
+                "exit_price": last_close,
+                "pnl": round(pnl, 2),
+                "pnl_pct": round(pnl_pct, 2),
+                "open": True,
+            }
+        )
+
+    summary = compute_summary(trades, equity_curve)
+    return trades, summary, equity_curve
+
+
 
 
 def backtest_managed(

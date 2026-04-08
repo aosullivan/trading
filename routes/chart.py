@@ -36,6 +36,7 @@ from lib.technical_indicators import (
     compute_ema_crossover,
     compute_macd_crossover,
     compute_donchian_breakout,
+    compute_corpus_trend_signal,
     compute_channel_breakout_close,
     compute_sma_crossover,
     compute_ema_trend_signal,
@@ -51,6 +52,7 @@ from lib.technical_indicators import (
 )
 from lib.backtesting import (
     MoneyManagementConfig,
+    backtest_corpus_trend,
     backtest_direction,
     backtest_managed,
     build_weekly_confirmed_ribbon_direction,
@@ -228,6 +230,26 @@ def _run_ribbon_regime_backtest(
     )
 
 
+def _run_corpus_trend_backtest(df_view, direction, stop_line, full_index, view_index):
+    prior_direction = _prior_direction(direction, full_index, view_index)
+    mm_config = _parse_mm_config()
+    if mm_config is not None:
+        return backtest_managed(
+            df_view,
+            direction.loc[view_index],
+            config=mm_config,
+            start_in_position=prior_direction == 1,
+            prior_direction=prior_direction,
+        )
+    return backtest_corpus_trend(
+        df_view,
+        direction.loc[view_index],
+        stop_line.loc[view_index],
+        start_in_position=prior_direction == 1,
+        prior_direction=prior_direction,
+    )
+
+
 def _carry_neutral_direction(direction: pd.Series) -> pd.Series:
     """Carry the prior non-zero state through neutral bridge bars."""
     return direction.replace(0, pd.NA).ffill().fillna(0).astype(int)
@@ -292,6 +314,9 @@ def _get_indicator_bundle(
         df,
         DONCHIAN_PERIOD,
     )
+    corpus_entry_upper, corpus_exit_lower, corpus_atr, corpus_stop_line, corpus_direction = (
+        compute_corpus_trend_signal(df)
+    )
     cb50_hc, cb50_lc, cb50_direction = compute_channel_breakout_close(df, CB50_PERIOD)
     cb150_hc, cb150_lc, cb150_direction = compute_channel_breakout_close(df, CB150_PERIOD)
     sma10, sma100, sma_10_100_direction = compute_sma_crossover(
@@ -329,6 +354,7 @@ def _get_indicator_bundle(
         "ema_crossover": ema_direction,
         "macd": macd_direction,
         "donchian": donch_direction,
+        "corpus_trend": corpus_direction,
         "bb_breakout": bb_direction,
         "keltner": kelt_direction,
         "parabolic_sar": psar_direction,
@@ -351,6 +377,11 @@ def _get_indicator_bundle(
         "donch_upper": donch_upper,
         "donch_lower": donch_lower,
         "donch_direction": donch_direction,
+        "corpus_entry_upper": corpus_entry_upper,
+        "corpus_exit_lower": corpus_exit_lower,
+        "corpus_atr": corpus_atr,
+        "corpus_stop_line": corpus_stop_line,
+        "corpus_direction": corpus_direction,
         "cb50_direction": cb50_direction,
         "cb150_direction": cb150_direction,
         "sma_10_100_direction": sma_10_100_direction,
@@ -630,6 +661,11 @@ def chart_data():
     donch_trades, donch_summary, donch_equity_curve = _run_direction_backtest(
         df_view, donch_direction, df.index, df_view.index
     )
+    corpus_stop_line = indicator_bundle["corpus_stop_line"]
+    corpus_direction = indicator_bundle["corpus_direction"]
+    corpus_trend_trades, corpus_trend_summary, corpus_trend_equity_curve = _run_corpus_trend_backtest(
+        df_view, corpus_direction, corpus_stop_line, df.index, df_view.index
+    )
 
     cb50_direction = indicator_bundle["cb50_direction"]
     cb50_trades, cb50_summary, cb50_equity_curve = _run_direction_backtest(
@@ -706,7 +742,7 @@ def chart_data():
 
     # Polymarket prediction-market signal
     from lib.polymarket import compute_polymarket_direction_series, load_probability_history
-    poly_history = load_probability_history()
+    poly_history = load_probability_history(auto_seed=True)
     poly_direction = compute_polymarket_direction_series(df, poly_history)
     poly_trades, poly_summary, poly_equity_curve = _run_direction_backtest(
         df_view, poly_direction, df.index, df_view.index
@@ -1031,6 +1067,12 @@ def chart_data():
             "ema_crossover": {"trades": ema_trades, "summary": ema_summary, "equity_curve": ema_equity_curve},
             "macd": {"trades": macd_trades, "summary": macd_summary, "equity_curve": macd_equity_curve},
             "donchian": {"trades": donch_trades, "summary": donch_summary, "equity_curve": donch_equity_curve},
+            "corpus_trend": {
+                "trades": corpus_trend_trades,
+                "summary": corpus_trend_summary,
+                "equity_curve": corpus_trend_equity_curve,
+                "buy_hold_equity_curve": buy_hold_equity_curve,
+            },
             "bb_breakout": {"trades": bb_trades, "summary": bb_summary, "equity_curve": bb_equity_curve},
             "keltner": {"trades": kelt_trades, "summary": kelt_summary, "equity_curve": kelt_equity_curve},
             "parabolic_sar": {"trades": psar_trades, "summary": psar_summary, "equity_curve": psar_equity_curve},

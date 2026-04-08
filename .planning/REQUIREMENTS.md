@@ -7,15 +7,15 @@
 
 ### Ratchet Benchmarking
 
-- [ ] **RATCHET-01**: Backtest evaluation uses a fixed focus basket of `BTC-USD`, `ETH-USD`, `COIN`, `TSLA`, `AAPL`, `NVDA`, and `GOOG`
-- [ ] **RATCHET-02**: The project stores a repeatable current-best baseline artifact or scorecard for the focus basket so candidate changes can be compared against it
+- [x] **RATCHET-01**: Backtest evaluation uses a fixed focus basket of `BTC-USD`, `ETH-USD`, `COIN`, `TSLA`, `AAPL`, `NVDA`, and `GOOG`
+- [x] **RATCHET-02**: The project stores a repeatable current-best baseline artifact or scorecard for the focus basket so candidate changes can be compared against it
 - [ ] **RATCHET-03**: Strategy improvements are only promoted when they do not regress the agreed benchmark scorecard across the focus basket
 
 ### Strategy Diagnostics
 
-- [ ] **DIAG-01**: Backtest analysis explains why vol-normalized sizing and fixed-fraction sizing are currently making results worse
-- [ ] **DIAG-02**: Backtest analysis explains which existing strategy/backtest parameters degrade performance and under what conditions
-- [ ] **DIAG-03**: Diagnostic outputs are reproducible enough to support future ratchet decisions rather than one-off observations
+- [x] **DIAG-01**: Backtest analysis explains why vol-normalized sizing and fixed-fraction sizing are currently making results worse
+- [x] **DIAG-02**: Backtest analysis explains which existing strategy/backtest parameters degrade performance and under what conditions
+- [x] **DIAG-03**: Diagnostic outputs are reproducible enough to support future ratchet decisions rather than one-off observations
 
 ### Strategy Improvement
 
@@ -26,7 +26,7 @@
 ### Brownfield Compatibility
 
 - [ ] **COMP-03**: Existing chart, watchlist, financials, optimizer, and current strategy flows continue working after ratchet and strategy changes are added
-- [ ] **COMP-04**: Any new benchmark/profile/baseline values follow existing path, cache, and serialization conventions documented in `.planning/codebase/`
+- [x] **COMP-04**: Any new benchmark/profile/baseline values follow existing path, cache, and serialization conventions documented in `.planning/codebase/`
 
 ## v2 Requirements
 
@@ -48,17 +48,17 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RATCHET-01 | Phase 3 | Pending |
-| RATCHET-02 | Phase 3 | Pending |
+| RATCHET-01 | Phase 3 | Complete |
+| RATCHET-02 | Phase 3 | Complete |
 | RATCHET-03 | Phase 5 | Pending |
-| DIAG-01 | Phase 3 | Pending |
-| DIAG-02 | Phase 3 | Pending |
-| DIAG-03 | Phase 3 | Pending |
+| DIAG-01 | Phase 3 | Complete |
+| DIAG-02 | Phase 3 | Complete |
+| DIAG-03 | Phase 3 | Complete |
 | STRAT-05 | Phase 4 | Pending |
 | STRAT-06 | Phase 4 | Pending |
 | STRAT-07 | Phase 5 | Pending |
 | COMP-03 | Phase 5 | Pending |
-| COMP-04 | Phase 3 | Pending |
+| COMP-04 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 11 total
