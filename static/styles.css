@@ -242,10 +242,22 @@ body.bt-page{display:block;overflow-y:auto}
 	.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:10px;overflow:hidden}
 	.sc{background:var(--bg-2);padding:14px 12px;transition:background .15s;min-height:92px;display:flex;flex-direction:column;justify-content:space-between}
 	.sc:hover{background:var(--bg-3)}
+	.sc-net-profit{min-height:110px}
 	.sc-l{font-size:9px;font-weight:700;color:var(--text-4);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px}
 	.sc-v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.4px;color:var(--text-1);line-height:1.1}
 	.sc-sub{font-size:11px;font-weight:600;color:var(--text-3);font-variant-numeric:tabular-nums;margin-top:6px}
+	.sc-compare{display:flex;flex-direction:column;gap:6px}
+	.sc-compare-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+	.sc-compare-label{display:inline-flex;align-items:center;gap:6px;font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;flex-shrink:0}
+	.sc-compare-value{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.3px;color:var(--text-1);line-height:1.1;text-align:right}
+	.sc-medal{display:inline-flex;align-items:center;justify-content:center;font-size:12px;line-height:1}
 	.vg{color:var(--green)}.vr{color:var(--red)}
+	@media (min-width:900px){
+		.sc-net-profit{grid-column:span 2;padding-right:18px}
+		.sc-net-profit .sc-compare-row{gap:18px}
+		.sc-net-profit .sc-compare-label{min-width:110px}
+		.sc-net-profit .sc-compare-value{font-size:18px}
+	}
 
 /* Trades table */
 .t-scroll{overflow-y:auto}

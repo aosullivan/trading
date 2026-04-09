@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, Response, request, jsonify, stream_with_context
 
-from lib.backtesting import MoneyManagementConfig
+from lib.backtesting import MoneyManagementConfig, apply_managed_sizing_defaults
 from lib.data_fetching import (
     cached_download,
     is_treasury_price_ticker,
@@ -24,11 +24,14 @@ from routes.watchlist import load_watchlist
 bp = Blueprint("portfolio", __name__)
 
 _PORTFOLIO_DEFAULT_MM = MoneyManagementConfig(
-    sizing_method="fixed_fraction",
-    risk_fraction=0.08,
-    stop_type="atr",
-    stop_atr_period=20,
-    stop_atr_multiple=3.0,
+    **apply_managed_sizing_defaults(
+        {
+            "sizing_method": "fixed_fraction",
+            "stop_type": "atr",
+            "stop_atr_period": 20,
+            "stop_atr_multiple": 3.0,
+        }
+    )
 )
 
 _NON_TRADABLE_RAW = {
@@ -61,7 +64,6 @@ def _parse_portfolio_mm_config() -> MoneyManagementConfig:
 
     kwargs: dict = {
         "sizing_method": sizing or "fixed_fraction",
-        "risk_fraction": 0.08,
         "stop_type": stop or "atr",
         "stop_atr_period": 20,
         "stop_atr_multiple": 3.0,
@@ -77,7 +79,7 @@ def _parse_portfolio_mm_config() -> MoneyManagementConfig:
     if compound != "trade":
         kwargs["compounding"] = compound
 
-    return MoneyManagementConfig(**kwargs)
+    return MoneyManagementConfig(**apply_managed_sizing_defaults(kwargs))
 
 
 def _warmup_start(start: str) -> str:

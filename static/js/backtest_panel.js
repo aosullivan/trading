@@ -70,9 +70,20 @@ function onMMChange(){
 }
 
 function updateRibbonStrategyHint(strategyKey){
-  const el=document.getElementById('bt-ribbon-hint');
-  if(!el)return;
-  el.hidden=strategyKey!=='ribbon';
+  const ribbonEl=document.getElementById('bt-ribbon-hint');
+  if(ribbonEl)ribbonEl.hidden=strategyKey!=='ribbon';
+  const windowEl=document.getElementById('bt-window-hint');
+  if(!windowEl)return;
+  const strategy=lastData?.strategies?.[strategyKey];
+  const showWindowHint=Boolean(
+    strategy?.backtest_window_policy==='visible_range_only'&&strategy?.window_started_mid_trend
+  );
+  windowEl.hidden=!showWindowHint;
+  if(showWindowHint){
+    windowEl.textContent='Managed sizing compares only entries that begin inside the selected range. This window starts mid-trend, so the strategy stays flat until a fresh long signal appears.';
+  }else{
+    windowEl.textContent='';
+  }
 }
 
 function fmtCurrency(value){
@@ -87,6 +98,10 @@ function fmtCurrencyPlain(value){
 function fmtPct(value){
   const n=Number(value||0);
   return `${n>=0?'+':''}${n.toFixed(2)}%`;
+}
+
+function winnerMedal(show,title){
+  return show?`<span class="sc-medal" title="${title}">&#129351;</span>`:'';
 }
 
 function setBTRangeLabel(){
@@ -226,10 +241,26 @@ function buildBTTradeMarkers(trades){
   }).sort((a,b)=>a.time-b.time);
 }
 
+function buildRebasedPriceCandles(candles,holdPoints){
+  if(!candles||!candles.length)return [];
+  if(!holdPoints||!holdPoints.length)return candles;
+  const firstClose=Number(candles[0]?.close||0);
+  const firstHoldValue=Number(holdPoints[0]?.value||0);
+  if(!(firstClose>0)||!(firstHoldValue>0))return candles;
+  const scale=firstHoldValue/firstClose;
+  return candles.map(c=>({
+    time:c.time,
+    open:Number((Number(c.open||0)*scale).toFixed(2)),
+    high:Number((Number(c.high||0)*scale).toFixed(2)),
+    low:Number((Number(c.low||0)*scale).toFixed(2)),
+    close:Number((Number(c.close||0)*scale).toFixed(2)),
+  }));
+}
+
 function renderEquityCurve(points,holdPoints,trades){
   if(!btEquityChart||!btEquitySeries) return;
   if(btPriceSeries){
-    btPriceSeries.setData(_lastCandles&&_lastCandles.length?_lastCandles:[]);
+    btPriceSeries.setData(buildRebasedPriceCandles(_lastCandles&&_lastCandles.length?_lastCandles:[],holdPoints||[]));
   }
   btEquitySeries.setData(points);
   btEquitySeries.setMarkers(buildBTTradeMarkers(trades));
@@ -237,18 +268,40 @@ function renderEquityCurve(points,holdPoints,trades){
   btEquityChart.timeScale().fitContent();
 }
 
-function renderStats(s){
+function computeBuyHoldMetrics(summary,holdPoints){
+  const initialCapital=Number(summary?.initial_capital||0);
+  if(!(initialCapital>0)||!holdPoints||!holdPoints.length)return null;
+  const endingEquity=Number(holdPoints[holdPoints.length-1]?.value||initialCapital);
+  const totalPnl=endingEquity-initialCapital;
+  const netProfitPct=initialCapital?totalPnl/initialCapital*100:0;
+  return{endingEquity,totalPnl,netProfitPct};
+}
+
+function renderStats(s,holdPoints){
   const profitFactor=s.profit_factor==null?'N/A':s.profit_factor;
   const profitableLabel=s.total_trades?`${s.winners}/${s.total_trades}`:'0/0';
   const openTrades=Number(s.open_trades||0);
   const totalPnl=Number(s.total_pnl||0);
   const realizedPnl=Number(s.realized_pnl||0);
   const openPnl=Number(s.open_pnl||0);
+  const hold=computeBuyHoldMetrics(s,holdPoints);
+  const strategyWins=hold?totalPnl>=hold.totalPnl:false;
+  const holdWins=hold?hold.totalPnl>=totalPnl:false;
   document.getElementById('stats').innerHTML=`
-    <div class="sc">
+    <div class="sc sc-net-profit">
       <div class="sc-l">Net Profit</div>
-      <div class="sc-v ${totalPnl>=0?'vg':'vr'}">${fmtCurrency(totalPnl)}</div>
-      <div class="sc-sub">${fmtPct(s.net_profit_pct)} · ${fmtCurrency(realizedPnl)} realized / ${fmtCurrency(openPnl)} open</div>
+      <div class="sc-compare">
+        <div class="sc-compare-row">
+          <span class="sc-compare-label">Strategy${winnerMedal(strategyWins,'Strategy net profit winner')}</span>
+          <span class="sc-compare-value ${totalPnl>=0?'vg':'vr'}">${fmtCurrency(totalPnl)}</span>
+        </div>
+        <div class="sc-compare-row">
+          <span class="sc-compare-label">Buy &amp; Hold${winnerMedal(holdWins,'Buy and hold net profit winner')}</span>
+          <span class="sc-compare-value ${(hold?.totalPnl||0)>=0?'vg':'vr'}">${hold?fmtCurrency(hold.totalPnl):'N/A'}</span>
+        </div>
+      </div>
+      <div class="sc-sub">${fmtPct(s.net_profit_pct)} strategy${hold?` · ${fmtPct(hold.netProfitPct)} buy &amp; hold`:''}</div>
+      <div class="sc-sub">${fmtCurrency(realizedPnl)} realized / ${fmtCurrency(openPnl)} open</div>
     </div>
     <div class="sc">
       <div class="sc-l">Max Drawdown</div>

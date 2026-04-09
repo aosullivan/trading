@@ -1,0 +1,224 @@
+{
+  "_comment": "Pinned managed-sizing route benchmarks for calibrated chart defaults. Regenerate intentionally with this script when sizing constants move.",
+  "tickers": [
+    "BTC-USD",
+    "ETH-USD",
+    "COIN",
+    "TSLA",
+    "AAPL",
+    "NVDA",
+    "GOOG"
+  ],
+  "chart_request": {
+    "interval": "1d",
+    "start": "2020-01-01",
+    "end": "2026-04-04",
+    "period": 10,
+    "multiplier": 2.5
+  },
+  "strategy_key": "corpus_trend",
+  "selected_defaults": {
+    "vol_scale_factor": 0.005,
+    "fixed_fraction_risk_fraction": 0.02
+  },
+  "variants": {
+    "vol_trade": {
+      "query_params": {
+        "mm_sizing": "vol"
+      },
+      "aggregate_metrics": {
+        "aggregate_score": -944.47,
+        "avg_net_profit_pct": 29.22,
+        "avg_max_drawdown_pct": 7.29,
+        "avg_buy_hold_gap_pct": -961.49,
+        "avg_total_trades": 22.14,
+        "avg_entry_notional_pct": 24.19
+      },
+      "per_ticker": {
+        "BTC-USD": {
+          "net_profit_pct": 48.51,
+          "max_drawdown_pct": 9.1,
+          "buy_hold_net_profit_pct": 835.25,
+          "buy_hold_gap_pct": -786.74,
+          "score": -741.41,
+          "total_trades": 29,
+          "avg_entry_notional_pct": 26.41,
+          "ending_equity": 14850.75,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": false
+        },
+        "ETH-USD": {
+          "net_profit_pct": 44.28,
+          "max_drawdown_pct": 7.75,
+          "buy_hold_net_profit_pct": 1493.27,
+          "buy_hold_gap_pct": -1448.99,
+          "score": -1407.42,
+          "total_trades": 29,
+          "avg_entry_notional_pct": 21.41,
+          "ending_equity": 14427.95,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": false
+        },
+        "COIN": {
+          "net_profit_pct": 12.55,
+          "max_drawdown_pct": 5.53,
+          "buy_hold_net_profit_pct": -55.0,
+          "buy_hold_gap_pct": 67.55,
+          "score": 10.61,
+          "total_trades": 12,
+          "avg_entry_notional_pct": 12.88,
+          "ending_equity": 11254.76,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": false
+        },
+        "TSLA": {
+          "net_profit_pct": 26.19,
+          "max_drawdown_pct": 8.35,
+          "buy_hold_net_profit_pct": 1174.17,
+          "buy_hold_gap_pct": -1147.98,
+          "score": -1124.71,
+          "total_trades": 18,
+          "avg_entry_notional_pct": 18.43,
+          "ending_equity": 12619.36,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": true
+        },
+        "AAPL": {
+          "net_profit_pct": 12.51,
+          "max_drawdown_pct": 5.63,
+          "buy_hold_net_profit_pct": 258.38,
+          "buy_hold_gap_pct": -245.87,
+          "score": -235.33,
+          "total_trades": 22,
+          "avg_entry_notional_pct": 32.14,
+          "ending_equity": 11251.48,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": true
+        },
+        "NVDA": {
+          "net_profit_pct": 46.57,
+          "max_drawdown_pct": 7.01,
+          "buy_hold_net_profit_pct": 2886.36,
+          "buy_hold_gap_pct": -2839.79,
+          "score": -2795.67,
+          "total_trades": 23,
+          "avg_entry_notional_pct": 27.34,
+          "ending_equity": 14656.79,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": true
+        },
+        "GOOG": {
+          "net_profit_pct": 13.96,
+          "max_drawdown_pct": 7.67,
+          "buy_hold_net_profit_pct": 342.6,
+          "buy_hold_gap_pct": -328.64,
+          "score": -317.36,
+          "total_trades": 22,
+          "avg_entry_notional_pct": 30.74,
+          "ending_equity": 11396.49,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": true
+        }
+      }
+    },
+    "fixed_fraction_trade": {
+      "query_params": {
+        "mm_sizing": "fixed_fraction"
+      },
+      "aggregate_metrics": {
+        "aggregate_score": -766.78,
+        "avg_net_profit_pct": 121.16,
+        "avg_max_drawdown_pct": 16.05,
+        "avg_buy_hold_gap_pct": -869.56,
+        "avg_total_trades": 22.14,
+        "avg_entry_notional_pct": 95.98
+      },
+      "per_ticker": {
+        "BTC-USD": {
+          "net_profit_pct": 145.98,
+          "max_drawdown_pct": 14.64,
+          "buy_hold_net_profit_pct": 835.25,
+          "buy_hold_gap_pct": -689.27,
+          "score": -548.41,
+          "total_trades": 29,
+          "avg_entry_notional_pct": 103.6,
+          "ending_equity": 24597.97,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": false
+        },
+        "ETH-USD": {
+          "net_profit_pct": 282.45,
+          "max_drawdown_pct": 12.15,
+          "buy_hold_net_profit_pct": 1493.27,
+          "buy_hold_gap_pct": -1210.82,
+          "score": -932.62,
+          "total_trades": 29,
+          "avg_entry_notional_pct": 125.3,
+          "ending_equity": 38245.04,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": false
+        },
+        "COIN": {
+          "net_profit_pct": 34.33,
+          "max_drawdown_pct": 12.97,
+          "buy_hold_net_profit_pct": -55.0,
+          "buy_hold_gap_pct": 89.33,
+          "score": 29.79,
+          "total_trades": 12,
+          "avg_entry_notional_pct": 41.7,
+          "ending_equity": 13432.93,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": false
+        },
+        "TSLA": {
+          "net_profit_pct": 109.29,
+          "max_drawdown_pct": 21.93,
+          "buy_hold_net_profit_pct": 1174.17,
+          "buy_hold_gap_pct": -1064.88,
+          "score": -963.27,
+          "total_trades": 18,
+          "avg_entry_notional_pct": 83.35,
+          "ending_equity": 20929.39,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": true
+        },
+        "AAPL": {
+          "net_profit_pct": 44.0,
+          "max_drawdown_pct": 12.39,
+          "buy_hold_net_profit_pct": 258.38,
+          "buy_hold_gap_pct": -214.38,
+          "score": -174.72,
+          "total_trades": 22,
+          "avg_entry_notional_pct": 101.53,
+          "ending_equity": 14399.61,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": true
+        },
+        "NVDA": {
+          "net_profit_pct": 194.62,
+          "max_drawdown_pct": 17.72,
+          "buy_hold_net_profit_pct": 2886.36,
+          "buy_hold_gap_pct": -2691.74,
+          "score": -2503.32,
+          "total_trades": 23,
+          "avg_entry_notional_pct": 127.93,
+          "ending_equity": 29462.19,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": true
+        },
+        "GOOG": {
+          "net_profit_pct": 37.45,
+          "max_drawdown_pct": 20.53,
+          "buy_hold_net_profit_pct": 342.6,
+          "buy_hold_gap_pct": -305.15,
+          "score": -274.89,
+          "total_trades": 22,
+          "avg_entry_notional_pct": 88.47,
+          "ending_equity": 13744.58,
+          "backtest_window_policy": "visible_range_only",
+          "window_started_mid_trend": true
+        }
+      }
+    }
+  }
+}

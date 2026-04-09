@@ -332,6 +332,39 @@ class TestChartAPI:
         assert len(data["candles"]) == n
         assert len(data["buy_hold_equity_curve"]) == n
 
+    @pytest.mark.parametrize("sizing", ["vol", "fixed_fraction"])
+    @patch("lib.cache.yf.download")
+    def test_chart_managed_sizing_marks_midtrend_windows_visible_range_only(
+        self, mock_download, client, sizing
+    ):
+        n = 220
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 220, n)
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get(
+            "/api/chart?ticker=TSLA&start=2023-07-03&period=2&multiplier=1"
+            f"&mm_sizing={sizing}"
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        strategy = data["strategies"]["supertrend"]
+
+        assert strategy["backtest_window_policy"] == "visible_range_only"
+        assert strategy["window_started_mid_trend"] is True
+        assert strategy["summary"]["ending_equity"] == 10000
+        assert strategy["summary"]["total_trades"] == 0
+
     @patch("lib.cache.yf.download")
     def test_chart_candles_only_minimal_payload(self, mock_download, client):
         n = 100

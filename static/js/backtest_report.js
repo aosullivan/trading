@@ -122,7 +122,7 @@ function switchStrategy(name){
     s.buy_hold_equity_curve||lastData.buy_hold_equity_curve||[],
     s.trades||[]
   );
-  renderStats(s.summary||{});
+  renderStats(s.summary||{},s.buy_hold_equity_curve||lastData.buy_hold_equity_curve||[]);
   renderTrades(s.trades||[]);
   if(typeof updateRibbonStrategyHint==='function')updateRibbonStrategyHint(resolved);
   syncBacktestReportURL();

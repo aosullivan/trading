@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import sys
@@ -22,6 +23,7 @@ from app import app as flask_app  # noqa: E402
 from lib.cache import _cache  # noqa: E402
 from lib.data_fetching import _slice_df  # noqa: E402
 from lib.settings import INITIAL_CAPITAL  # noqa: E402
+import lib.backtesting as backtesting  # noqa: E402
 
 SPEC_PATH = ROOT / "tests" / "fixtures" / "focus_basket_benchmarks.json"
 DEFAULT_JSON_OUT = (
@@ -38,24 +40,29 @@ DEFAULT_MD_OUT = (
     / "03-build-ratchet-benchmark-and-diagnostics"
     / "focus-basket-diagnostics.md"
 )
+POLY_HISTORY_PATH = ROOT / "tests" / "fixtures" / "polymarket_probability_history_benchmark.json"
 
 VARIANT_MATRIX = [
     {"id": "baseline_none", "params": {}},
-    {"id": "vol_trade", "params": {"mm_sizing": "vol"}},
-    {"id": "vol_monthly", "params": {"mm_sizing": "vol", "mm_compound": "monthly"}},
-    {"id": "vol_capped", "params": {"mm_sizing": "vol", "mm_risk_cap": "0.005"}},
-    {"id": "fixed_fraction_trade", "params": {"mm_sizing": "fixed_fraction"}},
     {
-        "id": "fixed_fraction_monthly",
-        "params": {"mm_sizing": "fixed_fraction", "mm_compound": "monthly"},
+        "id": "vol_legacy_trade",
+        "params": {"mm_sizing": "vol"},
+        "default_overrides": {"vol_scale_factor": backtesting.LEGACY_VOL_SCALE_FACTOR},
     },
     {
-        "id": "fixed_fraction_atr_stop",
-        "params": {
-            "mm_sizing": "fixed_fraction",
-            "mm_stop": "atr",
-            "mm_stop_val": "3",
-        },
+        "id": "vol_trade",
+        "params": {"mm_sizing": "vol"},
+        "default_overrides": {"vol_scale_factor": backtesting.DEFAULT_VOL_SCALE_FACTOR},
+    },
+    {
+        "id": "fixed_fraction_legacy_trade",
+        "params": {"mm_sizing": "fixed_fraction"},
+        "default_overrides": {"risk_fraction": backtesting.LEGACY_FIXED_FRACTION_RISK},
+    },
+    {
+        "id": "fixed_fraction_trade",
+        "params": {"mm_sizing": "fixed_fraction"},
+        "default_overrides": {"risk_fraction": backtesting.DEFAULT_FIXED_FRACTION_RISK},
     },
 ]
 
@@ -71,6 +78,13 @@ def _load_fixtures(spec: dict) -> dict[str, pd.DataFrame]:
         df = pd.read_csv(fixture_path, index_col=0, parse_dates=True)
         fixtures[ticker] = df[~df.index.duplicated(keep="last")].sort_index()
     return fixtures
+
+
+def _load_polymarket_history() -> pd.DataFrame:
+    records = json.loads(POLY_HISTORY_PATH.read_text(encoding="utf-8"))
+    df = pd.DataFrame(records)
+    df["date"] = pd.to_datetime(df["date"])
+    return df.set_index("date").sort_index()
 
 
 def _mock_download_factory(fixtures: dict[str, pd.DataFrame]):
@@ -144,9 +158,28 @@ def _compare_variant(variant_metrics: dict, baseline_metrics: dict) -> dict:
     }
 
 
+@contextlib.contextmanager
+def _temporary_default_overrides(overrides: dict | None):
+    if not overrides:
+        yield
+        return
+    old_vol = backtesting.DEFAULT_VOL_SCALE_FACTOR
+    old_risk = backtesting.DEFAULT_FIXED_FRACTION_RISK
+    try:
+        if "vol_scale_factor" in overrides:
+            backtesting.DEFAULT_VOL_SCALE_FACTOR = float(overrides["vol_scale_factor"])
+        if "risk_fraction" in overrides:
+            backtesting.DEFAULT_FIXED_FRACTION_RISK = float(overrides["risk_fraction"])
+        yield
+    finally:
+        backtesting.DEFAULT_VOL_SCALE_FACTOR = old_vol
+        backtesting.DEFAULT_FIXED_FRACTION_RISK = old_risk
+
+
 def run_analysis(spec_path: Path = SPEC_PATH) -> dict:
     spec = _load_spec(spec_path)
     fixtures = _load_fixtures(spec)
+    polymarket_history = _load_polymarket_history()
     mock_download = _mock_download_factory(fixtures)
     strategy_key = spec["strategy_key"]
 
@@ -156,44 +189,50 @@ def run_analysis(spec_path: Path = SPEC_PATH) -> dict:
         with patch("routes.chart.cached_download", side_effect=mock_download), patch(
             "routes.chart._resolve_cached_ticker_name",
             side_effect=lambda ticker: ticker,
+        ), patch(
+            "lib.polymarket.load_probability_history",
+            return_value=polymarket_history,
         ):
             for variant in VARIANT_MATRIX:
                 per_ticker = {}
-                for ticker in spec["tickers"]:
-                    resp = client.get(_chart_query(spec["chart_request"], ticker, variant["params"]))
-                    data = resp.get_json()
-                    if resp.status_code != 200:
-                        raise RuntimeError(
-                            f"{variant['id']} failed for {ticker}: {resp.status_code} {data}"
+                with _temporary_default_overrides(variant.get("default_overrides")):
+                    for ticker in spec["tickers"]:
+                        _cache.clear()
+                        resp = client.get(_chart_query(spec["chart_request"], ticker, variant["params"]))
+                        data = resp.get_json()
+                        if resp.status_code != 200:
+                            raise RuntimeError(
+                                f"{variant['id']} failed for {ticker}: {resp.status_code} {data}"
+                            )
+                        strategy_payload = data["strategies"][strategy_key]
+                        summary = strategy_payload["summary"]
+                        trades = strategy_payload["trades"]
+                        initial_capital = float(summary.get("initial_capital", INITIAL_CAPITAL))
+                        buy_hold_net_profit_pct = _buy_hold_net_profit_pct(
+                            strategy_payload["buy_hold_equity_curve"]
                         )
-                    strategy_payload = data["strategies"][strategy_key]
-                    summary = strategy_payload["summary"]
-                    trades = strategy_payload["trades"]
-                    initial_capital = float(summary.get("initial_capital", INITIAL_CAPITAL))
-                    buy_hold_net_profit_pct = _buy_hold_net_profit_pct(
-                        strategy_payload["buy_hold_equity_curve"]
-                    )
-                    net_profit_pct = round(float(summary["net_profit_pct"]), 2)
-                    max_drawdown_pct = round(float(summary["max_drawdown_pct"]), 2)
-                    per_ticker[ticker] = {
-                        "net_profit_pct": net_profit_pct,
-                        "max_drawdown_pct": max_drawdown_pct,
-                        "buy_hold_net_profit_pct": buy_hold_net_profit_pct,
-                        "buy_hold_gap_pct": round(net_profit_pct - buy_hold_net_profit_pct, 2),
-                        "score": _score_from_metrics(
-                            net_profit_pct,
-                            max_drawdown_pct,
-                            buy_hold_net_profit_pct,
-                        ),
-                        "total_trades": len(trades),
-                        "avg_entry_notional_pct": _avg_entry_notional_pct(
-                            trades,
-                            initial_capital,
-                        ),
-                    }
+                        net_profit_pct = round(float(summary["net_profit_pct"]), 2)
+                        max_drawdown_pct = round(float(summary["max_drawdown_pct"]), 2)
+                        per_ticker[ticker] = {
+                            "net_profit_pct": net_profit_pct,
+                            "max_drawdown_pct": max_drawdown_pct,
+                            "buy_hold_net_profit_pct": buy_hold_net_profit_pct,
+                            "buy_hold_gap_pct": round(net_profit_pct - buy_hold_net_profit_pct, 2),
+                            "score": _score_from_metrics(
+                                net_profit_pct,
+                                max_drawdown_pct,
+                                buy_hold_net_profit_pct,
+                            ),
+                            "total_trades": len(trades),
+                            "avg_entry_notional_pct": _avg_entry_notional_pct(
+                                trades,
+                                initial_capital,
+                            ),
+                        }
 
                 variants[variant["id"]] = {
                     "query_params": variant["params"],
+                    "default_overrides": variant.get("default_overrides", {}),
                     "per_ticker": per_ticker,
                     "aggregate_metrics": _aggregate_metrics(per_ticker),
                 }
@@ -211,6 +250,11 @@ def run_analysis(spec_path: Path = SPEC_PATH) -> dict:
         reverse=True,
     )
 
+    vol_legacy = variants["vol_legacy_trade"]
+    vol_current = variants["vol_trade"]
+    fixed_legacy = variants["fixed_fraction_legacy_trade"]
+    fixed_current = variants["fixed_fraction_trade"]
+
     worst_variant = aggregate_rankings[-1]
     worst_variant_id = worst_variant["variant_id"]
     worst_variant_payload = variants[worst_variant_id]
@@ -221,33 +265,37 @@ def run_analysis(spec_path: Path = SPEC_PATH) -> dict:
         < baseline_metrics["per_ticker"][ticker]["buy_hold_gap_pct"]
     )
 
-    highest_nonbaseline_trade_variant = max(
-        (item for item in aggregate_rankings if item["variant_id"] != "baseline_none"),
-        key=lambda item: item["avg_total_trades"],
-    )
-
     underperformance_findings = {
         "baseline_variant": "baseline_none",
+        "selected_defaults": {
+            "vol_scale_factor": backtesting.DEFAULT_VOL_SCALE_FACTOR,
+            "fixed_fraction_risk_fraction": backtesting.DEFAULT_FIXED_FRACTION_RISK,
+        },
         "vol_sizing": {
-            variant_id: _compare_variant(variants[variant_id], baseline_metrics)
-            for variant_id in ("vol_trade", "vol_monthly", "vol_capped")
+            "legacy_variant": "vol_legacy_trade",
+            "calibrated_variant": "vol_trade",
+            "comparison_to_legacy": _compare_variant(vol_current, vol_legacy),
+            "comparison_to_baseline": _compare_variant(vol_current, baseline_metrics),
         },
         "fixed_fraction": {
-            variant_id: _compare_variant(variants[variant_id], baseline_metrics)
-            for variant_id in (
-                "fixed_fraction_trade",
-                "fixed_fraction_monthly",
-                "fixed_fraction_atr_stop",
-            )
+            "legacy_variant": "fixed_fraction_legacy_trade",
+            "calibrated_variant": "fixed_fraction_trade",
+            "comparison_to_legacy": _compare_variant(fixed_current, fixed_legacy),
+            "comparison_to_baseline": _compare_variant(fixed_current, baseline_metrics),
         },
         "other_churn_knobs": {
             "worst_variant_by_aggregate_score": worst_variant_id,
             "worst_variant_buy_hold_gap_worsened_ticker_count": worst_buy_hold_gap_worsened,
-            "highest_nonbaseline_trade_count_variant": highest_nonbaseline_trade_variant[
-                "variant_id"
-            ],
+            "highest_nonbaseline_trade_count_variant": "vol_trade"
+            if vol_current["aggregate_metrics"]["avg_total_trades"]
+            >= fixed_current["aggregate_metrics"]["avg_total_trades"]
+            else "fixed_fraction_trade",
             "highest_nonbaseline_trade_count": round(
-                highest_nonbaseline_trade_variant["avg_total_trades"], 2
+                max(
+                    vol_current["aggregate_metrics"]["avg_total_trades"],
+                    fixed_current["aggregate_metrics"]["avg_total_trades"],
+                ),
+                2,
             ),
         },
     }
@@ -268,12 +316,8 @@ def run_analysis(spec_path: Path = SPEC_PATH) -> dict:
 
 def render_markdown(results: dict) -> str:
     baseline = results["variants"]["baseline_none"]["aggregate_metrics"]
-    vol_ids = ("vol_trade", "vol_monthly", "vol_capped")
-    fixed_ids = (
-        "fixed_fraction_trade",
-        "fixed_fraction_monthly",
-        "fixed_fraction_atr_stop",
-    )
+    vol_finding = results["underperformance_findings"]["vol_sizing"]
+    fixed_finding = results["underperformance_findings"]["fixed_fraction"]
     worst_variant = results["underperformance_findings"]["other_churn_knobs"][
         "worst_variant_by_aggregate_score"
     ]
@@ -308,33 +352,58 @@ def render_markdown(results: dict) -> str:
             "## Why Vol Sizing Underperformed",
             "",
             f"Baseline `baseline_none` aggregate score: `{baseline['aggregate_score']:.2f}`.",
+            (
+                "Selected default `vol_scale_factor`: "
+                f"`{results['underperformance_findings']['selected_defaults']['vol_scale_factor']}`."
+            ),
             "",
         ]
     )
-    for variant_id in vol_ids:
-        delta = results["underperformance_findings"]["vol_sizing"][variant_id]
-        lines.append(
-            f"- `{variant_id}` score delta `{delta['aggregate_score_delta']:+.2f}`, "
-            f"drawdown delta `{delta['average_drawdown_delta']:+.2f}`, "
-            f"trade-count delta `{delta['average_trade_count_delta']:+.2f}`, "
-            f"entry-notional delta `{delta['average_entry_notional_delta']:+.2f}` versus `baseline_none`."
-        )
+    vol_legacy = vol_finding["comparison_to_legacy"]
+    vol_baseline = vol_finding["comparison_to_baseline"]
+    lines.append(
+        f"- `{vol_finding['calibrated_variant']}` vs `{vol_finding['legacy_variant']}`: "
+        f"score delta `{vol_legacy['aggregate_score_delta']:+.2f}`, "
+        f"drawdown delta `{vol_legacy['average_drawdown_delta']:+.2f}`, "
+        f"trade-count delta `{vol_legacy['average_trade_count_delta']:+.2f}`, "
+        f"entry-notional delta `{vol_legacy['average_entry_notional_delta']:+.2f}`."
+    )
+    lines.append(
+        f"- `{vol_finding['calibrated_variant']}` vs `baseline_none`: "
+        f"score delta `{vol_baseline['aggregate_score_delta']:+.2f}`, "
+        f"drawdown delta `{vol_baseline['average_drawdown_delta']:+.2f}`, "
+        f"trade-count delta `{vol_baseline['average_trade_count_delta']:+.2f}`, "
+        f"entry-notional delta `{vol_baseline['average_entry_notional_delta']:+.2f}`."
+    )
 
     lines.extend(
         [
             "",
             "## Why Fixed Fraction Underperformed",
             "",
+            (
+                "Selected default `risk_fraction`: "
+                f"`{results['underperformance_findings']['selected_defaults']['fixed_fraction_risk_fraction']}`."
+            ),
+            "",
         ]
     )
-    for variant_id in fixed_ids:
-        delta = results["underperformance_findings"]["fixed_fraction"][variant_id]
-        lines.append(
-            f"- `{variant_id}` score delta `{delta['aggregate_score_delta']:+.2f}`, "
-            f"drawdown delta `{delta['average_drawdown_delta']:+.2f}`, "
-            f"trade-count delta `{delta['average_trade_count_delta']:+.2f}`, "
-            f"entry-notional delta `{delta['average_entry_notional_delta']:+.2f}` versus `baseline_none`."
-        )
+    fixed_legacy = fixed_finding["comparison_to_legacy"]
+    fixed_baseline = fixed_finding["comparison_to_baseline"]
+    lines.append(
+        f"- `{fixed_finding['calibrated_variant']}` vs `{fixed_finding['legacy_variant']}`: "
+        f"score delta `{fixed_legacy['aggregate_score_delta']:+.2f}`, "
+        f"drawdown delta `{fixed_legacy['average_drawdown_delta']:+.2f}`, "
+        f"trade-count delta `{fixed_legacy['average_trade_count_delta']:+.2f}`, "
+        f"entry-notional delta `{fixed_legacy['average_entry_notional_delta']:+.2f}`."
+    )
+    lines.append(
+        f"- `{fixed_finding['calibrated_variant']}` vs `baseline_none`: "
+        f"score delta `{fixed_baseline['aggregate_score_delta']:+.2f}`, "
+        f"drawdown delta `{fixed_baseline['average_drawdown_delta']:+.2f}`, "
+        f"trade-count delta `{fixed_baseline['average_trade_count_delta']:+.2f}`, "
+        f"entry-notional delta `{fixed_baseline['average_entry_notional_delta']:+.2f}`."
+    )
 
     lines.extend(
         [

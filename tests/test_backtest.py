@@ -6,7 +6,9 @@ import pytest
 
 from lib.backtesting import (
     MoneyManagementConfig,
+    _resolve_fixed_fraction_risk_per_share,
     _compute_risk_metrics,
+    apply_managed_sizing_defaults,
     backtest_corpus_trend,
     backtest_direction,
     backtest_managed,
@@ -621,6 +623,44 @@ class TestPortfolioBacktestDirectionAlignment:
 
 
 class TestBacktestManaged:
+    def test_apply_managed_sizing_defaults_uses_shared_hidden_defaults(self):
+        vol_kwargs = apply_managed_sizing_defaults({"sizing_method": "vol"})
+        fixed_kwargs = apply_managed_sizing_defaults({"sizing_method": "fixed_fraction"})
+
+        assert vol_kwargs["vol_scale_factor"] == 0.005
+        assert vol_kwargs["vol_lookback"] == 100
+        assert vol_kwargs["point_value"] == 1.0
+        assert fixed_kwargs["risk_fraction"] == 0.02
+
+    def test_fixed_fraction_fallback_uses_configured_atr_period_before_pct_fallback(self):
+        idx = pd.date_range("2024-01-01", periods=30, freq="D")
+        close = np.linspace(100, 140, len(idx))
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(len(idx), 1_000_000),
+            },
+            index=idx,
+        )
+        config = MoneyManagementConfig(
+            sizing_method="fixed_fraction",
+            stop_type=None,
+            stop_atr_period=5,
+        )
+
+        atr_risk = _resolve_fixed_fraction_risk_per_share(
+            config, float(df["Close"].iloc[10]), df, 10, None
+        )
+        pct_risk = _resolve_fixed_fraction_risk_per_share(
+            config, float(df["Close"].iloc[2]), df, 2, None
+        )
+
+        assert atr_risk > 0
+        assert pct_risk == pytest.approx(float(df["Close"].iloc[2]) * 0.02)
+
     def test_default_config_matches_backtest_direction(self, sample_df):
         """Default MoneyManagementConfig should produce identical results."""
         _, direction = compute_supertrend(sample_df)
@@ -654,6 +694,36 @@ class TestBacktestManaged:
 
         assert len(trades_dir) == len(trades_mm)
         assert summary_dir == summary_mm
+
+    def test_managed_sizing_midtrend_visible_slice_stays_flat(self):
+        idx = pd.date_range("2024-01-01", periods=120, freq="D")
+        close = np.linspace(100, 160, len(idx))
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close * 1.01,
+                "Low": close * 0.99,
+                "Close": close,
+                "Volume": np.full(len(idx), 1_000_000),
+            },
+            index=idx,
+        )
+        direction = pd.Series(1, index=idx)
+        view = df.iloc[60:90]
+        view_direction = direction.iloc[60:90]
+
+        for sizing_method in ("vol", "fixed_fraction"):
+            trades, summary, equity = backtest_managed(
+                view,
+                view_direction,
+                config=MoneyManagementConfig(sizing_method=sizing_method),
+                start_in_position=False,
+                prior_direction=None,
+            )
+            assert trades == []
+            assert summary["ending_equity"] == INITIAL_CAPITAL
+            assert equity[0]["value"] == INITIAL_CAPITAL
+            assert equity[-1]["value"] == INITIAL_CAPITAL
 
     def test_vol_sizing_smaller_position_than_all_in(self, sample_df):
         """Vol sizing should produce a smaller position than all-in."""

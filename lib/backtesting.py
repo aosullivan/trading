@@ -14,6 +14,36 @@ from lib.settings import (
 )
 
 
+LEGACY_VOL_SCALE_FACTOR = 0.001
+LEGACY_FIXED_FRACTION_RISK = 0.01
+DEFAULT_VOL_LOOKBACK = 100
+DEFAULT_POINT_VALUE = 1.0
+DEFAULT_VOL_SCALE_FACTOR = 0.005
+DEFAULT_FIXED_FRACTION_RISK = 0.02
+MANAGED_SIZING_METHODS = frozenset({"vol", "fixed_fraction"})
+
+
+def managed_sizing_defaults(sizing_method: Optional[str]) -> dict:
+    if sizing_method == "vol":
+        return {
+            "vol_scale_factor": DEFAULT_VOL_SCALE_FACTOR,
+            "vol_lookback": DEFAULT_VOL_LOOKBACK,
+            "point_value": DEFAULT_POINT_VALUE,
+        }
+    if sizing_method == "fixed_fraction":
+        return {
+            "risk_fraction": DEFAULT_FIXED_FRACTION_RISK,
+        }
+    return {}
+
+
+def apply_managed_sizing_defaults(kwargs: dict) -> dict:
+    sizing_method = kwargs.get("sizing_method")
+    if not sizing_method:
+        return dict(kwargs)
+    return {**managed_sizing_defaults(sizing_method), **kwargs}
+
+
 @dataclass(frozen=True)
 class MoneyManagementConfig:
     """Configurable money management for the backtesting engine.
@@ -26,10 +56,10 @@ class MoneyManagementConfig:
 
     # Sizing: None=all-in, "vol", "fixed_fraction"
     sizing_method: Optional[str] = None
-    vol_scale_factor: float = 0.001
-    vol_lookback: int = 100
-    point_value: float = 1.0
-    risk_fraction: float = 0.01
+    vol_scale_factor: float = DEFAULT_VOL_SCALE_FACTOR
+    vol_lookback: int = DEFAULT_VOL_LOOKBACK
+    point_value: float = DEFAULT_POINT_VALUE
+    risk_fraction: float = DEFAULT_FIXED_FRACTION_RISK
 
     # Stops: None=no stop, "atr", "pct"
     stop_type: Optional[str] = None
@@ -81,6 +111,18 @@ def _compute_stop_distance(df, bar_idx, config):
     return None
 
 
+def _resolve_fixed_fraction_risk_per_share(config, price, df, bar_idx, stop_dist):
+    risk_per_share = stop_dist
+    if risk_per_share is not None and risk_per_share > 0:
+        return risk_per_share
+    atr = _compute_atr(
+        df["High"], df["Low"], df["Close"], bar_idx, config.stop_atr_period
+    )
+    if atr and atr > 0:
+        return atr
+    return price * 0.02
+
+
 def _compute_position_size(config, sizing_equity, price, df, bar_idx, stop_dist):
     """Compute base position size in shares before risk caps."""
     if config.sizing_method is None:
@@ -97,12 +139,9 @@ def _compute_position_size(config, sizing_equity, price, df, bar_idx, stop_dist)
         return config.vol_scale_factor * sizing_equity / (stddev * config.point_value)
 
     if config.sizing_method == "fixed_fraction":
-        risk_per_share = stop_dist
-        if risk_per_share is None or risk_per_share <= 0:
-            atr = _compute_atr(
-                df["High"], df["Low"], df["Close"], bar_idx, 20
-            )
-            risk_per_share = atr if atr and atr > 0 else price * 0.02
+        risk_per_share = _resolve_fixed_fraction_risk_per_share(
+            config, price, df, bar_idx, stop_dist
+        )
         return (sizing_equity * config.risk_fraction) / risk_per_share
 
     return None

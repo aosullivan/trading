@@ -11,12 +11,10 @@ from pathlib import Path
 
 EXPECTED_VARIANT_IDS = {
     "baseline_none",
+    "vol_legacy_trade",
     "vol_trade",
-    "vol_monthly",
-    "vol_capped",
+    "fixed_fraction_legacy_trade",
     "fixed_fraction_trade",
-    "fixed_fraction_monthly",
-    "fixed_fraction_atr_stop",
 }
 EXPECTED_TOP_LEVEL_KEYS = {
     "variants",

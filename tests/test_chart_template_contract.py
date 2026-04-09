@@ -115,6 +115,8 @@ def test_backtest_panel_has_shared_loading_and_ready_status():
     assert "function setBacktestLoading(isLoading){" in panel_source
     assert "headLabel.textContent=loading?'Updating…':'Ready';" in panel_source
     assert "bodyLabel.textContent=loading?'Updating backtest…':'Backtest ready';" in panel_source
+    assert 'id="bt-window-hint"' in partial_source
+    assert "Managed sizing compares only entries that begin inside the selected range." in panel_source
 
 
 def test_backtest_equity_chart_renders_buy_hold_comparison_series():
@@ -124,12 +126,14 @@ def test_backtest_equity_chart_renders_buy_hold_comparison_series():
     load_source = CHART_LOAD_JS_PATH.read_text()
 
     assert "btPriceSeries=btEquityChart.addCandlestickSeries" in core_source
-    assert "leftPriceScale:{visible:true" in "".join(core_source.split())
+    assert "leftPriceScale:{visible:false" in "".join(core_source.split())
     assert "btHoldSeries=btEquityChart.addLineSeries" in core_source
+    assert "function buildRebasedPriceCandles(candles,holdPoints){" in panel_source
     assert "function renderEquityCurve(points,holdPoints,trades){" in panel_source
-    assert "btPriceSeries.setData(_lastCandles&&_lastCandles.length?_lastCandles:[]);" in panel_source
+    assert "btPriceSeries.setData(buildRebasedPriceCandles(_lastCandles&&_lastCandles.length?_lastCandles:[],holdPoints||[]));" in panel_source
     assert "btHoldSeries.setData(holdPoints||[]);" in panel_source
     assert "btEquitySeries.setMarkers(buildBTTradeMarkers(trades));" in panel_source
+    assert "Price (Rebased)" in partial_source
     assert "Buy &amp; Hold" in partial_source
     compact_load_source = "".join(load_source.split())
     assert (
