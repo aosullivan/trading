@@ -34,7 +34,8 @@ function getMMParams(){
   const stopVal=document.getElementById('mm-stop-val')?.value||'3';
   const riskCap=document.getElementById('mm-risk-cap')?.value||'';
   const compound=document.getElementById('mm-compound')?.value||'trade';
-  return{sizing,stop,stopVal,riskCap,compound};
+  const confirmMode=document.getElementById('bt-confirm-mode')?.value||'';
+  return{sizing,stop,stopVal,riskCap,compound,confirmMode};
 }
 
 function buildMMQueryString(){
@@ -47,6 +48,7 @@ function buildMMQueryString(){
   }
   if(p.riskCap)parts.push(`mm_risk_cap=${p.riskCap}`);
   if(p.compound!=='trade')parts.push(`mm_compound=${p.compound}`);
+  if(p.confirmMode)parts.push(`confirm_mode=${p.confirmMode}`);
   return parts.join('&');
 }
 
@@ -73,6 +75,7 @@ function applyMMParams(params={}){
   const stopInput=document.getElementById('mm-stop-val');
   const riskCapEl=document.getElementById('mm-risk-cap');
   const compoundEl=document.getElementById('mm-compound');
+  const confirmEl=document.getElementById('bt-confirm-mode');
   if(sizingEl)sizingEl.value=params.sizing||'';
   if(stopEl)stopEl.value=params.stop||'';
   syncMMStopControls(Boolean(params.stop));
@@ -81,6 +84,7 @@ function applyMMParams(params={}){
   }
   if(riskCapEl)riskCapEl.value=params.riskCap||'';
   if(compoundEl)compoundEl.value=params.compound||'trade';
+  if(confirmEl)confirmEl.value=params.confirmMode||'';
   _lastMMParams=buildMMQueryString();
 }
 
@@ -97,6 +101,23 @@ function onMMChange(){
 function updateRibbonStrategyHint(strategyKey){
   const ribbonEl=document.getElementById('bt-ribbon-hint');
   if(ribbonEl)ribbonEl.hidden=strategyKey!=='ribbon';
+  const confirmEl=document.getElementById('bt-confirm-hint');
+  if(confirmEl){
+    const strategy=lastData?.strategies?.[strategyKey];
+    const showConfirmHint=Boolean(strategy?.confirmation_mode);
+    confirmEl.hidden=!showConfirmHint;
+    if(showConfirmHint){
+      if(strategy?.confirmation_supported){
+        const starterPct=Math.round(Number(strategy.confirmation_starter_fraction||0)*100);
+        const confirmedPct=Math.round(Number(strategy.confirmation_confirmed_fraction||0)*100);
+        confirmEl.textContent=`${strategy.confirmation_label}: keep ${starterPct}% exposure when daily and weekly disagree, move to 100% only when both are bullish, then scale back out in reverse as confirmation weakens.`;
+      }else{
+        confirmEl.textContent=`${strategy.confirmation_label} is not available for this strategy, so it is using the standard backtest path.`;
+      }
+    }else{
+      confirmEl.textContent='';
+    }
+  }
   const windowEl=document.getElementById('bt-window-hint');
   if(!windowEl)return;
   const strategy=lastData?.strategies?.[strategyKey];
@@ -178,6 +199,7 @@ function openBacktestTab(){
   if(mm.stop){p.set('mm_stop',mm.stop);p.set('mm_stop_val',mm.stopVal)}
   if(mm.riskCap)p.set('mm_risk_cap',mm.riskCap);
   if(mm.compound!=='trade')p.set('mm_compound',mm.compound);
+  if(mm.confirmMode)p.set('confirm_mode',mm.confirmMode);
   const url=`/backtest?${p.toString()}`;
   const tab=window.open(url,'_blank');
   if(tab){

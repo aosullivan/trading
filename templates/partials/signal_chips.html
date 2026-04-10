@@ -229,39 +229,4 @@
 	      <div class="tip-section">Links</div>
 	      <p><a href="https://www.investopedia.com/terms/c/commoditychannelindex.asp" target="_blank">Investopedia: CCI</a> · <a href="https://www.tradingview.com/support/solutions/43000502001/" target="_blank">TradingView: CCI</a></p>
 	    </div></div>
-	    <div class="chip" onclick="toggleSignal(this,'red_day_dip')"><span class="cd" style="background:#ff5252"></span>Red dip<div class="chip-tip" onclick="event.stopPropagation()">
-	      <h4>Red day dip (-5%)</h4>
-	      <div class="tip-sub">Close-to-close crash filter</div>
-	      <p>Goes <strong>long</strong> when today’s close is down <strong>at least 5%</strong> versus yesterday’s close. Stays long through consecutive dip days; goes <strong>flat</strong> on the first bar whose close is <strong>above the prior week’s last close</strong> (week-over-week green), using weeks ending Friday. The first week in the chart has no prior reference, so the weekly exit applies only after a second week of data. Entries and exits fill at the <strong>next bar’s open</strong>, same as other direction strategies.</p>
-	      <div class="tip-section">Calculation</div>
-	      <ul>
-	        <li><strong>Daily return</strong> = <code>Close[t] / Close[t−1] − 1</code></li>
-	        <li><strong>Long signal arm</strong> when return ≤ −5%</li>
-	        <li><strong>Flat</strong> when not in a dip position, or when <code>Close[t]</code> &gt; prior week’s last close (after being long)</li>
-	      </ul>
-	    </div></div>
-	    <div class="chip" onclick="toggleSignal(this,'regime_router')"><span class="cd" style="background:#00fff7"></span>Regime Router<div class="chip-tip" onclick="event.stopPropagation()">
-	      <h4>Regime Router</h4>
-	      <div class="tip-sub">Adaptive Multi-Strategy</div>
-	      <p>A <strong>meta-strategy</strong> that classifies the current market regime (trending, mean-reverting, or volatile) and routes signals to the best-suited sub-strategy. Uses ADX for trend strength and Bollinger Band width for volatility.</p>
-	      <div class="tip-section">How It Works</div>
-	      <ul>
-	        <li><strong>Trending</strong> (ADX &gt; 25): uses Supertrend or EMA crossover signals</li>
-	        <li><strong>Mean-reverting</strong> (ADX &lt; 20, narrow BB): uses Bollinger Band bounce signals</li>
-	        <li><strong>Volatile</strong> (wide BB): uses tighter stops and reduced position sizing</li>
-	        <li>Regime is re-evaluated each bar to adapt in real-time</li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-	      <div class="tip-example">TSLA enters a low-ADX, narrow-band phase → Regime Router switches to mean-reversion mode and takes BB bounce trades. When ADX spikes above 25, it switches to trend-following with Supertrend signals. This avoids whipsaw losses from using one strategy in all conditions.</div>
-	    </div></div>
-	    <div class="chip" onclick="toggleSignal(this,'tone')"><span class="cd" style="background:#ffb74d"></span>Tone<div class="chip-tip" onclick="event.stopPropagation()">
-	      <h4>Tone (TD9 + confluence)</h4>
-	      <div class="tip-sub">Sequential exhaustion + RSI / MACD / candles / 128 MA</div>
-	      <p>Approximates <strong>DeMark-style setup-9</strong> counting (close vs close four bars ago) and only flips position when extra confluence appears: RSI zones, hammer/doji/shooting-star-style bars, rising MACD histogram (momentum turn proxy), and a <strong>128-day SMA</strong> context filter. Not a copy of any proprietary MRI.</p>
-	      <div class="tip-section">Notes</div>
-	      <ul>
-	        <li>Uses the same long/short backtest engine as other strategies; combine with stops/sizing in the panel.</li>
-	        <li>Chart overlay shows MACD because histogram slope is part of the rule set.</li>
-	      </ul>
-	    </div></div>
 	  </div>

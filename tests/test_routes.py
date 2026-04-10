@@ -457,7 +457,7 @@ class TestChartAPI:
             "ema_trend", "yearly_ma",
             "supertrend", "ema_crossover", "macd",
             "donchian", "bb_breakout",
-            "keltner", "parabolic_sar", "cci_trend", "red_day_dip", "regime_router", "tone",
+            "keltner", "parabolic_sar", "cci_trend", "polymarket",
         ]
         for key in expected_keys:
             assert key in strategies, f"Missing strategy: {key}"
@@ -467,6 +467,40 @@ class TestChartAPI:
 
         assert "buy_hold_equity_curve" in strategies["corpus_trend"]
         assert "buy_hold_equity_curve" in strategies["corpus_trend_layered"]
+
+    @patch("lib.cache.yf.download")
+    def test_chart_confirmation_mode_marks_supported_strategies(self, mock_download, client):
+        n = 220
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 160, n)
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get(
+            "/api/chart?ticker=TSLA&start=2023-01-01&confirm_mode=layered_30_70"
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+        cb150 = data["strategies"]["cb150"]
+        layered = data["strategies"]["corpus_trend_layered"]
+        polymarket = data["strategies"]["polymarket"]
+
+        assert cb150["confirmation_mode"] == "layered_30_70"
+        assert cb150["confirmation_supported"] is True
+        assert cb150["confirmation_starter_fraction"] == pytest.approx(0.30)
+        assert cb150["confirmation_confirmed_fraction"] == pytest.approx(0.70)
+        assert layered["confirmation_supported"] is False
+        assert polymarket["confirmation_supported"] is False
 
     @patch("lib.cache.yf.Ticker")
     @patch("lib.cache.yf.download")

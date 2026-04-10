@@ -25,9 +25,6 @@
     {"value": "keltner", "label": "Keltner Breakout (30/10/1.5)"},
     {"value": "parabolic_sar", "label": "Parabolic SAR (0.01/0.01/0.1)"},
     {"value": "cci_trend", "label": "CCI Trend (30/80)"},
-    {"value": "red_day_dip", "label": "Red day dip (-5%)"},
-    {"value": "regime_router", "label": "Regime Router"},
-    {"value": "tone", "label": "Tone"},
     {"value": "polymarket", "label": "Polymarket Skew"}
   ],
   "money_management": {
@@ -64,6 +61,14 @@
         {"value": "monthly", "label": "Monthly"},
         {"value": "fixed", "label": "Fixed"}
       ]
+    },
+    "confirmation": {
+      "default": "",
+      "options": [
+        {"value": "", "label": "Standard"},
+        {"value": "layered_30_70", "label": "Daily 30 / Weekly 70"},
+        {"value": "layered_50_50", "label": "Daily 50 / Weekly 50"}
+      ]
     }
   },
   "route_contract": {
@@ -97,9 +102,6 @@
       "keltner",
       "parabolic_sar",
       "cci_trend",
-      "regime_router",
-      "tone",
-      "red_day_dip",
       "polymarket"
     ],
     "strategy_keys_with_local_buy_hold": [

@@ -1073,6 +1073,139 @@ def backtest_managed(
     return trades, summary, equity_curve
 
 
+def backtest_confirmation_layering(
+    df,
+    daily_direction,
+    weekly_direction,
+    prior_daily_direction=None,
+    prior_weekly_direction=None,
+    initial_capital=INITIAL_CAPITAL,
+    starter_fraction=0.30,
+    confirmed_fraction=0.70,
+):
+    """Backtest staged exposure using daily starter and weekly confirmation."""
+    if df.empty:
+        summary = compute_summary([], [], initial_capital=initial_capital)
+        return [], summary, []
+
+    starter_fraction = max(0.0, float(starter_fraction))
+    confirmed_fraction = max(0.0, float(confirmed_fraction))
+    total_fraction = starter_fraction + confirmed_fraction
+    if total_fraction <= 0:
+        summary = compute_summary([], [], initial_capital=initial_capital)
+        return [], summary, []
+    if total_fraction > 1.0:
+        starter_fraction /= total_fraction
+        confirmed_fraction /= total_fraction
+
+    daily_direction = daily_direction.reindex(df.index)
+    weekly_direction = weekly_direction.reindex(df.index).ffill().fillna(0)
+    open_prices = df["Open"]
+    close_prices = df["Close"]
+    dates = df.index
+
+    trades = []
+    equity_curve = []
+    cash = float(initial_capital)
+    open_lots = []
+
+    def _target_sleeves(daily_state, weekly_state):
+        daily_bull = int(daily_state) == 1
+        weekly_bull = int(weekly_state) == 1
+        if daily_bull and weekly_bull:
+            return True, True
+        if daily_bull or weekly_bull:
+            return True, False
+        return False, False
+
+    def _buy_weight(weight, execution_idx, sleeve):
+        nonlocal cash
+        execution_price = round(float(open_prices.iloc[execution_idx]), 2)
+        if execution_price <= 0 or weight <= 0:
+            return False
+        budget = min(cash, initial_capital * weight)
+        if budget <= 0:
+            return False
+        _buy_lot(open_lots, dates[execution_idx], execution_price, budget, sleeve=sleeve)
+        cash -= budget
+        return True
+
+    def _sell_sleeve(sleeve, execution_idx):
+        nonlocal cash
+        execution_price = round(float(open_prices.iloc[execution_idx]), 2)
+        if execution_price <= 0:
+            return 0.0
+        proceeds = _sell_fraction(
+            open_lots,
+            trades,
+            dates[execution_idx],
+            execution_price,
+            1.0,
+            sleeve=sleeve,
+        )
+        cash += proceeds
+        return proceeds
+
+    def _sync_target_sleeves(execution_idx, want_starter, want_confirmed):
+        starter_active = _position_quantity(open_lots, sleeve="starter") > 0
+        confirmed_active = _position_quantity(open_lots, sleeve="confirmed") > 0
+
+        if confirmed_active and not want_confirmed:
+            _sell_sleeve("confirmed", execution_idx)
+        if starter_active and not want_starter:
+            _sell_sleeve("starter", execution_idx)
+        if want_starter and not starter_active:
+            _buy_weight(starter_fraction, execution_idx, "starter")
+        if want_confirmed and not confirmed_active:
+            _buy_weight(confirmed_fraction, execution_idx, "confirmed")
+
+    initial_daily = (
+        int(prior_daily_direction)
+        if prior_daily_direction is not None and not pd.isna(prior_daily_direction)
+        else _direction_at(daily_direction, 0, 0)
+    )
+    initial_weekly = (
+        int(prior_weekly_direction)
+        if prior_weekly_direction is not None and not pd.isna(prior_weekly_direction)
+        else _direction_at(weekly_direction, 0, 0)
+    )
+    want_starter, want_confirmed = _target_sleeves(initial_daily, initial_weekly)
+    if want_starter:
+        _buy_weight(starter_fraction, 0, "starter")
+    if want_confirmed:
+        _buy_weight(confirmed_fraction, 0, "confirmed")
+
+    prev_daily = initial_daily
+    prev_weekly = initial_weekly
+
+    for i in range(len(df)):
+        market_value = _position_quantity(open_lots) * float(close_prices.iloc[i])
+        equity_curve.append(
+            {
+                "time": int(dates[i].timestamp()),
+                "value": round(cash + market_value, 2),
+            }
+        )
+
+        if i >= len(df) - 1:
+            continue
+
+        curr_daily = _direction_at(daily_direction, i, prev_daily)
+        curr_weekly = _direction_at(weekly_direction, i, prev_weekly)
+        want_starter, want_confirmed = _target_sleeves(curr_daily, curr_weekly)
+        _sync_target_sleeves(i + 1, want_starter, want_confirmed)
+        prev_daily = curr_daily
+        prev_weekly = curr_weekly
+
+    if open_lots:
+        trades.extend(
+            _mark_open_lots_to_market(open_lots, dates[-1], close_prices.iloc[-1])
+        )
+
+    summary = compute_summary(trades, equity_curve, initial_capital=initial_capital)
+    return trades, summary, equity_curve
+
+
 def _direction_at(series, idx, fallback):
     value = series.iloc[idx]
     if pd.isna(value):

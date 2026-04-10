@@ -27,9 +27,6 @@
         <option value="keltner">Keltner Breakout (30/10/1.5)</option>
         <option value="parabolic_sar">Parabolic SAR (0.01/0.01/0.1)</option>
         <option value="cci_trend">CCI Trend (30/80)</option>
-        <option value="red_day_dip">Red day dip (-5%)</option>
-        <option value="regime_router">Regime Router</option>
-        <option value="tone">Tone</option>
         <option value="polymarket">Polymarket Skew</option>
       </select>
       <div class="bt-head-actions">
@@ -43,6 +40,7 @@
     <p class="bt-ribbon-hint" id="bt-ribbon-hint" hidden>
       Trend-Driven is <strong>not</strong> the daily ribbon alone: it only goes long when <strong>daily and weekly</strong> ribbon regimes both agree, then uses cooldowns after exits. The main chart colors are daily-only, so you will often see green price action while this curve stays flat in cash.
     </p>
+    <p class="bt-ribbon-hint" id="bt-confirm-hint" hidden></p>
     <p class="bt-ribbon-hint" id="bt-window-hint" hidden></p>
     <div class="bt-mm-bar" id="bt-mm-bar">
       <label class="bt-mm-label">Sizing</label>
@@ -72,6 +70,12 @@
         <option value="trade">Per Trade</option>
         <option value="monthly">Monthly</option>
         <option value="fixed">Fixed</option>
+      </select>
+      <label class="bt-mm-label">Confirm</label>
+      <select id="bt-confirm-mode" class="inp inp-mm" onchange="onMMChange()">
+        <option value="">Standard</option>
+        <option value="layered_30_70">Daily 30 / Weekly 70</option>
+        <option value="layered_50_50">Daily 50 / Weekly 50</option>
       </select>
     </div>
     <div class="bt-cfg">

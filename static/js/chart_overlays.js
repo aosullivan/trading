@@ -9,7 +9,6 @@ const overlayMap={
   keltner:[()=>keltUpperSeries,()=>keltMidSeries,()=>keltLowerSeries],
   parabolic_sar:[()=>psarBullSeries,()=>psarBearSeries],
   cci_trend:[()=>cciLineSeries],
-  tone:[()=>macdLineSeries,()=>macdSignalSeries,()=>macdHistSeries],
 };
 
 function forEachSeriesRef(seriesRef,cb){

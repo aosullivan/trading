@@ -68,9 +68,14 @@ floors: [docs/benchmark-backtests.md](docs/benchmark-backtests.md).
 | 8 | Keltner Breakout (30/10/1.5) | Close breaks above upper Keltner Channel |
 | 9 | Parabolic SAR (0.01/0.01/0.1) | SAR flip with smoother AF settings |
 | 10 | CCI Trend (30/80) | CCI above +80 = long, below -80 = short |
-| 11 | Red day dip (-5%) | Long when daily return ≤ −5%; flat on first close above prior week’s last close (W-Fri weeks) |
 
 All strategies output a direction signal (1=long, -1=short/flat) and use the same `backtest_direction()` engine.
+
+For daily strategies, the backtest panel also supports staged confirmation modes:
+- `Daily 30 / Weekly 70`
+- `Daily 50 / Weekly 50`
+
+These enter with starter capital on the daily signal, then add the remaining sleeve once the weekly trend confirms. Exits unwind in reverse.
 
 ## Adding a New Strategy
 

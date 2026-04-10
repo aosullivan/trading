@@ -46,14 +46,12 @@ from lib.technical_indicators import (
     compute_parabolic_sar,
     compute_cci_trend,
     compute_trend_ribbon,
-    compute_regime_router,
-    compute_red_day_dip,
-    compute_tone,
 )
 from lib.backtesting import (
     MANAGED_SIZING_METHODS,
     MoneyManagementConfig,
     apply_managed_sizing_defaults,
+    backtest_confirmation_layering,
     backtest_corpus_trend,
     backtest_corpus_trend_layered,
     backtest_direction,
@@ -75,6 +73,42 @@ from lib.trend_ribbon_profile import (
 from lib.support_resistance import compute_support_resistance
 
 bp = Blueprint("chart", __name__)
+
+CONFIRMATION_PRESETS = {
+    "layered_30_70": {
+        "mode": "layered_30_70",
+        "starter_fraction": 0.30,
+        "confirmed_fraction": 0.70,
+        "label": "Daily 30% / Weekly 70%",
+    },
+    "layered_50_50": {
+        "mode": "layered_50_50",
+        "starter_fraction": 0.50,
+        "confirmed_fraction": 0.50,
+        "label": "Daily 50% / Weekly 50%",
+    },
+}
+
+WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
+    {
+        "ribbon",
+        "cb50",
+        "cb150",
+        "sma_10_100",
+        "sma_10_200",
+        "ema_trend",
+        "yearly_ma",
+        "supertrend",
+        "ema_crossover",
+        "macd",
+        "donchian",
+        "corpus_trend",
+        "bb_breakout",
+        "keltner",
+        "parabolic_sar",
+        "cci_trend",
+    }
+)
 
 
 def _elapsed_ms(started_at: float) -> int:
@@ -190,6 +224,38 @@ def _parse_mm_config():
     return MoneyManagementConfig(**apply_managed_sizing_defaults(kwargs))
 
 
+def _parse_confirmation_config():
+    mode = request.args.get("confirm_mode", "")
+    preset = CONFIRMATION_PRESETS.get(mode)
+    return dict(preset) if preset else None
+
+
+def _merge_backtest_meta(*items) -> dict:
+    merged = {}
+    for item in items:
+        if item:
+            merged.update(item)
+    return merged
+
+
+def _confirmation_meta(
+    confirmation_config: dict | None,
+    *,
+    supported: bool,
+) -> dict:
+    if not confirmation_config:
+        return {}
+    meta = {
+        "confirmation_mode": confirmation_config["mode"],
+        "confirmation_label": confirmation_config["label"],
+        "confirmation_supported": supported,
+    }
+    if supported:
+        meta["confirmation_starter_fraction"] = confirmation_config["starter_fraction"]
+        meta["confirmation_confirmed_fraction"] = confirmation_config["confirmed_fraction"]
+    return meta
+
+
 def _uses_visible_range_only_managed_sizing(mm_config: MoneyManagementConfig | None) -> bool:
     return bool(mm_config and mm_config.sizing_method in MANAGED_SIZING_METHODS)
 
@@ -234,8 +300,27 @@ def _strategy_payload(
     return payload
 
 
-def _run_direction_backtest(df_view, direction, full_index, view_index, mm_config=None):
+def _run_direction_backtest(
+    df_view,
+    direction,
+    full_index,
+    view_index,
+    mm_config=None,
+    weekly_direction=None,
+    confirmation_config=None,
+):
     prior_direction = _prior_direction(direction, full_index, view_index)
+    if confirmation_config and weekly_direction is not None:
+        prior_weekly_direction = _prior_direction(weekly_direction, full_index, view_index)
+        return backtest_confirmation_layering(
+            df_view,
+            direction.loc[view_index],
+            weekly_direction.loc[view_index],
+            prior_daily_direction=prior_direction,
+            prior_weekly_direction=prior_weekly_direction,
+            starter_fraction=confirmation_config["starter_fraction"],
+            confirmed_fraction=confirmation_config["confirmed_fraction"],
+        )
     if mm_config is None:
         mm_config = _parse_mm_config()
     if mm_config is not None:
@@ -281,9 +366,27 @@ def _run_ribbon_regime_backtest(
 
 
 def _run_corpus_trend_backtest(
-    df_view, direction, stop_line, full_index, view_index, mm_config=None
+    df_view,
+    direction,
+    stop_line,
+    full_index,
+    view_index,
+    mm_config=None,
+    weekly_direction=None,
+    confirmation_config=None,
 ):
     prior_direction = _prior_direction(direction, full_index, view_index)
+    if confirmation_config and weekly_direction is not None:
+        prior_weekly_direction = _prior_direction(weekly_direction, full_index, view_index)
+        return backtest_confirmation_layering(
+            df_view,
+            direction.loc[view_index],
+            weekly_direction.loc[view_index],
+            prior_daily_direction=prior_direction,
+            prior_weekly_direction=prior_weekly_direction,
+            starter_fraction=confirmation_config["starter_fraction"],
+            confirmed_fraction=confirmation_config["confirmed_fraction"],
+        )
     if mm_config is None:
         mm_config = _parse_mm_config()
     if mm_config is not None:
@@ -401,9 +504,6 @@ def _get_indicator_bundle(
     kelt_upper, kelt_mid, kelt_lower, kelt_direction = compute_keltner_breakout(df)
     psar_line, psar_direction = compute_parabolic_sar(df)
     cci_val, cci_direction = compute_cci_trend(df)
-    regime, rr_direction = compute_regime_router(df)
-    _, _, tone_direction = compute_tone(df)
-    red_day_dip_direction = compute_red_day_dip(df)
     ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(
         df,
         **_trend_ribbon_kwargs(ticker),
@@ -425,9 +525,6 @@ def _get_indicator_bundle(
         "keltner": kelt_direction,
         "parabolic_sar": psar_direction,
         "cci_trend": cci_direction,
-        "regime_router": rr_direction,
-        "tone": tone_direction,
-        "red_day_dip": red_day_dip_direction,
         "ribbon": ribbon_dir,
     }
     bundle = {
@@ -466,10 +563,6 @@ def _get_indicator_bundle(
         "psar_direction": psar_direction,
         "cci_val": cci_val,
         "cci_direction": cci_direction,
-        "regime": regime,
-        "rr_direction": rr_direction,
-        "tone_direction": tone_direction,
-        "red_day_dip_direction": red_day_dip_direction,
         "ribbon_center": ribbon_center,
         "ribbon_upper": ribbon_upper,
         "ribbon_lower": ribbon_lower,
@@ -495,6 +588,46 @@ def _get_weekly_bundle(
     if cached is not None:
         return cached, True
 
+    _supertrend, supertrend_direction = compute_supertrend(
+        df_w,
+        period_val,
+        multiplier_val,
+    )
+    _ema_fast, _ema_slow, ema_direction = compute_ema_crossover(
+        df_w,
+        EMA_FAST_PERIOD,
+        EMA_SLOW_PERIOD,
+    )
+    _macd_line, _signal_line, _macd_hist, macd_direction = compute_macd_crossover(df_w)
+    _donch_upper, _donch_lower, donch_direction = compute_donchian_breakout(
+        df_w,
+        DONCHIAN_PERIOD,
+    )
+    (
+        _corpus_entry_upper,
+        _corpus_exit_lower,
+        _corpus_atr,
+        _corpus_stop_line,
+        corpus_direction,
+    ) = compute_corpus_trend_signal(df_w)
+    _cb50_hc, _cb50_lc, cb50_direction = compute_channel_breakout_close(df_w, CB50_PERIOD)
+    _cb150_hc, _cb150_lc, cb150_direction = compute_channel_breakout_close(df_w, CB150_PERIOD)
+    _sma10, _sma100, sma_10_100_direction = compute_sma_crossover(
+        df_w, SMA_CROSS_FAST_10, SMA_CROSS_SLOW_100,
+    )
+    _sma10_slow, _sma200, sma_10_200_direction = compute_sma_crossover(
+        df_w, SMA_CROSS_FAST_10, SMA_CROSS_SLOW_200,
+    )
+    _ema_trend_ref, _ema_trend_signal, ema_trend_direction = compute_ema_trend_signal(df_w)
+    _yearly_ma, yearly_ma_direction = compute_yearly_ma_trend(df_w)
+    _bb_upper, _bb_mid, _bb_lower, bb_direction = compute_bollinger_breakout(
+        df_w,
+        BOLLINGER_PERIOD,
+        BOLLINGER_STD_DEV,
+    )
+    _kelt_upper, _kelt_mid, _kelt_lower, kelt_direction = compute_keltner_breakout(df_w)
+    _psar_line, psar_direction = compute_parabolic_sar(df_w)
+    _cci_val, cci_direction = compute_cci_trend(df_w)
     sma_w50 = df_w["Close"].rolling(window=50).mean()
     sma_w100 = df_w["Close"].rolling(window=100).mean()
     sma_w200 = df_w["Close"].rolling(window=200).mean()
@@ -502,11 +635,30 @@ def _get_weekly_bundle(
         df_w,
         **_trend_ribbon_kwargs(ticker, timeframe="weekly"),
     )
+    direction_map = {
+        "cb50": cb50_direction,
+        "cb150": cb150_direction,
+        "sma_10_100": sma_10_100_direction,
+        "sma_10_200": sma_10_200_direction,
+        "ema_trend": ema_trend_direction,
+        "yearly_ma": yearly_ma_direction,
+        "supertrend": supertrend_direction,
+        "ema_crossover": ema_direction,
+        "macd": macd_direction,
+        "donchian": donch_direction,
+        "corpus_trend": corpus_direction,
+        "bb_breakout": bb_direction,
+        "keltner": kelt_direction,
+        "parabolic_sar": psar_direction,
+        "cci_trend": cci_direction,
+        "ribbon": ribbon_dir,
+    }
     bundle = {
         "sma_w50": sma_w50,
         "sma_w100": sma_w100,
         "sma_w200": sma_w200,
         "ribbon_dir": ribbon_dir,
+        "directions": direction_map,
         "weekly_flips": compute_all_trend_flips(
             df_w,
             period_val=period_val,
@@ -516,6 +668,19 @@ def _get_weekly_bundle(
     }
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
     return bundle, False
+
+
+def _weekly_direction_for_strategy(
+    weekly_bundle: dict | None,
+    strategy_key: str,
+    daily_index: pd.Index,
+) -> pd.Series | None:
+    if not weekly_bundle:
+        return None
+    weekly_direction = (weekly_bundle.get("directions") or {}).get(strategy_key)
+    if weekly_direction is None:
+        return None
+    return _align_weekly_direction_to_daily(weekly_direction, daily_index)
 
 
 def _resolve_cached_ticker_name(ticker: str) -> str:
@@ -572,7 +737,14 @@ def chart_data():
     multiplier_val = float(request.args.get("multiplier", SUPERTREND_MULTIPLIER))
     mm_sig = ":".join(
         request.args.get(k, "")
-        for k in ("mm_sizing", "mm_stop", "mm_stop_val", "mm_risk_cap", "mm_compound")
+        for k in (
+            "mm_sizing",
+            "mm_stop",
+            "mm_stop_val",
+            "mm_risk_cap",
+            "mm_compound",
+            "confirm_mode",
+        )
     )
     candles_only = request.args.get("candles_only", "").lower() in ("1", "true", "yes")
     candles_cache_key = f"chart:candles:{ticker}:{interval}:{start}:{end or 'latest'}"
@@ -694,6 +866,29 @@ def chart_data():
         return jsonify(payload)
 
     active_mm_config = _parse_mm_config()
+    confirmation_config = _parse_confirmation_config()
+    confirmation_weekly_bundle = None
+    confirmation_weekly_bundle_hit = False
+    if confirmation_config and interval == "1d":
+        try:
+            df_w = _resample_ohlcv(source_df, "W-FRI")
+            if not df_w.empty:
+                if isinstance(df_w.columns, pd.MultiIndex):
+                    df_w.columns = df_w.columns.get_level_values(0)
+                if df_w.index.duplicated().any():
+                    df_w = df_w[~df_w.index.duplicated(keep="last")]
+                confirmation_weekly_bundle, confirmation_weekly_bundle_hit = _get_weekly_bundle(
+                    ticker,
+                    df_w,
+                    period_val,
+                    multiplier_val,
+                )
+        except Exception:
+            current_app.logger.exception(
+                "chart_data confirmation weekly bundle failed ticker=%s interval=%s",
+                ticker,
+                interval,
+            )
 
     # --- Compute all indicators ---
     indicator_bundle, indicator_bundle_hit = _get_indicator_bundle(
@@ -702,6 +897,55 @@ def chart_data():
         df,
         period_val,
         multiplier_val,
+    )
+    weekly_confirmation_supported = interval == "1d" and confirmation_weekly_bundle is not None
+    cb50_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "cb50", df.index
+    )
+    cb150_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "cb150", df.index
+    )
+    sma_10_100_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "sma_10_100", df.index
+    )
+    sma_10_200_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "sma_10_200", df.index
+    )
+    ema_trend_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "ema_trend", df.index
+    )
+    yearly_ma_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "yearly_ma", df.index
+    )
+    supertrend_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "supertrend", df.index
+    )
+    ema_crossover_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "ema_crossover", df.index
+    )
+    macd_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "macd", df.index
+    )
+    donchian_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "donchian", df.index
+    )
+    corpus_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "corpus_trend", df.index
+    )
+    bb_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "bb_breakout", df.index
+    )
+    keltner_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "keltner", df.index
+    )
+    psar_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "parabolic_sar", df.index
+    )
+    cci_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "cci_trend", df.index
+    )
+    ribbon_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "ribbon", df.index
     )
     supertrend = indicator_bundle["supertrend"]
     direction = indicator_bundle["direction"]
@@ -712,7 +956,13 @@ def chart_data():
     ema_slow = indicator_bundle["ema_slow"]
     ema_direction = indicator_bundle["ema_direction"]
     ema_trades, ema_summary, ema_equity_curve = _run_direction_backtest(
-        df_view, ema_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        ema_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=ema_crossover_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     macd_line = indicator_bundle["macd_line"]
@@ -720,19 +970,38 @@ def chart_data():
     macd_hist = indicator_bundle["macd_hist"]
     macd_direction = indicator_bundle["macd_direction"]
     macd_trades, macd_summary, macd_equity_curve = _run_direction_backtest(
-        df_view, macd_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        macd_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=macd_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     donch_upper = indicator_bundle["donch_upper"]
     donch_lower = indicator_bundle["donch_lower"]
     donch_direction = indicator_bundle["donch_direction"]
     donch_trades, donch_summary, donch_equity_curve = _run_direction_backtest(
-        df_view, donch_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        donch_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=donchian_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
     corpus_stop_line = indicator_bundle["corpus_stop_line"]
     corpus_direction = indicator_bundle["corpus_direction"]
     corpus_trend_trades, corpus_trend_summary, corpus_trend_equity_curve = _run_corpus_trend_backtest(
-        df_view, corpus_direction, corpus_stop_line, df.index, df_view.index, active_mm_config
+        df_view,
+        corpus_direction,
+        corpus_stop_line,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=corpus_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
     corpus_trend_layered_trades, corpus_trend_layered_summary, corpus_trend_layered_equity_curve = _run_corpus_trend_layered_backtest(
         df_view, corpus_direction, corpus_stop_line, df.index, df_view.index
@@ -740,32 +1009,68 @@ def chart_data():
 
     cb50_direction = indicator_bundle["cb50_direction"]
     cb50_trades, cb50_summary, cb50_equity_curve = _run_direction_backtest(
-        df_view, cb50_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        cb50_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=cb50_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     cb150_direction = indicator_bundle["cb150_direction"]
     cb150_trades, cb150_summary, cb150_equity_curve = _run_direction_backtest(
-        df_view, cb150_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        cb150_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=cb150_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     sma_10_100_direction = indicator_bundle["sma_10_100_direction"]
     sma_10_100_trades, sma_10_100_summary, sma_10_100_equity_curve = _run_direction_backtest(
-        df_view, sma_10_100_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        sma_10_100_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=sma_10_100_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     sma_10_200_direction = indicator_bundle["sma_10_200_direction"]
     sma_10_200_trades, sma_10_200_summary, sma_10_200_equity_curve = _run_direction_backtest(
-        df_view, sma_10_200_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        sma_10_200_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=sma_10_200_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     ema_trend_direction = indicator_bundle["ema_trend_direction"]
     ema_trend_trades, ema_trend_summary, ema_trend_equity_curve = _run_direction_backtest(
-        df_view, ema_trend_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        ema_trend_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=ema_trend_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     yearly_ma_direction = indicator_bundle["yearly_ma_direction"]
     yearly_ma_trades, yearly_ma_summary, yearly_ma_equity_curve = _run_direction_backtest(
-        df_view, yearly_ma_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        yearly_ma_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=yearly_ma_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     bb_upper = indicator_bundle["bb_upper"]
@@ -773,7 +1078,13 @@ def chart_data():
     bb_lower = indicator_bundle["bb_lower"]
     bb_direction = indicator_bundle["bb_direction"]
     bb_trades, bb_summary, bb_equity_curve = _run_direction_backtest(
-        df_view, bb_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        bb_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=bb_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     kelt_upper = indicator_bundle["kelt_upper"]
@@ -781,34 +1092,37 @@ def chart_data():
     kelt_lower = indicator_bundle["kelt_lower"]
     kelt_direction = indicator_bundle["kelt_direction"]
     kelt_trades, kelt_summary, kelt_equity_curve = _run_direction_backtest(
-        df_view, kelt_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        kelt_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=keltner_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     psar_line = indicator_bundle["psar_line"]
     psar_direction = indicator_bundle["psar_direction"]
     psar_trades, psar_summary, psar_equity_curve = _run_direction_backtest(
-        df_view, psar_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        psar_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=psar_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     cci_val = indicator_bundle["cci_val"]
     cci_direction = indicator_bundle["cci_direction"]
     cci_trades, cci_summary, cci_equity_curve = _run_direction_backtest(
-        df_view, cci_direction, df.index, df_view.index, active_mm_config
-    )
-
-    rr_direction = indicator_bundle["rr_direction"]
-    rr_trades, rr_summary, rr_equity_curve = _run_direction_backtest(
-        df_view, rr_direction, df.index, df_view.index, active_mm_config
-    )
-
-    tone_direction = indicator_bundle["tone_direction"]
-    tone_trades, tone_summary, tone_equity_curve = _run_direction_backtest(
-        df_view, tone_direction, df.index, df_view.index, active_mm_config
-    )
-
-    red_day_dip_direction = indicator_bundle["red_day_dip_direction"]
-    red_day_dip_trades, red_day_dip_summary, red_day_dip_equity_curve = _run_direction_backtest(
-        df_view, red_day_dip_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        cci_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=cci_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
 
     # Polymarket prediction-market signal
@@ -826,7 +1140,13 @@ def chart_data():
     ribbon_dir = indicator_bundle["ribbon_dir"]
     ribbon_backtest_direction = _carry_neutral_direction(ribbon_dir)
     ribbon_trades, ribbon_summary, ribbon_equity_curve = _run_direction_backtest(
-        df_view, ribbon_backtest_direction, df.index, df_view.index, active_mm_config
+        df_view,
+        ribbon_backtest_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=ribbon_weekly_direction,
+        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
     )
     ribbon_hold_equity_curve = None
     mark_phase("indicators_ms")
@@ -965,35 +1285,38 @@ def chart_data():
                     weekly_bundle["ribbon_dir"],
                     df.index,
                 )
-                ribbon_regime_kwargs = trend_ribbon_regime_kwargs(ticker)
-                confirmed_ribbon_direction = build_weekly_confirmed_ribbon_direction(
-                    daily_ribbon_direction,
-                    weekly_ribbon_direction,
-                    reentry_cooldown_bars=ribbon_regime_kwargs[
-                        "reentry_cooldown_bars"
-                    ],
-                    reentry_cooldown_ratio=ribbon_regime_kwargs[
-                        "reentry_cooldown_ratio"
-                    ],
-                    weekly_nonbull_confirm_bars=ribbon_regime_kwargs[
-                        "weekly_nonbull_confirm_bars"
-                    ],
-                    asymmetric_exit=ribbon_regime_kwargs.get(
-                        "asymmetric_exit", False
-                    ),
-                )
-                ribbon_backtest_direction = confirmed_ribbon_direction
-                (
-                    ribbon_trades,
-                    ribbon_summary,
-                    ribbon_equity_curve,
-                ) = _run_ribbon_regime_backtest(
-                    df_view,
-                    confirmed_ribbon_direction,
-                    df.index,
-                    df_view.index,
-                    active_mm_config,
-                )
+                if confirmation_config and weekly_confirmation_supported:
+                    ribbon_backtest_direction = daily_ribbon_direction
+                else:
+                    ribbon_regime_kwargs = trend_ribbon_regime_kwargs(ticker)
+                    confirmed_ribbon_direction = build_weekly_confirmed_ribbon_direction(
+                        daily_ribbon_direction,
+                        weekly_ribbon_direction,
+                        reentry_cooldown_bars=ribbon_regime_kwargs[
+                            "reentry_cooldown_bars"
+                        ],
+                        reentry_cooldown_ratio=ribbon_regime_kwargs[
+                            "reentry_cooldown_ratio"
+                        ],
+                        weekly_nonbull_confirm_bars=ribbon_regime_kwargs[
+                            "weekly_nonbull_confirm_bars"
+                        ],
+                        asymmetric_exit=ribbon_regime_kwargs.get(
+                            "asymmetric_exit", False
+                        ),
+                    )
+                    ribbon_backtest_direction = confirmed_ribbon_direction
+                    (
+                        ribbon_trades,
+                        ribbon_summary,
+                        ribbon_equity_curve,
+                    ) = _run_ribbon_regime_backtest(
+                        df_view,
+                        confirmed_ribbon_direction,
+                        df.index,
+                        df_view.index,
+                        active_mm_config,
+                    )
                 ribbon_hold_equity_curve = buy_hold_equity_curve
     except Exception:
         current_app.logger.exception(
@@ -1107,6 +1430,7 @@ def chart_data():
 
     ribbon_center_data = series_to_json(ribbon_center, df_view.index)
     vol_profile = build_volume_profile(df_view)
+    window_meta_config = None if confirmation_config else active_mm_config
 
     # --- Build payload ---
     payload = {
@@ -1130,88 +1454,154 @@ def chart_data():
                 ribbon_summary,
                 ribbon_equity_curve,
                 buy_hold_equity_curve=ribbon_hold_equity_curve or buy_hold_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    ribbon_backtest_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        ribbon_backtest_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "cb50": _strategy_payload(
                 cb50_trades,
                 cb50_summary,
                 cb50_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    cb50_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        cb50_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "cb150": _strategy_payload(
                 cb150_trades,
                 cb150_summary,
                 cb150_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    cb150_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        cb150_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "sma_10_100": _strategy_payload(
                 sma_10_100_trades,
                 sma_10_100_summary,
                 sma_10_100_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    sma_10_100_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        sma_10_100_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "sma_10_200": _strategy_payload(
                 sma_10_200_trades,
                 sma_10_200_summary,
                 sma_10_200_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    sma_10_200_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        sma_10_200_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "ema_trend": _strategy_payload(
                 ema_trend_trades,
                 ema_trend_summary,
                 ema_trend_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    ema_trend_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        ema_trend_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "yearly_ma": _strategy_payload(
                 yearly_ma_trades,
                 yearly_ma_summary,
                 yearly_ma_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    yearly_ma_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        yearly_ma_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "supertrend": _strategy_payload(
                 trades,
                 summary,
                 equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "ema_crossover": _strategy_payload(
                 ema_trades,
                 ema_summary,
                 ema_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    ema_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        ema_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "macd": _strategy_payload(
                 macd_trades,
                 macd_summary,
                 macd_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    macd_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        macd_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "donchian": _strategy_payload(
                 donch_trades,
                 donch_summary,
                 donch_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    donch_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        donch_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "corpus_trend": _strategy_payload(
@@ -1219,8 +1609,14 @@ def chart_data():
                 corpus_trend_summary,
                 corpus_trend_equity_curve,
                 buy_hold_equity_curve=buy_hold_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    corpus_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        corpus_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "corpus_trend_layered": _strategy_payload(
@@ -1228,69 +1624,79 @@ def chart_data():
                 corpus_trend_layered_summary,
                 corpus_trend_layered_equity_curve,
                 buy_hold_equity_curve=buy_hold_equity_curve,
+                backtest_meta=_confirmation_meta(
+                    confirmation_config,
+                    supported=False,
+                ),
             ),
             "bb_breakout": _strategy_payload(
                 bb_trades,
                 bb_summary,
                 bb_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    bb_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        bb_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "keltner": _strategy_payload(
                 kelt_trades,
                 kelt_summary,
                 kelt_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    kelt_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        kelt_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "parabolic_sar": _strategy_payload(
                 psar_trades,
                 psar_summary,
                 psar_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    psar_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        psar_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "cci_trend": _strategy_payload(
                 cci_trades,
                 cci_summary,
                 cci_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    cci_direction, df.index, df_view.index, active_mm_config
-                ),
-            ),
-            "regime_router": _strategy_payload(
-                rr_trades,
-                rr_summary,
-                rr_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    rr_direction, df.index, df_view.index, active_mm_config
-                ),
-            ),
-            "tone": _strategy_payload(
-                tone_trades,
-                tone_summary,
-                tone_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    tone_direction, df.index, df_view.index, active_mm_config
-                ),
-            ),
-            "red_day_dip": _strategy_payload(
-                red_day_dip_trades,
-                red_day_dip_summary,
-                red_day_dip_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    red_day_dip_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        cci_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=weekly_confirmation_supported,
+                    ),
                 ),
             ),
             "polymarket": _strategy_payload(
                 poly_trades,
                 poly_summary,
                 poly_equity_curve,
-                backtest_meta=_managed_window_metadata(
-                    poly_direction, df.index, df_view.index, active_mm_config
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        poly_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    _confirmation_meta(
+                        confirmation_config,
+                        supported=False,
+                    ),
                 ),
             ),
         },

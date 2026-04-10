@@ -14,9 +14,6 @@ CORPUS_TREND_ENTRY_PERIOD = 55
 CORPUS_TREND_EXIT_PERIOD = 20
 CORPUS_TREND_ATR_PERIOD = 14
 CORPUS_TREND_STOP_MULTIPLIER = 2.0
-RED_DAY_DIP_THRESHOLD = -0.05  # close-to-close, inclusive (≤ -5%)
-# Week-over-week exit: require close > prior week's last close times (1 + eps).
-RED_DAY_DIP_WEEK_EXIT_EPS = 0.0
 BOLLINGER_PERIOD = 30
 BOLLINGER_STD_DEV = 1.5
 KELTNER_EMA_PERIOD = 30
@@ -48,11 +45,6 @@ EMA_TREND_DECAY_DAYS = 105  # ~5 months of trading days
 # Long only when normalized signal exceeds this (0 = paper spec). Used by tests/CI benchmarks.
 EMA_TREND_LONG_THRESHOLD = 0.0
 YEARLY_MA_PERIOD = 252
-# Tone: TD Sequential–style setup vs close[4]; confluence filters (not a commercial MRI clone).
-TONE_TD_LOOKBACK = 4
-TONE_TD_SETUP = 9
-TONE_MA_PERIOD = 128
-TONE_RSI_PERIOD = 14
 
 
 def _compute_wilder_atr(high, low, close, period):
@@ -302,61 +294,6 @@ def compute_corpus_trend_signal(
     return entry_upper, exit_lower, atr, stop_line, direction
 
 
-def _red_day_dip_prior_week_last_close(close: pd.Series) -> pd.Series:
-    """Last close of the prior week (weeks end Friday) for each bar; NaN if unknown."""
-    if close.empty:
-        return pd.Series(dtype=float, index=close.index)
-    period = close.index.to_period("W-FRI")
-    week_last = close.groupby(period, sort=False).last()
-    weeks_chrono = week_last.index.sort_values()
-    prior_last_by_week: dict = {}
-    for j in range(1, len(weeks_chrono)):
-        prior_last_by_week[weeks_chrono[j]] = float(week_last.loc[weeks_chrono[j - 1]])
-    vals = [prior_last_by_week.get(p, np.nan) for p in period]
-    return pd.Series(vals, index=close.index, dtype=float)
-
-
-def compute_red_day_dip(
-    df,
-    threshold=RED_DAY_DIP_THRESHOLD,
-    week_exit_eps=RED_DAY_DIP_WEEK_EXIT_EPS,
-):
-    """Long when daily close-to-close return ≤ threshold (default −5%).
-
-    Stays long across consecutive qualifying dip days until the first bar whose close
-    is above the prior week's last close (week-over-week green), i.e. the first
-    materially positive outcome vs the prior trading week. The first calendar week in
-    the series has no prior reference, so weekly exit does not apply until a second
-    week of data exists.
-
-    Fills next-bar open via backtest_direction.
-    """
-    close = df["Close"]
-    ret = close.pct_change()
-    prior_wk_last = _red_day_dip_prior_week_last_close(close)
-    direction = pd.Series(-1, index=df.index, dtype=int)
-    in_long = False
-    for i in range(len(df)):
-        r = ret.iloc[i]
-        c = float(close.iloc[i])
-        pwl = prior_wk_last.iloc[i]
-
-        exited_this_bar = False
-        if in_long:
-            need = float(pwl) * (1.0 + week_exit_eps) if not pd.isna(pwl) else float("nan")
-            weekly_green = not pd.isna(pwl) and c > need
-            if weekly_green:
-                in_long = False
-                exited_this_bar = True
-
-        if not in_long and not exited_this_bar:
-            if not pd.isna(r) and r <= threshold:
-                in_long = True
-
-        direction.iloc[i] = 1 if in_long else -1
-    return direction
-
-
 def compute_bollinger_breakout(
     df,
     period=BOLLINGER_PERIOD,
@@ -464,132 +401,6 @@ def compute_parabolic_sar(
         direction.iloc[i] = 1 if bull else -1
 
     return sar, direction
-
-
-def _wilder_rsi(close: pd.Series, period: int = TONE_RSI_PERIOD) -> pd.Series:
-    delta = close.diff()
-    gain = delta.clip(lower=0.0)
-    loss = (-delta).clip(lower=0.0)
-    avg_g = gain.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
-    avg_l = loss.ewm(alpha=1.0 / period, min_periods=period, adjust=False).mean()
-    rs = avg_g / avg_l.replace(0, np.nan)
-    return 100.0 - (100.0 / (1.0 + rs))
-
-
-def _tone_is_doji(open_: float, high: float, low: float, close: float, body_frac: float = 0.1) -> bool:
-    rng = high - low
-    if rng <= 0:
-        return False
-    return abs(close - open_) / rng < body_frac
-
-
-def _tone_is_hammer(open_: float, high: float, low: float, close: float) -> bool:
-    body = abs(close - open_)
-    rng = high - low
-    if rng <= 0:
-        return False
-    upper = high - max(open_, close)
-    lower = min(open_, close) - low
-    if body < 1e-12:
-        return lower >= 0.5 * rng and upper <= 0.15 * rng
-    return lower >= 2.0 * body and upper <= body * 1.2
-
-
-def _tone_is_shooting_star(open_: float, high: float, low: float, close: float) -> bool:
-    body = abs(close - open_)
-    rng = high - low
-    if rng <= 0:
-        return False
-    upper = high - max(open_, close)
-    lower = min(open_, close) - low
-    b = max(body, 1e-12)
-    return upper >= 2.0 * b and lower <= b * 1.2
-
-
-def compute_tone(
-    df,
-    td_lookback: int = TONE_TD_LOOKBACK,
-    td_setup: int = TONE_TD_SETUP,
-    ma_period: int = TONE_MA_PERIOD,
-    rsi_period: int = TONE_RSI_PERIOD,
-):
-    """Tone-style confluence: TD setup vs close[td_lookback], RSI, MACD histogram slope, candlesticks, 128 SMA.
-
-    Approximates themes from sequential / exhaustion counting and popular oscillator confluence.
-    This is not a replication of any proprietary MRI implementation.
-    """
-    close = df["Close"]
-    open_ = df["Open"]
-    high = df["High"]
-    low = df["Low"]
-
-    _macd, _sig, macd_hist, _ = compute_macd_crossover(df)
-    rsi = _wilder_rsi(close, rsi_period)
-    sma_long = close.rolling(window=ma_period).mean()
-
-    direction = pd.Series(0, index=df.index, dtype=int)
-    buy_streak = 0
-    sell_streak = 0
-    d = 0
-
-    start = td_lookback
-    for i in range(start, len(df)):
-        c = float(close.iloc[i])
-        c_ref = float(close.iloc[i - td_lookback])
-
-        if c < c_ref:
-            buy_streak += 1
-        else:
-            buy_streak = 0
-        if c > c_ref:
-            sell_streak += 1
-        else:
-            sell_streak = 0
-
-        o = float(open_.iloc[i])
-        h = float(high.iloc[i])
-        l = float(low.iloc[i])
-        cl = c
-
-        r = float(rsi.iloc[i]) if not pd.isna(rsi.iloc[i]) else 50.0
-        ma = sma_long.iloc[i]
-        below_ma = not pd.isna(ma) and cl < float(ma)
-        above_ma = not pd.isna(ma) and cl > float(ma)
-
-        mh = macd_hist.iloc[i]
-        mh1 = macd_hist.iloc[i - 1] if i >= 1 else np.nan
-        mh2 = macd_hist.iloc[i - 2] if i >= 2 else np.nan
-        macd_hist_rising = (
-            not pd.isna(mh)
-            and not pd.isna(mh1)
-            and not pd.isna(mh2)
-            and mh > mh1
-            and mh1 > mh2
-        )
-
-        doji = _tone_is_doji(o, h, l, cl)
-        hammer = _tone_is_hammer(o, h, l, cl)
-        star = _tone_is_shooting_star(o, h, l, cl)
-
-        if buy_streak == td_setup:
-            long_ok = r < 55.0 or doji or hammer or macd_hist_rising
-            if below_ma:
-                long_ok = long_ok and (r < 45.0 or hammer or macd_hist_rising)
-            if long_ok:
-                d = 1
-            buy_streak = 0
-
-        if sell_streak == td_setup:
-            short_ok = r > 45.0 or star
-            if above_ma:
-                short_ok = short_ok and (r > 58.0 or star)
-            if short_ok:
-                d = -1
-            sell_streak = 0
-
-        direction.iloc[i] = d
-
-    return sma_long, rsi, direction
 
 
 def compute_cci_trend(df, period=CCI_PERIOD, threshold=CCI_THRESHOLD):
@@ -758,93 +569,6 @@ def compute_trend_ribbon(
     return center, upper, lower, abs_strength, direction
 
 
-def detect_regime(df, ema_period=21, atr_period=10, adx_period=14, confirm_bars=3):
-    """Classify market regime using fast leading indicators."""
-    high = df["High"]
-    low = df["Low"]
-    close = df["Close"]
-
-    ema = close.ewm(span=ema_period, adjust=False).mean()
-    ema_slope = (ema - ema.shift(confirm_bars)) / ema.shift(confirm_bars) * 100
-
-    hl = high - low
-    hc = (high - close.shift(1)).abs()
-    lc = (low - close.shift(1)).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    atr = tr.rolling(window=atr_period).mean()
-    atr_ma = atr.rolling(window=atr_period * 4).mean()
-    atr_ratio = atr / atr_ma
-
-    plus_dm = high.diff()
-    minus_dm = -low.diff()
-    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
-    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
-
-    atr_adx = tr.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-    plus_di = 100 * (
-        plus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-        / atr_adx
-    )
-    minus_di = 100 * (
-        minus_dm.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-        / atr_adx
-    )
-    dx = (abs(plus_di - minus_di) / (plus_di + minus_di)) * 100
-    adx = dx.ewm(alpha=1 / adx_period, min_periods=adx_period, adjust=False).mean()
-
-    regime = pd.Series("choppy", index=df.index)
-    warmup = max(adx_period * 2, ema_period + confirm_bars, atr_period * 4)
-
-    slope_strong = 1.5
-    slope_trending = 0.4
-    atr_expanding = 1.2
-    atr_contracting = 0.8
-
-    for i in range(warmup, len(df)):
-        slope = abs(ema_slope.iloc[i]) if not pd.isna(ema_slope.iloc[i]) else 0
-        atr_r = atr_ratio.iloc[i] if not pd.isna(atr_ratio.iloc[i]) else 1
-        adx_val = adx.iloc[i] if not pd.isna(adx.iloc[i]) else 0
-
-        if slope > slope_strong and atr_r > atr_expanding:
-            regime.iloc[i] = "strong_trend"
-        elif slope > slope_trending and adx_val > 25:
-            regime.iloc[i] = "strong_trend"
-        elif slope > slope_trending:
-            regime.iloc[i] = "trending"
-        elif atr_r < atr_contracting:
-            regime.iloc[i] = "range_bound"
-        else:
-            regime.iloc[i] = "choppy"
-
-    return regime, adx
-
-
-_STRATEGY_FNS = {
-    "Parabolic SAR": lambda df: compute_parabolic_sar(df)[1],
-    "Supertrend": lambda df: compute_supertrend(df)[1],
-}
-
-
-def compute_regime_router(df):
-    """Route between Supertrend and Parabolic SAR based on regime."""
-    regime, _adx = detect_regime(df)
-    sub_directions = {name: fn(df) for name, fn in _STRATEGY_FNS.items()}
-
-    regime_to_strategy = {
-        "strong_trend": "Parabolic SAR",
-        "trending": "Parabolic SAR",
-        "choppy": "Supertrend",
-        "range_bound": "Supertrend",
-    }
-
-    direction = pd.Series(0, index=df.index)
-    for i in range(len(df)):
-        strat_name = regime_to_strategy[regime.iloc[i]]
-        direction.iloc[i] = sub_directions[strat_name].iloc[i]
-
-    return regime, direction
-
-
 STRATEGIES = {
     "CB50 (50-day)": lambda df: compute_channel_breakout_close(df, CB50_PERIOD)[2],
     "CB150 (150-day)": lambda df: compute_channel_breakout_close(df, CB150_PERIOD)[2],
@@ -860,9 +584,6 @@ STRATEGIES = {
     "Keltner Breakout (30/10/1.5)": lambda df: compute_keltner_breakout(df)[3],
     "Parabolic SAR (0.01/0.01/0.1)": lambda df: compute_parabolic_sar(df)[1],
     "CCI Trend (30/80)": lambda df: compute_cci_trend(df)[1],
-    "Regime Router": lambda df: compute_regime_router(df)[1],
-    "Tone (TD9 + confluence)": lambda df: compute_tone(df)[2],
-    "Red day dip (-5%)": lambda df: compute_red_day_dip(df),
     "Polymarket Signal": lambda df: _polymarket_direction_for_df(df),
 }
 

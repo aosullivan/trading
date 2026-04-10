@@ -9,6 +9,7 @@ from lib.backtesting import (
     _resolve_fixed_fraction_risk_per_share,
     _compute_risk_metrics,
     apply_managed_sizing_defaults,
+    backtest_confirmation_layering,
     backtest_corpus_trend,
     backtest_corpus_trend_layered,
     backtest_direction,
@@ -700,6 +701,76 @@ class TestPortfolioBacktestDirectionAlignment:
             heat_limit=1.0,
         )
         assert result.per_ticker["T"]["summary"]["total_trades"] == 0
+
+
+class TestBacktestConfirmationLayering:
+    def test_scales_from_starter_to_full_when_weekly_confirms(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 110.0, 120.0],
+                "High": [101.0, 111.0, 121.0, 121.0],
+                "Low": [99.0, 99.0, 109.0, 119.0],
+                "Close": [100.0, 110.0, 120.0, 120.0],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        daily = pd.Series([1, 1, 1, 1], index=idx)
+        weekly = pd.Series([-1, 1, 1, 1], index=idx)
+
+        trades, summary, equity = backtest_confirmation_layering(
+            df,
+            daily,
+            weekly,
+            prior_daily_direction=-1,
+            prior_weekly_direction=-1,
+            starter_fraction=0.30,
+            confirmed_fraction=0.70,
+        )
+
+        assert [trade["sleeve"] for trade in trades] == ["starter", "confirmed"]
+        assert trades[0]["entry_date"] == "2024-01-02"
+        assert trades[0]["quantity"] == pytest.approx((INITIAL_CAPITAL * 0.30) / 100.0)
+        assert trades[1]["entry_date"] == "2024-01-03"
+        assert trades[1]["quantity"] == pytest.approx((INITIAL_CAPITAL * 0.70) / 110.0)
+        assert summary["open_trades"] == 2
+        assert equity[-1]["value"] == pytest.approx(11236.36, rel=1e-4)
+
+    def test_scales_back_to_starter_when_weekly_confirmation_breaks(self):
+        idx = pd.date_range("2024-01-01", periods=5, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 110.0, 115.0, 118.0],
+                "High": [101.0, 111.0, 116.0, 119.0, 119.0],
+                "Low": [99.0, 99.0, 109.0, 114.0, 117.0],
+                "Close": [100.0, 110.0, 115.0, 118.0, 118.0],
+                "Volume": [1, 1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        daily = pd.Series([1, 1, 1, 1, 1], index=idx)
+        weekly = pd.Series([1, 1, -1, -1, -1], index=idx)
+
+        trades, summary, equity = backtest_confirmation_layering(
+            df,
+            daily,
+            weekly,
+            prior_daily_direction=-1,
+            prior_weekly_direction=-1,
+            starter_fraction=0.30,
+            confirmed_fraction=0.70,
+        )
+
+        confirmed_trade = next(trade for trade in trades if trade["sleeve"] == "confirmed")
+        starter_trade = next(trade for trade in trades if trade["sleeve"] == "starter")
+
+        assert confirmed_trade["entry_date"] == "2024-01-02"
+        assert confirmed_trade["exit_date"] == "2024-01-04"
+        assert starter_trade["open"] is True
+        assert summary["total_trades"] == 1
+        assert summary["open_trades"] == 1
+        assert equity[-1]["value"] == pytest.approx(11590.0, rel=1e-4)
 
 
 class TestBacktestManaged:

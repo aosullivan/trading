@@ -28,6 +28,7 @@ function syncBacktestReportURL(){
   }
   if(mm?.riskCap)p.set('mm_risk_cap',mm.riskCap);
   if(mm?.compound&&mm.compound!=='trade')p.set('mm_compound',mm.compound);
+  if(mm?.confirmMode)p.set('confirm_mode',mm.confirmMode);
   history.replaceState(null,'',`?${p.toString()}`);
 }
 
@@ -60,6 +61,7 @@ function readBacktestReportParams(){
       stopVal:p.get('mm_stop_val')||'',
       riskCap:p.get('mm_risk_cap')||'',
       compound:p.get('mm_compound')||'trade',
+      confirmMode:p.get('confirm_mode')||'',
     });
   }
   const select=document.getElementById('strategy-select');

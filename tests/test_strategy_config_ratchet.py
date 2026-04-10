@@ -96,6 +96,9 @@ def test_backtest_template_and_js_match_pinned_config_contract(client, config_ra
     assert _extract_select_options(page, "mm-compound") == [
         (option["value"], option["label"]) for option in mm["compound"]["options"]
     ]
+    assert _extract_select_options(page, "bt-confirm-mode") == [
+        (option["value"], option["label"]) for option in mm["confirmation"]["options"]
+    ]
 
     stop_input_match = re.search(
         r'<input[^>]*id="mm-stop-val"[^>]*value="([^"]+)"',
@@ -118,11 +121,14 @@ def test_backtest_template_and_js_match_pinned_config_contract(client, config_ra
     assert "stopVal:p.get('mm_stop_val')||''" in backtest_report_js
     assert "riskCap:p.get('mm_risk_cap')||''" in backtest_report_js
     assert "compound:p.get('mm_compound')||'trade'" in backtest_report_js
+    assert "confirmMode:p.get('confirm_mode')||''" in backtest_report_js
     assert "if(mm?.sizing)p.set('mm_sizing',mm.sizing);" in backtest_report_js
     assert "p.set('mm_stop',mm.stop);" in backtest_report_js
     assert "p.set('mm_stop_val',mm.stopVal);" in backtest_report_js
     assert "if(mm?.riskCap)p.set('mm_risk_cap',mm.riskCap);" in backtest_report_js
     assert "if(mm?.compound&&mm.compound!=='trade')p.set('mm_compound',mm.compound);" in backtest_report_js
+    assert "if(mm.confirmMode)p.set('confirm_mode',mm.confirmMode);" in backtest_panel_js
+    assert "if(mm?.confirmMode)p.set('confirm_mode',mm.confirmMode);" in backtest_report_js
 
 
 def test_chart_route_matches_pinned_strategy_inventory(
