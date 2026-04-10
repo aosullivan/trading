@@ -55,6 +55,7 @@ from lib.backtesting import (
     MoneyManagementConfig,
     apply_managed_sizing_defaults,
     backtest_corpus_trend,
+    backtest_corpus_trend_layered,
     backtest_direction,
     backtest_managed,
     build_weekly_confirmed_ribbon_direction,
@@ -294,6 +295,19 @@ def _run_corpus_trend_backtest(
             **managed_kwargs,
         )
     return backtest_corpus_trend(
+        df_view,
+        direction.loc[view_index],
+        stop_line.loc[view_index],
+        start_in_position=prior_direction == 1,
+        prior_direction=prior_direction,
+    )
+
+
+def _run_corpus_trend_layered_backtest(
+    df_view, direction, stop_line, full_index, view_index
+):
+    prior_direction = _prior_direction(direction, full_index, view_index)
+    return backtest_corpus_trend_layered(
         df_view,
         direction.loc[view_index],
         stop_line.loc[view_index],
@@ -719,6 +733,9 @@ def chart_data():
     corpus_direction = indicator_bundle["corpus_direction"]
     corpus_trend_trades, corpus_trend_summary, corpus_trend_equity_curve = _run_corpus_trend_backtest(
         df_view, corpus_direction, corpus_stop_line, df.index, df_view.index, active_mm_config
+    )
+    corpus_trend_layered_trades, corpus_trend_layered_summary, corpus_trend_layered_equity_curve = _run_corpus_trend_layered_backtest(
+        df_view, corpus_direction, corpus_stop_line, df.index, df_view.index
     )
 
     cb50_direction = indicator_bundle["cb50_direction"]
@@ -1205,6 +1222,12 @@ def chart_data():
                 backtest_meta=_managed_window_metadata(
                     corpus_direction, df.index, df_view.index, active_mm_config
                 ),
+            ),
+            "corpus_trend_layered": _strategy_payload(
+                corpus_trend_layered_trades,
+                corpus_trend_layered_summary,
+                corpus_trend_layered_equity_curve,
+                buy_hold_equity_curve=buy_hold_equity_curve,
             ),
             "bb_breakout": _strategy_payload(
                 bb_trades,

@@ -226,11 +226,12 @@ function ensureBTChart(){
     layout:{background:{color:'#10131d'},textColor:'#6a7090',fontFamily:'Inter,sans-serif'},
     grid:{vertLines:{color:'#181c28'},horzLines:{color:'#181c28'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal,vertLine:{color:'#5b7fff22',labelBackgroundColor:'#5b7fff'},horzLine:{color:'#5b7fff22',labelBackgroundColor:'#5b7fff'}},
-    leftPriceScale:{visible:false,borderColor:'#1c1f30',scaleMargins:{top:.12,bottom:.08},entireTextOnly:true},
+    leftPriceScale:{visible:true,borderColor:'#1c1f30',scaleMargins:{top:.12,bottom:.08},entireTextOnly:true},
     rightPriceScale:{borderColor:'#1c1f30',scaleMargins:{top:.12,bottom:.08},entireTextOnly:true},
     timeScale:{borderColor:'#1c1f30',timeVisible:false,secondsVisible:false},
   });
   btPriceSeries=btEquityChart.addCandlestickSeries({
+    priceScaleId:'left',
     upColor:'#00e68a',
     downColor:'#ff5274',
     borderUpColor:'#00e68a',

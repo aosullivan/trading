@@ -591,6 +591,251 @@ def backtest_corpus_trend(
     return trades, summary, equity_curve
 
 
+def backtest_corpus_trend_layered(
+    df,
+    direction,
+    stop_line,
+    start_in_position=False,
+    prior_direction=None,
+):
+    """Backtest a layered corpus-trend variant with staged entries and trims."""
+    if df.empty:
+        summary = compute_summary([], [], initial_capital=INITIAL_CAPITAL)
+        return [], summary, []
+
+    direction = direction.reindex(df.index).ffill().fillna(-1).astype(int)
+    stop_line = stop_line.reindex(df.index)
+    open_prices = df["Open"]
+    close_prices = df["Close"]
+    dates = df.index
+
+    trades = []
+    equity_curve = []
+    cash = float(INITIAL_CAPITAL)
+    open_lots = []
+    core_weight = 0.50
+    add1_weight = 0.25
+    add2_weight = 0.25
+
+    initial_prev_dir = prior_direction
+    if initial_prev_dir is None:
+        initial_prev_dir = 1 if start_in_position else int(direction.iloc[0])
+
+    breakout_close = None
+    add1_reference_close = None
+    add1_reentry_anchor = None
+    add2_reentry_anchor = None
+    pullback_floor_close = None
+    highest_close_since_entry = None
+    pullback_seen_after_add1 = False
+
+    def _reset_cycle_state():
+        nonlocal breakout_close, add1_reference_close, highest_close_since_entry
+        nonlocal add1_reentry_anchor, add2_reentry_anchor, pullback_floor_close
+        nonlocal pullback_seen_after_add1
+        breakout_close = None
+        add1_reference_close = None
+        add1_reentry_anchor = None
+        add2_reentry_anchor = None
+        pullback_floor_close = None
+        highest_close_since_entry = None
+        pullback_seen_after_add1 = False
+
+    def _buy_target_weight(weight, execution_idx, sleeve):
+        nonlocal cash, highest_close_since_entry
+        execution_price = round(float(open_prices.iloc[execution_idx]), 2)
+        if execution_price <= 0:
+            return False
+        budget = min(cash, INITIAL_CAPITAL * weight)
+        if budget <= 0:
+            return False
+        _buy_lot(open_lots, dates[execution_idx], execution_price, budget, sleeve=sleeve)
+        cash -= budget
+        highest_close_since_entry = max(
+            highest_close_since_entry or float(close_prices.iloc[execution_idx]),
+            float(close_prices.iloc[execution_idx]),
+        )
+        return True
+
+    def _sell_sleeve(sleeve, execution_idx):
+        nonlocal cash
+        execution_price = round(float(open_prices.iloc[execution_idx]), 2)
+        if execution_price <= 0:
+            return 0.0
+        proceeds = _sell_fraction(
+            open_lots,
+            trades,
+            dates[execution_idx],
+            execution_price,
+            1.0,
+            sleeve=sleeve,
+        )
+        cash += proceeds
+        return proceeds
+
+    def _sell_all(execution_idx):
+        nonlocal cash
+        execution_price = round(float(open_prices.iloc[execution_idx]), 2)
+        if execution_price <= 0:
+            return 0.0
+        proceeds = _sell_fraction(
+            open_lots,
+            trades,
+            dates[execution_idx],
+            execution_price,
+            1.0,
+        )
+        cash += proceeds
+        return proceeds
+
+    if start_in_position:
+        _buy_target_weight(core_weight, 0, "core")
+        _buy_target_weight(add1_weight, 0, "add_1")
+        _buy_target_weight(add2_weight, 0, "add_2")
+        breakout_close = float(close_prices.iloc[0])
+        add1_reference_close = float(close_prices.iloc[0])
+        highest_close_since_entry = float(close_prices.iloc[0])
+
+    for i in range(len(df)):
+        close_price = float(close_prices.iloc[i])
+        stop_value = stop_line.iloc[i]
+        stop_value = float(stop_value) if pd.notna(stop_value) else None
+
+        if open_lots:
+            highest_close_since_entry = max(
+                highest_close_since_entry or close_price,
+                close_price,
+            )
+            if (
+                _position_quantity(open_lots, sleeve="add_1") > 0
+                and _position_quantity(open_lots, sleeve="add_2") == 0
+                and stop_value is not None
+                and close_price > stop_value * 1.04
+                and highest_close_since_entry
+                and close_price < highest_close_since_entry * 0.975
+            ):
+                pullback_seen_after_add1 = True
+                pullback_floor_close = close_price
+
+        market_value = sum(lot["quantity"] * close_price for lot in open_lots)
+        equity_curve.append(
+            {"time": int(dates[i].timestamp()), "value": round(cash + market_value, 2)}
+        )
+
+        if i >= len(df) - 1:
+            continue
+
+        prev_dir = initial_prev_dir if i == 0 else int(direction.iloc[i - 1])
+        curr_dir = int(direction.iloc[i])
+        next_idx = i + 1
+        prev_close = float(close_prices.iloc[i - 1]) if i > 0 else close_price
+        add2_active = _position_quantity(open_lots, sleeve="add_2") > 0
+        add1_active = _position_quantity(open_lots, sleeve="add_1") > 0
+        core_active = _position_quantity(open_lots, sleeve="core") > 0
+
+        if prev_dir == 1 and curr_dir != 1 and open_lots:
+            _sell_all(next_idx)
+            _reset_cycle_state()
+            continue
+
+        if prev_dir != 1 and curr_dir == 1 and not open_lots:
+            breakout_close = close_price
+            highest_close_since_entry = close_price
+            _buy_target_weight(core_weight, next_idx, "core")
+            continue
+
+        if not core_active:
+            continue
+
+        if add2_active:
+            close_to_stop = (
+                stop_value is not None
+                and close_price <= stop_value * 1.005
+                and close_price < prev_close
+            )
+            failed_extension = (
+                highest_close_since_entry is not None
+                and close_price <= highest_close_since_entry * 0.945
+                and close_price < prev_close
+            )
+            if close_to_stop or failed_extension:
+                _sell_sleeve("add_2", next_idx)
+                add2_reentry_anchor = close_price
+                pullback_seen_after_add1 = True
+                pullback_floor_close = close_price
+                continue
+
+        if add1_active and not add2_active:
+            close_to_stop = (
+                stop_value is not None
+                and close_price <= stop_value * 0.995
+                and close_price < prev_close
+            )
+            channel_weakness = (
+                breakout_close is not None
+                and close_price <= breakout_close * 1.005
+                and close_price < prev_close
+            )
+            if close_to_stop or channel_weakness:
+                _sell_sleeve("add_1", next_idx)
+                add1_reentry_anchor = close_price
+                add2_reentry_anchor = close_price
+                pullback_seen_after_add1 = False
+                pullback_floor_close = None
+                continue
+
+        if not add1_active:
+            add1_anchor = add1_reentry_anchor if add1_reentry_anchor is not None else breakout_close
+            continuation_breakout = (
+                add1_anchor is not None
+                and close_price >= add1_anchor * 1.005
+                and close_price > prev_close
+            )
+            constructive_recovery = (
+                add1_reentry_anchor is not None
+                and stop_value is not None
+                and close_price > prev_close
+                and close_price > stop_value * 1.03
+            )
+            if continuation_breakout or constructive_recovery:
+                if _buy_target_weight(add1_weight, next_idx, "add_1"):
+                    add1_reference_close = close_price
+                    add1_reentry_anchor = None
+                    if add2_reentry_anchor is None:
+                        add2_reentry_anchor = close_price
+                continue
+
+        if add1_active and not add2_active:
+            add2_anchor = add2_reentry_anchor if add2_reentry_anchor is not None else add1_reference_close
+            continuation_breakout = (
+                add2_anchor is not None
+                and close_price >= add2_anchor * 1.01
+                and close_price > prev_close
+            )
+            constructive_recovery = (
+                pullback_seen_after_add1
+                and stop_value is not None
+                and close_price > prev_close
+                and close_price > stop_value * 1.04
+                and (
+                    pullback_floor_close is None
+                    or close_price >= pullback_floor_close * 1.03
+                )
+            )
+            if continuation_breakout or constructive_recovery:
+                if _buy_target_weight(add2_weight, next_idx, "add_2"):
+                    add2_reentry_anchor = None
+                    pullback_seen_after_add1 = False
+                    pullback_floor_close = None
+                continue
+
+    if open_lots:
+        trades.extend(
+            _mark_open_lots_to_market(open_lots, dates[-1], close_prices.iloc[-1])
+        )
+
+    summary = compute_summary(trades, equity_curve)
+    return trades, summary, equity_curve
 
 
 def backtest_managed(

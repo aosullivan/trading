@@ -10,6 +10,7 @@ from lib.backtesting import (
     _compute_risk_metrics,
     apply_managed_sizing_defaults,
     backtest_corpus_trend,
+    backtest_corpus_trend_layered,
     backtest_direction,
     backtest_managed,
     backtest_ribbon_accumulation,
@@ -195,6 +196,85 @@ class TestBacktestCorpusTrend:
         assert trades[0]["quantity"] == pytest.approx(98.03921569, rel=1e-6)
         assert summary["open_trades"] == 1
         assert equity[-1]["value"] == pytest.approx(10196.08, rel=1e-4)
+
+
+class TestBacktestCorpusTrendLayered:
+    def test_keeps_core_durable_and_only_trims_add1_on_stronger_weakness(self):
+        idx = pd.date_range("2024-01-01", periods=9, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 102.0, 103.0, 106.0, 104.0, 107.0, 103.0, 101.0, 99.0],
+                "High": [101.0, 103.0, 107.0, 107.0, 108.0, 108.0, 104.0, 102.0, 100.0],
+                "Low": [99.0, 101.0, 102.0, 103.0, 103.0, 102.0, 100.0, 98.0, 96.0],
+                "Close": [100.0, 102.0, 106.0, 104.0, 107.0, 103.0, 101.0, 99.0, 98.0],
+                "Volume": [1] * 9,
+            },
+            index=idx,
+        )
+        direction = pd.Series([-1, 1, 1, 1, 1, 1, 1, -1, -1], index=idx)
+        stop_line = pd.Series([np.nan, 98.0, 100.0, 101.0, 102.0, 100.0, 99.5, 98.0, 97.0], index=idx)
+
+        trades, summary, equity = backtest_corpus_trend_layered(df, direction, stop_line)
+
+        assert [trade["sleeve"] for trade in trades] == ["add_1", "core"]
+        assert trades[0]["entry_date"] == "2024-01-04"
+        assert trades[0]["exit_date"] == "2024-01-08"
+        assert trades[1]["entry_date"] == "2024-01-03"
+        assert trades[1]["exit_date"] == "2024-01-09"
+        assert trades[1]["quantity"] == pytest.approx((INITIAL_CAPITAL * 0.5) / 103.0, rel=1e-6)
+        assert summary["total_trades"] == 2
+        assert summary["open_trades"] == 0
+        assert len(equity) == len(df)
+
+    def test_rearms_add2_after_trim_on_constructive_recovery(self):
+        idx = pd.date_range("2024-01-01", periods=12, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 101.0, 103.0, 107.0, 111.0, 103.0, 104.0, 108.0, 109.0, 111.0, 112.0, 110.0],
+                "High": [101.0, 103.0, 107.0, 111.0, 112.0, 104.0, 109.0, 110.0, 112.0, 113.0, 113.0, 111.0],
+                "Low": [99.0, 100.0, 102.0, 106.0, 102.0, 102.0, 103.0, 107.0, 108.0, 110.0, 109.0, 107.0],
+                "Close": [100.0, 102.0, 106.0, 110.0, 103.0, 104.0, 108.0, 109.0, 111.0, 112.0, 110.0, 108.0],
+                "Volume": [1] * 12,
+            },
+            index=idx,
+        )
+        direction = pd.Series([-1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, -1], index=idx)
+        stop_line = pd.Series([np.nan, 98.0, 100.0, 102.0, 101.0, 101.0, 102.0, 103.0, 104.0, 105.0, 105.0, 104.0], index=idx)
+
+        trades, summary, _ = backtest_corpus_trend_layered(df, direction, stop_line)
+
+        add2_trades = [trade for trade in trades if trade["sleeve"] == "add_2"]
+        assert len(add2_trades) == 2
+        assert add2_trades[0]["entry_date"] == "2024-01-05"
+        assert add2_trades[0]["exit_date"] == "2024-01-06"
+        assert add2_trades[1]["entry_date"] == "2024-01-08"
+        assert add2_trades[1]["open"] is True
+        assert summary["open_trades"] == 3
+        assert summary["total_trades"] == 1
+
+    def test_marks_each_open_sleeve_to_last_close(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 102.0, 103.0, 106.0, 104.0, 108.0],
+                "High": [101.0, 103.0, 107.0, 107.0, 109.0, 109.0],
+                "Low": [99.0, 101.0, 102.0, 103.0, 103.0, 107.0],
+                "Close": [100.0, 102.0, 106.0, 104.0, 108.0, 109.0],
+                "Volume": [1] * 6,
+            },
+            index=idx,
+        )
+        direction = pd.Series([-1, 1, 1, 1, 1, 1], index=idx)
+        stop_line = pd.Series([np.nan, 98.0, 100.0, 101.0, 103.0, 104.0], index=idx)
+
+        trades, summary, equity = backtest_corpus_trend_layered(df, direction, stop_line)
+
+        assert len(trades) == 3
+        assert all(trade["open"] is True for trade in trades)
+        assert {trade["sleeve"] for trade in trades} == {"core", "add_1", "add_2"}
+        assert summary["total_trades"] == 0
+        assert summary["open_trades"] == 3
+        assert equity[-1]["value"] > INITIAL_CAPITAL
 
 
 class TestBacktestRibbonAccumulation:

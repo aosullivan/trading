@@ -235,11 +235,13 @@ class TestBacktestPanel:
         try:
             select = popup.locator("#strategy-select")
             options = select.locator("option")
-            assert options.count() == 19
+            assert options.count() == 21
             assert options.first.get_attribute("value") == "ribbon"
             assert options.first.text_content().strip() == "Trend-Driven"
             assert options.nth(1).get_attribute("value") == "corpus_trend"
             assert options.nth(1).text_content().strip() == "Corpus Trend (Donchian/ATR)"
+            assert options.nth(2).get_attribute("value") == "corpus_trend_layered"
+            assert options.nth(2).text_content().strip() == "Corpus Trend Layered"
         finally:
             popup.close()
 

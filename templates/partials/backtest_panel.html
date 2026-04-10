@@ -12,6 +12,7 @@
       <select id="strategy-select" class="inp" style="font-size:11px;padding:4px 8px;border-radius:20px" onchange="switchStrategy(this.value)">
         <option value="ribbon">Trend-Driven</option>
         <option value="corpus_trend">Corpus Trend (Donchian/ATR)</option>
+        <option value="corpus_trend_layered">Corpus Trend Layered</option>
         <option value="cb50">Channel Breakout 50</option>
         <option value="cb150">Channel Breakout 150</option>
         <option value="sma_10_100">SMA 10/100 Cross</option>
@@ -102,7 +103,7 @@
 		          <div class="bt-equity-head">
 		              <span>Equity Curve</span>
 		              <div class="bt-equity-meta">
-		                <span class="bt-equity-key"><i class="bt-equity-dot bt-equity-dot-price"></i>Price (Rebased)</span>
+		                <span class="bt-equity-key"><i class="bt-equity-dot bt-equity-dot-price"></i>Asset Price</span>
 		                <span class="bt-equity-key"><i class="bt-equity-dot bt-equity-dot-strategy"></i>Strategy</span>
 		                <span class="bt-equity-key"><i class="bt-equity-dot bt-equity-dot-hold"></i>Buy &amp; Hold</span>
 		                <span class="bt-equity-sub" id="bt-equity-range">Selected range</span>

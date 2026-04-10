@@ -10,6 +10,7 @@
   "strategy_options": [
     {"value": "ribbon", "label": "Trend-Driven"},
     {"value": "corpus_trend", "label": "Corpus Trend (Donchian/ATR)"},
+    {"value": "corpus_trend_layered", "label": "Corpus Trend Layered"},
     {"value": "cb50", "label": "Channel Breakout 50"},
     {"value": "cb150", "label": "Channel Breakout 150"},
     {"value": "sma_10_100", "label": "SMA 10/100 Cross"},
@@ -91,6 +92,7 @@
       "macd",
       "donchian",
       "corpus_trend",
+      "corpus_trend_layered",
       "bb_breakout",
       "keltner",
       "parabolic_sar",
@@ -102,7 +104,8 @@
     ],
     "strategy_keys_with_local_buy_hold": [
       "ribbon",
-      "corpus_trend"
+      "corpus_trend",
+      "corpus_trend_layered"
     ]
   }
 }

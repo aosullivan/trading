@@ -452,6 +452,7 @@ class TestChartAPI:
         expected_keys = [
             "ribbon",
             "corpus_trend",
+            "corpus_trend_layered",
             "cb50", "cb150", "sma_10_100", "sma_10_200",
             "ema_trend", "yearly_ma",
             "supertrend", "ema_crossover", "macd",
@@ -465,6 +466,7 @@ class TestChartAPI:
             assert "equity_curve" in strategies[key]
 
         assert "buy_hold_equity_curve" in strategies["corpus_trend"]
+        assert "buy_hold_equity_curve" in strategies["corpus_trend_layered"]
 
     @patch("lib.cache.yf.Ticker")
     @patch("lib.cache.yf.download")

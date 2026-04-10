@@ -126,14 +126,14 @@ def test_backtest_equity_chart_renders_buy_hold_comparison_series():
     load_source = CHART_LOAD_JS_PATH.read_text()
 
     assert "btPriceSeries=btEquityChart.addCandlestickSeries" in core_source
-    assert "leftPriceScale:{visible:false" in "".join(core_source.split())
+    assert "leftPriceScale:{visible:true" in "".join(core_source.split())
+    assert "priceScaleId:'left'" in core_source
     assert "btHoldSeries=btEquityChart.addLineSeries" in core_source
-    assert "function buildRebasedPriceCandles(candles,holdPoints){" in panel_source
     assert "function renderEquityCurve(points,holdPoints,trades){" in panel_source
-    assert "btPriceSeries.setData(buildRebasedPriceCandles(_lastCandles&&_lastCandles.length?_lastCandles:[],holdPoints||[]));" in panel_source
+    assert "btPriceSeries.setData(_lastCandles&&_lastCandles.length?_lastCandles:[]);" in panel_source
     assert "btHoldSeries.setData(holdPoints||[]);" in panel_source
     assert "btEquitySeries.setMarkers(buildBTTradeMarkers(trades));" in panel_source
-    assert "Price (Rebased)" in partial_source
+    assert "Asset Price" in partial_source
     assert "Buy &amp; Hold" in partial_source
     compact_load_source = "".join(load_source.split())
     assert (

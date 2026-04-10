@@ -112,6 +112,17 @@ def test_backtest_template_and_js_match_pinned_config_contract(client, config_ra
     assert f"const BT_DEFAULT_STRATEGY='{default_strategy}';" in backtest_panel_js
     assert "p.get('strategy')||BT_DEFAULT_STRATEGY" in backtest_report_js
     assert "activeBacktestStrat=BT_DEFAULT_STRATEGY;" in backtest_report_js
+    assert "applyMMParams({" in backtest_report_js
+    assert "sizing:p.get('mm_sizing')||''" in backtest_report_js
+    assert "stop:p.get('mm_stop')||''" in backtest_report_js
+    assert "stopVal:p.get('mm_stop_val')||''" in backtest_report_js
+    assert "riskCap:p.get('mm_risk_cap')||''" in backtest_report_js
+    assert "compound:p.get('mm_compound')||'trade'" in backtest_report_js
+    assert "if(mm?.sizing)p.set('mm_sizing',mm.sizing);" in backtest_report_js
+    assert "p.set('mm_stop',mm.stop);" in backtest_report_js
+    assert "p.set('mm_stop_val',mm.stopVal);" in backtest_report_js
+    assert "if(mm?.riskCap)p.set('mm_risk_cap',mm.riskCap);" in backtest_report_js
+    assert "if(mm?.compound&&mm.compound!=='trade')p.set('mm_compound',mm.compound);" in backtest_report_js
 
 
 def test_chart_route_matches_pinned_strategy_inventory(

@@ -50,17 +50,42 @@ function buildMMQueryString(){
   return parts.join('&');
 }
 
-function onMMChange(){
-  // Show/hide stop params
+function syncMMStopControls(preserveStopValue=false){
   const stopType=document.getElementById('mm-stop')?.value;
   const paramsEl=document.getElementById('mm-stop-params');
   if(paramsEl)paramsEl.style.display=stopType?'flex':'none';
-  // Update placeholder based on stop type
   const stopInput=document.getElementById('mm-stop-val');
-  if(stopInput){
-    if(stopType==='atr'){stopInput.value='3';stopInput.title='ATR multiple';stopInput.step='0.5'}
-    else if(stopType==='pct'){stopInput.value='5';stopInput.title='Stop loss %';stopInput.step='1'}
+  if(!stopInput)return;
+  if(stopType==='atr'){
+    stopInput.title='ATR multiple';
+    stopInput.step='0.5';
+    if(!preserveStopValue)stopInput.value='3';
+  }else if(stopType==='pct'){
+    stopInput.title='Stop loss %';
+    stopInput.step='1';
+    if(!preserveStopValue)stopInput.value='5';
   }
+}
+
+function applyMMParams(params={}){
+  const sizingEl=document.getElementById('mm-sizing');
+  const stopEl=document.getElementById('mm-stop');
+  const stopInput=document.getElementById('mm-stop-val');
+  const riskCapEl=document.getElementById('mm-risk-cap');
+  const compoundEl=document.getElementById('mm-compound');
+  if(sizingEl)sizingEl.value=params.sizing||'';
+  if(stopEl)stopEl.value=params.stop||'';
+  syncMMStopControls(Boolean(params.stop));
+  if(stopInput&&params.stop){
+    stopInput.value=params.stopVal||stopInput.value||'3';
+  }
+  if(riskCapEl)riskCapEl.value=params.riskCap||'';
+  if(compoundEl)compoundEl.value=params.compound||'trade';
+  _lastMMParams=buildMMQueryString();
+}
+
+function onMMChange(){
+  syncMMStopControls();
   // Trigger reload if params actually changed
   const newParams=buildMMQueryString();
   if(newParams!==_lastMMParams){
@@ -241,26 +266,10 @@ function buildBTTradeMarkers(trades){
   }).sort((a,b)=>a.time-b.time);
 }
 
-function buildRebasedPriceCandles(candles,holdPoints){
-  if(!candles||!candles.length)return [];
-  if(!holdPoints||!holdPoints.length)return candles;
-  const firstClose=Number(candles[0]?.close||0);
-  const firstHoldValue=Number(holdPoints[0]?.value||0);
-  if(!(firstClose>0)||!(firstHoldValue>0))return candles;
-  const scale=firstHoldValue/firstClose;
-  return candles.map(c=>({
-    time:c.time,
-    open:Number((Number(c.open||0)*scale).toFixed(2)),
-    high:Number((Number(c.high||0)*scale).toFixed(2)),
-    low:Number((Number(c.low||0)*scale).toFixed(2)),
-    close:Number((Number(c.close||0)*scale).toFixed(2)),
-  }));
-}
-
 function renderEquityCurve(points,holdPoints,trades){
   if(!btEquityChart||!btEquitySeries) return;
   if(btPriceSeries){
-    btPriceSeries.setData(buildRebasedPriceCandles(_lastCandles&&_lastCandles.length?_lastCandles:[],holdPoints||[]));
+    btPriceSeries.setData(_lastCandles&&_lastCandles.length?_lastCandles:[]);
   }
   btEquitySeries.setData(points);
   btEquitySeries.setMarkers(buildBTTradeMarkers(trades));

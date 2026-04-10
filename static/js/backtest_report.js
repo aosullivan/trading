@@ -20,6 +20,14 @@ function syncBacktestReportURL(){
   p.set('period',btReportState.period);
   p.set('multiplier',btReportState.multiplier);
   p.set('strategy',activeBacktestStrat||BT_DEFAULT_STRATEGY);
+  const mm=typeof getMMParams==='function'?getMMParams():null;
+  if(mm?.sizing)p.set('mm_sizing',mm.sizing);
+  if(mm?.stop){
+    p.set('mm_stop',mm.stop);
+    p.set('mm_stop_val',mm.stopVal);
+  }
+  if(mm?.riskCap)p.set('mm_risk_cap',mm.riskCap);
+  if(mm?.compound&&mm.compound!=='trade')p.set('mm_compound',mm.compound);
   history.replaceState(null,'',`?${p.toString()}`);
 }
 
@@ -45,6 +53,15 @@ function readBacktestReportParams(){
   btReportState.domainStart=p.get('domain_start')||chartStart;
   btReportState.domainEnd=p.get('domain_end')||chartEnd;
   activeBacktestStrat=p.get('strategy')||BT_DEFAULT_STRATEGY;
+  if(typeof applyMMParams==='function'){
+    applyMMParams({
+      sizing:p.get('mm_sizing')||'',
+      stop:p.get('mm_stop')||'',
+      stopVal:p.get('mm_stop_val')||'',
+      riskCap:p.get('mm_risk_cap')||'',
+      compound:p.get('mm_compound')||'trade',
+    });
+  }
   const select=document.getElementById('strategy-select');
   if(select.querySelector(`option[value="${CSS.escape(activeBacktestStrat)}"]`)){
     select.value=activeBacktestStrat;
