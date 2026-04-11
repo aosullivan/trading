@@ -25,6 +25,7 @@
     {"value": "keltner", "label": "Keltner Breakout (30/10/1.5)"},
     {"value": "parabolic_sar", "label": "Parabolic SAR (0.01/0.01/0.1)"},
     {"value": "cci_trend", "label": "CCI Trend (30/80)"},
+    {"value": "orb_breakout", "label": "ORB Breakout (5)"},
     {"value": "polymarket", "label": "Polymarket Skew"}
   ],
   "money_management": {
@@ -67,7 +68,9 @@
       "options": [
         {"value": "", "label": "Standard"},
         {"value": "layered_30_70", "label": "Daily 30 / Weekly 70"},
-        {"value": "layered_50_50", "label": "Daily 50 / Weekly 50"}
+        {"value": "layered_50_50", "label": "Daily 50 / Weekly 50"},
+        {"value": "escalation_50_50", "label": "Daily Base / Weekly Add (50/50)"},
+        {"value": "family_escalation_70_30", "label": "Daily 70 / Weekly 30 (Scoped)"}
       ]
     }
   },
@@ -102,6 +105,7 @@
       "keltner",
       "parabolic_sar",
       "cci_trend",
+      "orb_breakout",
       "polymarket"
     ],
     "strategy_keys_with_local_buy_hold": [

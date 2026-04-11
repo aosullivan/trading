@@ -1082,6 +1082,8 @@ def backtest_confirmation_layering(
     initial_capital=INITIAL_CAPITAL,
     starter_fraction=0.30,
     confirmed_fraction=0.70,
+    semantics="generic_layered",
+    weekly_nonbull_exit_bars=1,
 ):
     """Backtest staged exposure using daily starter and weekly confirmation."""
     if df.empty:
@@ -1103,15 +1105,24 @@ def backtest_confirmation_layering(
     open_prices = df["Open"]
     close_prices = df["Close"]
     dates = df.index
+    week_periods = dates.to_period("W-FRI")
 
     trades = []
     equity_curve = []
     cash = float(initial_capital)
     open_lots = []
+    weekly_nonbull_streak = 0
+    last_week_period = None
 
     def _target_sleeves(daily_state, weekly_state):
         daily_bull = int(daily_state) == 1
         weekly_bull = int(weekly_state) == 1
+        if semantics == "escalation_layered":
+            if daily_bull and weekly_bull:
+                return True, True
+            if daily_bull:
+                return True, False
+            return False, False
         if daily_bull and weekly_bull:
             return True, True
         if daily_bull or weekly_bull:
@@ -1159,6 +1170,27 @@ def backtest_confirmation_layering(
         if want_confirmed and not confirmed_active:
             _buy_weight(confirmed_fraction, execution_idx, "confirmed")
 
+    def _target_sleeves_with_state(
+        daily_state,
+        weekly_state,
+        *,
+        confirmed_active,
+        weekly_nonbull_streak_value,
+    ):
+        daily_bull = int(daily_state) == 1
+        weekly_bull = int(weekly_state) == 1
+        if semantics == "family_scoped_slow_exit":
+            if not daily_bull:
+                return False, False
+            if weekly_bull:
+                return True, True
+            if confirmed_active and weekly_nonbull_streak_value < max(
+                1, int(weekly_nonbull_exit_bars)
+            ):
+                return True, True
+            return True, False
+        return _target_sleeves(daily_state, weekly_state)
+
     initial_daily = (
         int(prior_daily_direction)
         if prior_daily_direction is not None and not pd.isna(prior_daily_direction)
@@ -1192,7 +1224,22 @@ def backtest_confirmation_layering(
 
         curr_daily = _direction_at(daily_direction, i, prev_daily)
         curr_weekly = _direction_at(weekly_direction, i, prev_weekly)
-        want_starter, want_confirmed = _target_sleeves(curr_daily, curr_weekly)
+        if semantics == "family_scoped_slow_exit":
+            current_week_period = week_periods[i]
+            if last_week_period is None or current_week_period != last_week_period:
+                weekly_nonbull_streak = (
+                    weekly_nonbull_streak + 1 if curr_weekly != 1 else 0
+                )
+                last_week_period = current_week_period
+            confirmed_active = _position_quantity(open_lots, sleeve="confirmed") > 0
+            want_starter, want_confirmed = _target_sleeves_with_state(
+                curr_daily,
+                curr_weekly,
+                confirmed_active=confirmed_active,
+                weekly_nonbull_streak_value=weekly_nonbull_streak,
+            )
+        else:
+            want_starter, want_confirmed = _target_sleeves(curr_daily, curr_weekly)
         _sync_target_sleeves(i + 1, want_starter, want_confirmed)
         prev_daily = curr_daily
         prev_weekly = curr_weekly

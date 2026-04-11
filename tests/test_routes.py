@@ -502,6 +502,71 @@ class TestChartAPI:
         assert layered["confirmation_supported"] is False
         assert polymarket["confirmation_supported"] is False
 
+    @patch("lib.cache.yf.download")
+    def test_chart_escalation_confirmation_mode_exposes_hint_metadata(self, mock_download, client):
+        n = 220
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 160, n)
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get(
+            "/api/chart?ticker=TSLA&start=2023-01-01&confirm_mode=escalation_50_50"
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+        cb150 = data["strategies"]["cb150"]
+        assert cb150["confirmation_mode"] == "escalation_50_50"
+        assert cb150["confirmation_supported"] is True
+        assert cb150["confirmation_starter_fraction"] == pytest.approx(0.50)
+        assert cb150["confirmation_confirmed_fraction"] == pytest.approx(0.50)
+        assert "base 50%" in cb150["confirmation_hint"].lower()
+
+    @patch("lib.cache.yf.download")
+    def test_chart_family_scoped_confirmation_limits_supported_strategies(self, mock_download, client):
+        n = 220
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 160, n)
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        resp = client.get(
+            "/api/chart?ticker=TSLA&start=2023-01-01&confirm_mode=family_escalation_70_30"
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+        cb150 = data["strategies"]["cb150"]
+        ema_crossover = data["strategies"]["ema_crossover"]
+        supertrend = data["strategies"]["supertrend"]
+
+        assert cb150["confirmation_mode"] == "family_escalation_70_30"
+        assert cb150["confirmation_supported"] is True
+        assert cb150["confirmation_starter_fraction"] == pytest.approx(0.70)
+        assert cb150["confirmation_confirmed_fraction"] == pytest.approx(0.30)
+        assert "2 weekly non-bull bars" in cb150["confirmation_hint"].lower()
+        assert ema_crossover["confirmation_supported"] is True
+        assert supertrend["confirmation_supported"] is False
+
     @patch("lib.cache.yf.Ticker")
     @patch("lib.cache.yf.download")
     def test_chart_monthly_view_derives_from_weekly_data(self, mock_download, mock_ticker, client):

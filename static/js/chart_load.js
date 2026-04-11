@@ -69,6 +69,7 @@ async function loadChart(){
     macdLineSeries.setData(data.macd_line||[]);macdSignalSeries.setData(data.signal_line||[]);macdHistSeries.setData(data.macd_hist||[]);
     adxLineSeries.setData(ov.adx?.adx||[]);plusDiSeries.setData(ov.adx?.plus_di||[]);minusDiSeries.setData(ov.adx?.minus_di||[]);
     cciLineSeries.setData(ov.cci?.cci||[]);
+    orbUpperSeries.setData(ov.orb?.upper||[]);orbLowerSeries.setData(ov.orb?.lower||[]);orbMidSeries.setData(ov.orb?.mid||[]);
     // Trend ribbon with per-bar colors (area series)
     const rUpper=ov.ribbon?.upper||[],rLower=ov.ribbon?.lower||[];
     ribbonUpperSeries.setData(rUpper.map(d=>{

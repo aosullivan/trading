@@ -46,6 +46,7 @@ from lib.technical_indicators import (
     compute_parabolic_sar,
     compute_cci_trend,
     compute_trend_ribbon,
+    compute_orb_breakout,
 )
 from lib.backtesting import (
     MANAGED_SIZING_METHODS,
@@ -80,12 +81,34 @@ CONFIRMATION_PRESETS = {
         "starter_fraction": 0.30,
         "confirmed_fraction": 0.70,
         "label": "Daily 30% / Weekly 70%",
+        "semantics": "generic_layered",
+        "hint": "keep 30% exposure when daily and weekly disagree, move to 100% only when both are bullish, then scale back out in reverse as confirmation weakens.",
     },
     "layered_50_50": {
         "mode": "layered_50_50",
         "starter_fraction": 0.50,
         "confirmed_fraction": 0.50,
         "label": "Daily 50% / Weekly 50%",
+        "semantics": "generic_layered",
+        "hint": "keep 50% exposure when daily and weekly disagree, move to 100% only when both are bullish, then scale back out in reverse as confirmation weakens.",
+    },
+    "escalation_50_50": {
+        "mode": "escalation_50_50",
+        "starter_fraction": 0.50,
+        "confirmed_fraction": 0.50,
+        "label": "Daily Base / Weekly Add (50/50)",
+        "semantics": "escalation_layered",
+        "hint": "keep the base 50% only while the daily signal stays bullish, add the second 50% only when weekly confirms, and remove the add-on first when confirmation breaks.",
+    },
+    "family_escalation_70_30": {
+        "mode": "family_escalation_70_30",
+        "starter_fraction": 0.70,
+        "confirmed_fraction": 0.30,
+        "label": "Daily 70 / Weekly 30 (Scoped)",
+        "semantics": "family_scoped_slow_exit",
+        "weekly_nonbull_exit_bars": 2,
+        "supported_strategies": frozenset({"cb50", "cb150", "donchian", "ema_crossover"}),
+        "hint": "for cb50, cb150, donchian, and ema crossover only: keep the 70% daily base on while daily stays bullish, add the final 30% on weekly confirmation, and only remove that add-on after 2 weekly non-bull bars.",
     },
 }
 
@@ -107,6 +130,7 @@ WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
         "keltner",
         "parabolic_sar",
         "cci_trend",
+        "orb_breakout",
     }
 )
 
@@ -230,6 +254,31 @@ def _parse_confirmation_config():
     return dict(preset) if preset else None
 
 
+def _confirmation_supported_for_strategy(
+    confirmation_config: dict | None,
+    strategy_key: str,
+    weekly_supported: bool,
+) -> bool:
+    if not confirmation_config or not weekly_supported:
+        return False
+    allowed = confirmation_config.get("supported_strategies")
+    if not allowed:
+        return strategy_key in WEEKLY_CONFIRMATION_STRATEGIES
+    return strategy_key in allowed
+
+
+def _confirmation_config_for_strategy(
+    confirmation_config: dict | None,
+    strategy_key: str,
+    weekly_supported: bool,
+) -> dict | None:
+    if not _confirmation_supported_for_strategy(
+        confirmation_config, strategy_key, weekly_supported
+    ):
+        return None
+    return confirmation_config
+
+
 def _merge_backtest_meta(*items) -> dict:
     merged = {}
     for item in items:
@@ -253,6 +302,7 @@ def _confirmation_meta(
     if supported:
         meta["confirmation_starter_fraction"] = confirmation_config["starter_fraction"]
         meta["confirmation_confirmed_fraction"] = confirmation_config["confirmed_fraction"]
+        meta["confirmation_hint"] = confirmation_config.get("hint", "")
     return meta
 
 
@@ -308,6 +358,7 @@ def _run_direction_backtest(
     mm_config=None,
     weekly_direction=None,
     confirmation_config=None,
+    strategy_key=None,
 ):
     prior_direction = _prior_direction(direction, full_index, view_index)
     if confirmation_config and weekly_direction is not None:
@@ -320,6 +371,10 @@ def _run_direction_backtest(
             prior_weekly_direction=prior_weekly_direction,
             starter_fraction=confirmation_config["starter_fraction"],
             confirmed_fraction=confirmation_config["confirmed_fraction"],
+            semantics=confirmation_config.get("semantics", "generic_layered"),
+            weekly_nonbull_exit_bars=confirmation_config.get(
+                "weekly_nonbull_exit_bars", 1
+            ),
         )
     if mm_config is None:
         mm_config = _parse_mm_config()
@@ -386,6 +441,10 @@ def _run_corpus_trend_backtest(
             prior_weekly_direction=prior_weekly_direction,
             starter_fraction=confirmation_config["starter_fraction"],
             confirmed_fraction=confirmation_config["confirmed_fraction"],
+            semantics=confirmation_config.get("semantics", "generic_layered"),
+            weekly_nonbull_exit_bars=confirmation_config.get(
+                "weekly_nonbull_exit_bars", 1
+            ),
         )
     if mm_config is None:
         mm_config = _parse_mm_config()
@@ -504,6 +563,7 @@ def _get_indicator_bundle(
     kelt_upper, kelt_mid, kelt_lower, kelt_direction = compute_keltner_breakout(df)
     psar_line, psar_direction = compute_parabolic_sar(df)
     cci_val, cci_direction = compute_cci_trend(df)
+    orb_range_high, orb_range_low, orb_range_mid, orb_trend_ema, orb_direction = compute_orb_breakout(df)
     ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(
         df,
         **_trend_ribbon_kwargs(ticker),
@@ -525,6 +585,7 @@ def _get_indicator_bundle(
         "keltner": kelt_direction,
         "parabolic_sar": psar_direction,
         "cci_trend": cci_direction,
+        "orb_breakout": orb_direction,
         "ribbon": ribbon_dir,
     }
     bundle = {
@@ -563,6 +624,11 @@ def _get_indicator_bundle(
         "psar_direction": psar_direction,
         "cci_val": cci_val,
         "cci_direction": cci_direction,
+        "orb_range_high": orb_range_high,
+        "orb_range_low": orb_range_low,
+        "orb_range_mid": orb_range_mid,
+        "orb_trend_ema": orb_trend_ema,
+        "orb_direction": orb_direction,
         "ribbon_center": ribbon_center,
         "ribbon_upper": ribbon_upper,
         "ribbon_lower": ribbon_lower,
@@ -628,6 +694,7 @@ def _get_weekly_bundle(
     _kelt_upper, _kelt_mid, _kelt_lower, kelt_direction = compute_keltner_breakout(df_w)
     _psar_line, psar_direction = compute_parabolic_sar(df_w)
     _cci_val, cci_direction = compute_cci_trend(df_w)
+    _, _, _, _, orb_direction = compute_orb_breakout(df_w)
     sma_w50 = df_w["Close"].rolling(window=50).mean()
     sma_w100 = df_w["Close"].rolling(window=100).mean()
     sma_w200 = df_w["Close"].rolling(window=200).mean()
@@ -651,6 +718,7 @@ def _get_weekly_bundle(
         "keltner": kelt_direction,
         "parabolic_sar": psar_direction,
         "cci_trend": cci_direction,
+        "orb_breakout": orb_direction,
         "ribbon": ribbon_dir,
     }
     bundle = {
@@ -944,8 +1012,24 @@ def chart_data():
     cci_weekly_direction = _weekly_direction_for_strategy(
         confirmation_weekly_bundle, "cci_trend", df.index
     )
+    orb_weekly_direction = _weekly_direction_for_strategy(
+        confirmation_weekly_bundle, "orb_breakout", df.index
+    )
     ribbon_weekly_direction = _weekly_direction_for_strategy(
         confirmation_weekly_bundle, "ribbon", df.index
+    )
+    strategy_confirmation_config = (
+        lambda key: _confirmation_config_for_strategy(
+            confirmation_config, key, weekly_confirmation_supported
+        )
+    )
+    strategy_confirmation_meta = (
+        lambda key: _confirmation_meta(
+            confirmation_config,
+            supported=_confirmation_supported_for_strategy(
+                confirmation_config, key, weekly_confirmation_supported
+            ),
+        )
     )
     supertrend = indicator_bundle["supertrend"]
     direction = indicator_bundle["direction"]
@@ -962,7 +1046,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=ema_crossover_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("ema_crossover"),
     )
 
     macd_line = indicator_bundle["macd_line"]
@@ -976,7 +1060,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=macd_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("macd"),
     )
 
     donch_upper = indicator_bundle["donch_upper"]
@@ -989,7 +1073,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=donchian_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("donchian"),
     )
     corpus_stop_line = indicator_bundle["corpus_stop_line"]
     corpus_direction = indicator_bundle["corpus_direction"]
@@ -1001,7 +1085,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=corpus_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("corpus_trend"),
     )
     corpus_trend_layered_trades, corpus_trend_layered_summary, corpus_trend_layered_equity_curve = _run_corpus_trend_layered_backtest(
         df_view, corpus_direction, corpus_stop_line, df.index, df_view.index
@@ -1015,7 +1099,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=cb50_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("cb50"),
     )
 
     cb150_direction = indicator_bundle["cb150_direction"]
@@ -1026,7 +1110,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=cb150_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("cb150"),
     )
 
     sma_10_100_direction = indicator_bundle["sma_10_100_direction"]
@@ -1037,7 +1121,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=sma_10_100_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("sma_10_100"),
     )
 
     sma_10_200_direction = indicator_bundle["sma_10_200_direction"]
@@ -1048,7 +1132,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=sma_10_200_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("sma_10_200"),
     )
 
     ema_trend_direction = indicator_bundle["ema_trend_direction"]
@@ -1059,7 +1143,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=ema_trend_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("ema_trend"),
     )
 
     yearly_ma_direction = indicator_bundle["yearly_ma_direction"]
@@ -1070,7 +1154,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=yearly_ma_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("yearly_ma"),
     )
 
     bb_upper = indicator_bundle["bb_upper"]
@@ -1084,7 +1168,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=bb_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("bb_breakout"),
     )
 
     kelt_upper = indicator_bundle["kelt_upper"]
@@ -1098,7 +1182,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=keltner_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("keltner"),
     )
 
     psar_line = indicator_bundle["psar_line"]
@@ -1110,7 +1194,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=psar_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("parabolic_sar"),
     )
 
     cci_val = indicator_bundle["cci_val"]
@@ -1122,7 +1206,22 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=cci_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("cci_trend"),
+    )
+
+    orb_range_high = indicator_bundle["orb_range_high"]
+    orb_range_low = indicator_bundle["orb_range_low"]
+    orb_range_mid = indicator_bundle["orb_range_mid"]
+    orb_trend_ema = indicator_bundle["orb_trend_ema"]
+    orb_direction = indicator_bundle["orb_direction"]
+    orb_trades, orb_summary, orb_equity_curve = _run_direction_backtest(
+        df_view,
+        orb_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=orb_weekly_direction,
+        confirmation_config=strategy_confirmation_config("orb_breakout"),
     )
 
     # Polymarket prediction-market signal
@@ -1146,7 +1245,7 @@ def chart_data():
         df_view.index,
         active_mm_config,
         weekly_direction=ribbon_weekly_direction,
-        confirmation_config=confirmation_config if weekly_confirmation_supported else None,
+        confirmation_config=strategy_confirmation_config("ribbon"),
     )
     ribbon_hold_equity_curve = None
     mark_phase("indicators_ms")
@@ -1285,7 +1384,7 @@ def chart_data():
                     weekly_bundle["ribbon_dir"],
                     df.index,
                 )
-                if confirmation_config and weekly_confirmation_supported:
+                if strategy_confirmation_config("ribbon"):
                     ribbon_backtest_direction = daily_ribbon_direction
                 else:
                     ribbon_regime_kwargs = trend_ribbon_regime_kwargs(ticker)
@@ -1406,6 +1505,11 @@ def chart_data():
     # --- CCI ---
     cci_data = series_to_json(cci_val, df_view.index)
 
+    # --- ORB ---
+    orb_high_data = series_to_json(orb_range_high, df_view.index)
+    orb_low_data = series_to_json(orb_range_low, df_view.index)
+    orb_mid_data = series_to_json(orb_range_mid, df_view.index)
+
     # --- Trend ribbon ---
     ribbon_upper_data = []
     ribbon_lower_data = []
@@ -1458,10 +1562,7 @@ def chart_data():
                     _managed_window_metadata(
                         ribbon_backtest_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("ribbon"),
                 ),
             ),
             "cb50": _strategy_payload(
@@ -1472,10 +1573,7 @@ def chart_data():
                     _managed_window_metadata(
                         cb50_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("cb50"),
                 ),
             ),
             "cb150": _strategy_payload(
@@ -1486,10 +1584,7 @@ def chart_data():
                     _managed_window_metadata(
                         cb150_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("cb150"),
                 ),
             ),
             "sma_10_100": _strategy_payload(
@@ -1500,10 +1595,7 @@ def chart_data():
                     _managed_window_metadata(
                         sma_10_100_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("sma_10_100"),
                 ),
             ),
             "sma_10_200": _strategy_payload(
@@ -1514,10 +1606,7 @@ def chart_data():
                     _managed_window_metadata(
                         sma_10_200_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("sma_10_200"),
                 ),
             ),
             "ema_trend": _strategy_payload(
@@ -1528,10 +1617,7 @@ def chart_data():
                     _managed_window_metadata(
                         ema_trend_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("ema_trend"),
                 ),
             ),
             "yearly_ma": _strategy_payload(
@@ -1542,10 +1628,7 @@ def chart_data():
                     _managed_window_metadata(
                         yearly_ma_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("yearly_ma"),
                 ),
             ),
             "supertrend": _strategy_payload(
@@ -1556,10 +1639,7 @@ def chart_data():
                     _managed_window_metadata(
                         direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("supertrend"),
                 ),
             ),
             "ema_crossover": _strategy_payload(
@@ -1570,10 +1650,7 @@ def chart_data():
                     _managed_window_metadata(
                         ema_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("ema_crossover"),
                 ),
             ),
             "macd": _strategy_payload(
@@ -1584,10 +1661,7 @@ def chart_data():
                     _managed_window_metadata(
                         macd_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("macd"),
                 ),
             ),
             "donchian": _strategy_payload(
@@ -1598,10 +1672,7 @@ def chart_data():
                     _managed_window_metadata(
                         donch_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("donchian"),
                 ),
             ),
             "corpus_trend": _strategy_payload(
@@ -1613,10 +1684,7 @@ def chart_data():
                     _managed_window_metadata(
                         corpus_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("corpus_trend"),
                 ),
             ),
             "corpus_trend_layered": _strategy_payload(
@@ -1637,10 +1705,7 @@ def chart_data():
                     _managed_window_metadata(
                         bb_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("bb_breakout"),
                 ),
             ),
             "keltner": _strategy_payload(
@@ -1651,10 +1716,7 @@ def chart_data():
                     _managed_window_metadata(
                         kelt_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("keltner"),
                 ),
             ),
             "parabolic_sar": _strategy_payload(
@@ -1665,10 +1727,7 @@ def chart_data():
                     _managed_window_metadata(
                         psar_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
-                    ),
+                    strategy_confirmation_meta("parabolic_sar"),
                 ),
             ),
             "cci_trend": _strategy_payload(
@@ -1679,10 +1738,18 @@ def chart_data():
                     _managed_window_metadata(
                         cci_direction, df.index, df_view.index, window_meta_config
                     ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=weekly_confirmation_supported,
+                    strategy_confirmation_meta("cci_trend"),
+                ),
+            ),
+            "orb_breakout": _strategy_payload(
+                orb_trades,
+                orb_summary,
+                orb_equity_curve,
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        orb_direction, df.index, df_view.index, window_meta_config
                     ),
+                    strategy_confirmation_meta("orb_breakout"),
                 ),
             ),
             "polymarket": _strategy_payload(
@@ -1712,6 +1779,7 @@ def chart_data():
             "keltner": {"upper": kelt_upper_data, "mid": kelt_mid_data, "lower": kelt_lower_data},
             "psar": {"bull": psar_bull_data, "bear": psar_bear_data},
             "cci": {"cci": cci_data},
+            "orb": {"upper": orb_high_data, "lower": orb_low_data, "mid": orb_mid_data},
             "ribbon": {"upper": ribbon_upper_data, "lower": ribbon_lower_data, "center": ribbon_center_data},
         },
         "vol_profile": vol_profile,

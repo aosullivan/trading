@@ -569,6 +569,106 @@ def compute_trend_ribbon(
     return center, upper, lower, abs_strength, direction
 
 
+ORB_RANGE_PERIOD = 5
+ORB_ATR_PERIOD = 14
+ORB_VOLUME_AVG_PERIOD = 20
+ORB_TREND_EMA_PERIOD = 50
+ORB_MIN_BODY_PCT = 0.25
+ORB_ATR_VOLATILITY_LOW = 0.5
+ORB_ATR_VOLATILITY_HIGH = 3.0
+
+
+def compute_orb_breakout(
+    df,
+    range_period=ORB_RANGE_PERIOD,
+    atr_period=ORB_ATR_PERIOD,
+    volume_avg_period=ORB_VOLUME_AVG_PERIOD,
+    trend_ema_period=ORB_TREND_EMA_PERIOD,
+    min_body_pct=ORB_MIN_BODY_PCT,
+    use_volume_filter=True,
+    use_atr_filter=True,
+    use_trend_filter=True,
+):
+    """Opening Range Breakout adapted for daily bars.
+
+    Establishes a range from the high/low over *range_period* bars, then
+    enters when price breaks out with confirmation filters:
+    - Volume spike above average
+    - ATR volatility within normal bounds
+    - EMA trend alignment
+    - Minimum candle body relative to range size
+    """
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+    open_ = df["Open"]
+    volume = df["Volume"]
+
+    range_high = high.rolling(window=range_period).max()
+    range_low = low.rolling(window=range_period).min()
+    range_mid = (range_high + range_low) / 2
+
+    atr = _compute_wilder_atr(high, low, close, atr_period)
+    avg_volume = volume.rolling(window=volume_avg_period).mean()
+    trend_ema = close.ewm(span=trend_ema_period, adjust=False).mean()
+
+    # Median ATR for volatility normalisation
+    atr_median = atr.rolling(window=100, min_periods=20).median()
+
+    direction = pd.Series(0, index=df.index)
+    start = max(range_period, atr_period, volume_avg_period, trend_ema_period)
+
+    for i in range(start, len(df)):
+        prev_range_high = range_high.iloc[i - 1]
+        prev_range_low = range_low.iloc[i - 1]
+
+        if pd.isna(prev_range_high) or pd.isna(prev_range_low):
+            direction.iloc[i] = direction.iloc[i - 1]
+            continue
+
+        orb_range = prev_range_high - prev_range_low
+        if orb_range <= 0:
+            direction.iloc[i] = direction.iloc[i - 1]
+            continue
+
+        cur_close = close.iloc[i]
+        cur_open = open_.iloc[i]
+        body = abs(cur_close - cur_open)
+        body_pct = body / orb_range if orb_range > 0 else 0
+
+        # Volume filter
+        volume_ok = True
+        if use_volume_filter and not pd.isna(avg_volume.iloc[i]):
+            volume_ok = volume.iloc[i] > avg_volume.iloc[i]
+
+        # ATR volatility filter
+        atr_ok = True
+        if use_atr_filter and not pd.isna(atr.iloc[i]) and not pd.isna(atr_median.iloc[i]):
+            atr_ratio = atr.iloc[i] / atr_median.iloc[i] if atr_median.iloc[i] > 0 else 1.0
+            atr_ok = ORB_ATR_VOLATILITY_LOW < atr_ratio < ORB_ATR_VOLATILITY_HIGH
+
+        # Trend filter
+        trend_long_ok = True
+        trend_short_ok = True
+        if use_trend_filter and not pd.isna(trend_ema.iloc[i]):
+            trend_long_ok = cur_close > trend_ema.iloc[i]
+            trend_short_ok = cur_close < trend_ema.iloc[i]
+
+        body_ok = body_pct >= min_body_pct
+
+        breakout_long = cur_close > prev_range_high
+        breakout_short = cur_close < prev_range_low
+
+        if breakout_long and body_ok and volume_ok and atr_ok and trend_long_ok:
+            direction.iloc[i] = 1
+        elif breakout_short and body_ok and volume_ok and atr_ok and trend_short_ok:
+            direction.iloc[i] = -1
+        else:
+            direction.iloc[i] = direction.iloc[i - 1]
+
+    return range_high, range_low, range_mid, trend_ema, direction
+
+
 STRATEGIES = {
     "CB50 (50-day)": lambda df: compute_channel_breakout_close(df, CB50_PERIOD)[2],
     "CB150 (150-day)": lambda df: compute_channel_breakout_close(df, CB150_PERIOD)[2],
@@ -585,6 +685,7 @@ STRATEGIES = {
     "Parabolic SAR (0.01/0.01/0.1)": lambda df: compute_parabolic_sar(df)[1],
     "CCI Trend (30/80)": lambda df: compute_cci_trend(df)[1],
     "Polymarket Signal": lambda df: _polymarket_direction_for_df(df),
+    "ORB Breakout (5)": lambda df: compute_orb_breakout(df)[4],
 }
 
 

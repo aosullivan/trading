@@ -110,7 +110,8 @@ function updateRibbonStrategyHint(strategyKey){
       if(strategy?.confirmation_supported){
         const starterPct=Math.round(Number(strategy.confirmation_starter_fraction||0)*100);
         const confirmedPct=Math.round(Number(strategy.confirmation_confirmed_fraction||0)*100);
-        confirmEl.textContent=`${strategy.confirmation_label}: keep ${starterPct}% exposure when daily and weekly disagree, move to 100% only when both are bullish, then scale back out in reverse as confirmation weakens.`;
+        const defaultHint=`keep ${starterPct}% exposure when daily and weekly disagree, move to 100% only when both are bullish, then scale back out in reverse as confirmation weakens.`;
+        confirmEl.textContent=`${strategy.confirmation_label}: ${strategy.confirmation_hint||defaultHint}`;
       }else{
         confirmEl.textContent=`${strategy.confirmation_label} is not available for this strategy, so it is using the standard backtest path.`;
       }
@@ -311,6 +312,7 @@ function computeBuyHoldMetrics(summary,holdPoints){
 function renderStats(s,holdPoints){
   const profitFactor=s.profit_factor==null?'N/A':s.profit_factor;
   const profitableLabel=s.total_trades?`${s.winners}/${s.total_trades}`:'0/0';
+  const initialCapital=Number(s.initial_capital||0);
   const openTrades=Number(s.open_trades||0);
   const totalPnl=Number(s.total_pnl||0);
   const realizedPnl=Number(s.realized_pnl||0);
@@ -318,21 +320,46 @@ function renderStats(s,holdPoints){
   const hold=computeBuyHoldMetrics(s,holdPoints);
   const strategyWins=hold?totalPnl>=hold.totalPnl:false;
   const holdWins=hold?hold.totalPnl>=totalPnl:false;
+  const strategyEndingEquity=initialCapital+totalPnl;
   document.getElementById('stats').innerHTML=`
     <div class="sc sc-net-profit">
       <div class="sc-l">Net Profit</div>
       <div class="sc-compare">
         <div class="sc-compare-row">
-          <span class="sc-compare-label">Strategy${winnerMedal(strategyWins,'Strategy net profit winner')}</span>
-          <span class="sc-compare-value ${totalPnl>=0?'vg':'vr'}">${fmtCurrency(totalPnl)}</span>
+          <div class="sc-compare-meta">
+            <span class="sc-compare-label">Strategy${winnerMedal(strategyWins,'Strategy net profit winner')}</span>
+            <span class="sc-compare-note">Ending equity ${fmtCurrencyPlain(strategyEndingEquity)}</span>
+          </div>
+          <div class="sc-compare-values">
+            <span class="sc-compare-value ${totalPnl>=0?'vg':'vr'}">${fmtCurrency(totalPnl)}</span>
+            <span class="sc-compare-pct ${s.net_profit_pct>=0?'vg':'vr'}">${fmtPct(s.net_profit_pct)}</span>
+          </div>
         </div>
         <div class="sc-compare-row">
-          <span class="sc-compare-label">Buy &amp; Hold${winnerMedal(holdWins,'Buy and hold net profit winner')}</span>
-          <span class="sc-compare-value ${(hold?.totalPnl||0)>=0?'vg':'vr'}">${hold?fmtCurrency(hold.totalPnl):'N/A'}</span>
+          <div class="sc-compare-meta">
+            <span class="sc-compare-label">Buy &amp; Hold${winnerMedal(holdWins,'Buy and hold net profit winner')}</span>
+            <span class="sc-compare-note">${hold?`Ending equity ${fmtCurrencyPlain(hold.endingEquity)}`:'No benchmark data'}</span>
+          </div>
+          <div class="sc-compare-values">
+            <span class="sc-compare-value ${(hold?.totalPnl||0)>=0?'vg':'vr'}">${hold?fmtCurrency(hold.totalPnl):'N/A'}</span>
+            <span class="sc-compare-pct ${(hold?.netProfitPct||0)>=0?'vg':'vr'}">${hold?fmtPct(hold.netProfitPct):'N/A'}</span>
+          </div>
         </div>
       </div>
-      <div class="sc-sub">${fmtPct(s.net_profit_pct)} strategy${hold?` · ${fmtPct(hold.netProfitPct)} buy &amp; hold`:''}</div>
-      <div class="sc-sub">${fmtCurrency(realizedPnl)} realized / ${fmtCurrency(openPnl)} open</div>
+      <div class="sc-net-profit-foot">
+        <div class="sc-sub sc-sub-strong">Overall net increase: ${fmtPct(s.net_profit_pct)} strategy${hold?` · ${fmtPct(hold.netProfitPct)} buy &amp; hold`:''}</div>
+        <div class="sc-sub">${fmtCurrency(realizedPnl)} realized / ${fmtCurrency(openPnl)} open</div>
+      </div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Ending Equity</div>
+      <div class="sc-v">${fmtCurrencyPlain(s.ending_equity)}</div>
+      <div class="sc-sub">From ${fmtCurrencyPlain(s.initial_capital)}</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Return / Max DD</div>
+      <div class="sc-v ${(s.return_over_max_dd||0)>=1?'vg':(s.return_over_max_dd||0)>=0?'':'vr'}">${s.return_over_max_dd==null?'N/A':s.return_over_max_dd.toFixed(2)}</div>
+      <div class="sc-sub">Net profit % ÷ max drawdown %</div>
     </div>
     <div class="sc">
       <div class="sc-l">Max Drawdown</div>
@@ -340,14 +367,14 @@ function renderStats(s,holdPoints){
       <div class="sc-sub">${fmtCurrencyPlain(s.max_drawdown)}</div>
     </div>
     <div class="sc">
-      <div class="sc-l">Profitable Trades</div>
-      <div class="sc-v">${s.win_rate.toFixed(1)}%</div>
-      <div class="sc-sub">${profitableLabel} closed trades</div>
-    </div>
-    <div class="sc">
       <div class="sc-l">Profit Factor</div>
       <div class="sc-v">${profitFactor}</div>
       <div class="sc-sub">${fmtCurrencyPlain(s.gross_profit)} / ${fmtCurrencyPlain(s.gross_loss)}</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Profitable Trades</div>
+      <div class="sc-v">${s.win_rate.toFixed(1)}%</div>
+      <div class="sc-sub">${profitableLabel} closed trades</div>
     </div>
     <div class="sc">
       <div class="sc-l">Closed Trades</div>
@@ -385,11 +412,6 @@ function renderStats(s,holdPoints){
       <div class="sc-sub">Largest loss</div>
     </div>
     <div class="sc">
-      <div class="sc-l">Ending Equity</div>
-      <div class="sc-v">${fmtCurrencyPlain(s.ending_equity)}</div>
-      <div class="sc-sub">From ${fmtCurrencyPlain(s.initial_capital)}</div>
-    </div>
-    <div class="sc">
       <div class="sc-l">Sharpe Ratio</div>
       <div class="sc-v ${(s.sharpe_ratio||0)>=1?'vg':(s.sharpe_ratio||0)>=0?'':'vr'}">${s.sharpe_ratio==null?'N/A':s.sharpe_ratio.toFixed(2)}</div>
       <div class="sc-sub">Annualized from bar spacing</div>
@@ -398,11 +420,6 @@ function renderStats(s,holdPoints){
       <div class="sc-l">Sortino Ratio</div>
       <div class="sc-v ${(s.sortino_ratio||0)>=1?'vg':(s.sortino_ratio||0)>=0?'':'vr'}">${s.sortino_ratio==null?'N/A':s.sortino_ratio.toFixed(2)}</div>
       <div class="sc-sub">Downside risk only</div>
-    </div>
-    <div class="sc">
-      <div class="sc-l">Return / Max DD</div>
-      <div class="sc-v ${(s.return_over_max_dd||0)>=1?'vg':(s.return_over_max_dd||0)>=0?'':'vr'}">${s.return_over_max_dd==null?'N/A':s.return_over_max_dd.toFixed(2)}</div>
-      <div class="sc-sub">Net profit % ÷ max drawdown %</div>
     </div>
   `;
 }

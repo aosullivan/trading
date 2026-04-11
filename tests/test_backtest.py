@@ -729,7 +729,7 @@ class TestBacktestConfirmationLayering:
             confirmed_fraction=0.70,
         )
 
-        assert [trade["sleeve"] for trade in trades] == ["starter", "confirmed"]
+        assert sorted(trade["sleeve"] for trade in trades) == ["confirmed", "starter"]
         assert trades[0]["entry_date"] == "2024-01-02"
         assert trades[0]["quantity"] == pytest.approx((INITIAL_CAPITAL * 0.30) / 100.0)
         assert trades[1]["entry_date"] == "2024-01-03"
@@ -771,6 +771,104 @@ class TestBacktestConfirmationLayering:
         assert summary["total_trades"] == 1
         assert summary["open_trades"] == 1
         assert equity[-1]["value"] == pytest.approx(11590.0, rel=1e-4)
+
+    def test_escalation_semantics_exits_fully_when_daily_breaks(self):
+        idx = pd.date_range("2024-01-01", periods=5, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 110.0, 108.0, 106.0],
+                "High": [101.0, 111.0, 111.0, 109.0, 107.0],
+                "Low": [99.0, 99.0, 107.0, 105.0, 104.0],
+                "Close": [100.0, 110.0, 108.0, 106.0, 106.0],
+                "Volume": [1, 1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        daily = pd.Series([1, 1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, 1, 1, 1], index=idx)
+
+        trades, summary, _ = backtest_confirmation_layering(
+            df,
+            daily,
+            weekly,
+            prior_daily_direction=-1,
+            prior_weekly_direction=-1,
+            starter_fraction=0.50,
+            confirmed_fraction=0.50,
+            semantics="escalation_layered",
+        )
+
+        assert sorted(trade["sleeve"] for trade in trades) == ["confirmed", "starter"]
+        assert all(not trade.get("open") for trade in trades)
+        assert summary["open_trades"] == 0
+        assert summary["total_trades"] == 2
+
+    def test_escalation_semantics_does_not_hold_starter_on_weekly_only_bull(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 100.0, 100.0],
+                "High": [101.0, 101.0, 101.0, 101.0],
+                "Low": [99.0, 99.0, 99.0, 99.0],
+                "Close": [100.0, 100.0, 100.0, 100.0],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        daily = pd.Series([-1, -1, -1, -1], index=idx)
+        weekly = pd.Series([1, 1, 1, 1], index=idx)
+
+        trades, summary, equity = backtest_confirmation_layering(
+            df,
+            daily,
+            weekly,
+            prior_daily_direction=-1,
+            prior_weekly_direction=1,
+            starter_fraction=0.50,
+            confirmed_fraction=0.50,
+            semantics="escalation_layered",
+        )
+
+        assert trades == []
+        assert summary["total_trades"] == 0
+        assert all(point["value"] == INITIAL_CAPITAL for point in equity)
+
+    def test_family_scoped_slow_exit_waits_for_two_weekly_nonbull_bars(self):
+        idx = pd.bdate_range("2024-01-01", periods=12)
+        prices = np.linspace(100.0, 122.0, len(idx))
+        df = pd.DataFrame(
+            {
+                "Open": prices,
+                "High": prices + 1.0,
+                "Low": prices - 1.0,
+                "Close": prices,
+                "Volume": np.full(len(idx), 1),
+            },
+            index=idx,
+        )
+        daily = pd.Series([1] * len(idx), index=idx)
+        weekly = pd.Series(([1] * 5) + ([-1] * 5) + ([-1] * 2), index=idx)
+
+        trades, summary, _ = backtest_confirmation_layering(
+            df,
+            daily,
+            weekly,
+            prior_daily_direction=-1,
+            prior_weekly_direction=-1,
+            starter_fraction=0.70,
+            confirmed_fraction=0.30,
+            semantics="family_scoped_slow_exit",
+            weekly_nonbull_exit_bars=2,
+        )
+
+        confirmed_trade = next(trade for trade in trades if trade["sleeve"] == "confirmed")
+        starter_trade = next(trade for trade in trades if trade["sleeve"] == "starter")
+
+        assert confirmed_trade["entry_date"] == "2024-01-02"
+        assert confirmed_trade["exit_date"] == "2024-01-16"
+        assert starter_trade["open"] is True
+        assert summary["total_trades"] == 1
+        assert summary["open_trades"] == 1
 
 
 class TestBacktestManaged:

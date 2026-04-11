@@ -10,6 +10,8 @@ let psarBullSeries,psarBearSeries;
 let macdLineSeries,macdSignalSeries,macdHistSeries;
 let adxLineSeries,plusDiSeries,minusDiSeries;
 let cciLineSeries;
+// ORB overlay series
+let orbUpperSeries,orbLowerSeries,orbMidSeries;
 // Trend ribbon
 let ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries;
 const overlaySeries=[];
@@ -121,10 +123,14 @@ function initChart(){
   minusDiSeries=chart.addLineSeries({...oscOpts,color:'#ff5274',lineWidth:1});
   // CCI oscillator
   cciLineSeries=chart.addLineSeries({...oscOpts,color:'#ff6e40',lineWidth:1});
+  // ORB range overlay (orange dashed)
+  orbUpperSeries=chart.addLineSeries({color:'#ff9800',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,lastValueVisible:false,priceLineVisible:false,visible:false});
+  orbLowerSeries=chart.addLineSeries({color:'#ff9800',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dashed,lastValueVisible:false,priceLineVisible:false,visible:false});
+  orbMidSeries=chart.addLineSeries({color:'#ff9800',lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,lastValueVisible:false,priceLineVisible:false,visible:false});
   chart.priceScale('osc').applyOptions({scaleMargins:{top:0.75,bottom:0},borderVisible:false,drawTicks:false});
-  overlaySeries.push(stUpFill,stDownFill,stUpMid,stDownMid,sma50Series,sma100Series,sma180Series,sma200Series,sma50wSeries,sma100wSeries,sma200wSeries,ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,macdLineSeries,macdSignalSeries,macdHistSeries,adxLineSeries,plusDiSeries,minusDiSeries,cciLineSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries);
+  overlaySeries.push(stUpFill,stDownFill,stUpMid,stDownMid,sma50Series,sma100Series,sma180Series,sma200Series,sma50wSeries,sma100wSeries,sma200wSeries,ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,macdLineSeries,macdSignalSeries,macdHistSeries,adxLineSeries,plusDiSeries,minusDiSeries,cciLineSeries,orbUpperSeries,orbLowerSeries,orbMidSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries);
   // Prevent overlay series on the main price scale from influencing vertical auto-scale
-  [stUpFill,stDownFill,stUpMid,stDownMid,sma50Series,sma100Series,sma180Series,sma200Series,sma50wSeries,sma100wSeries,sma200wSeries,ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries].forEach(s=>s.applyOptions({autoscaleInfoProvider:()=>null}));
+  [stUpFill,stDownFill,stUpMid,stDownMid,sma50Series,sma100Series,sma180Series,sma200Series,sma50wSeries,sma100wSeries,sma200wSeries,ema9Series,ema21Series,donchUpperSeries,donchLowerSeries,bbUpperSeries,bbMidSeries,bbLowerSeries,keltUpperSeries,keltMidSeries,keltLowerSeries,psarBullSeries,psarBearSeries,orbUpperSeries,orbLowerSeries,orbMidSeries,ribbonUpperSeries,ribbonLowerSeries,ribbonCenterSeries].forEach(s=>s.applyOptions({autoscaleInfoProvider:()=>null}));
 	volumeSeries=chart.addHistogramSeries({priceFormat:{type:'volume'},priceScaleId:'volume'});
 	chart.priceScale('volume').applyOptions({scaleMargins:{top:.82,bottom:0}});
 	new ResizeObserver(()=>chart.applyOptions({width:c.clientWidth,height:c.clientHeight})).observe(c);
