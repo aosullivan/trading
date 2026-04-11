@@ -11,6 +11,7 @@
     {"value": "ribbon", "label": "Trend-Driven"},
     {"value": "corpus_trend", "label": "Corpus Trend (Donchian/ATR)"},
     {"value": "corpus_trend_layered", "label": "Corpus Trend Layered"},
+    {"value": "weekly_core_overlay_v1", "label": "Weekly Core + Daily Overlay"},
     {"value": "cb50", "label": "Channel Breakout 50"},
     {"value": "cb150", "label": "Channel Breakout 150"},
     {"value": "sma_10_100", "label": "SMA 10/100 Cross"},
@@ -62,16 +63,6 @@
         {"value": "monthly", "label": "Monthly"},
         {"value": "fixed", "label": "Fixed"}
       ]
-    },
-    "confirmation": {
-      "default": "",
-      "options": [
-        {"value": "", "label": "Standard"},
-        {"value": "layered_30_70", "label": "Daily 30 / Weekly 70"},
-        {"value": "layered_50_50", "label": "Daily 50 / Weekly 50"},
-        {"value": "escalation_50_50", "label": "Daily Base / Weekly Add (50/50)"},
-        {"value": "family_escalation_70_30", "label": "Daily 70 / Weekly 30 (Scoped)"}
-      ]
     }
   },
   "route_contract": {
@@ -101,6 +92,7 @@
       "donchian",
       "corpus_trend",
       "corpus_trend_layered",
+      "weekly_core_overlay_v1",
       "bb_breakout",
       "keltner",
       "parabolic_sar",
@@ -111,7 +103,8 @@
     "strategy_keys_with_local_buy_hold": [
       "ribbon",
       "corpus_trend",
-      "corpus_trend_layered"
+      "corpus_trend_layered",
+      "weekly_core_overlay_v1"
     ]
   }
 }

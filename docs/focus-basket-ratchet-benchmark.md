@@ -58,3 +58,20 @@ Promotion workflow:
 1. Regenerate fixtures if the market window intentionally changes.
 2. Run `pytest tests/test_focus_basket_benchmark_backtests.py`.
 3. Update the pinned metrics in the JSON and the promoted baseline summary in `.planning/` only when you intentionally accept a stronger baseline.
+
+## Latest Promotion Decision
+
+The latest candidate promotion run evaluated `weekly_core_overlay_v1` on the same frozen basket.
+
+Outcome:
+
+- it improved score on all `7 of 7` tickers
+- its aggregate candidate score was about `407.22` versus the promoted floor `-479.94`
+- but it still violated the per-ticker drawdown regression guard on `BTC-USD`, `ETH-USD`, `TSLA`, `AAPL`, `NVDA`, and `GOOG`
+
+So the ratchet outcome is currently:
+
+- strongest comparison candidate: `weekly_core_overlay_v1`
+- promoted floor still retained: `corpus_trend`
+
+That is exactly the kind of distinction this benchmark is meant to protect: a candidate can be clearly interesting without automatically becoming the new floor.

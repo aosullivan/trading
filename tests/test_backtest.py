@@ -17,6 +17,7 @@ from lib.backtesting import (
     backtest_ribbon_accumulation,
     backtest_ribbon_regime,
     backtest_supertrend,
+    backtest_weekly_core_daily_overlay,
     build_weekly_confirmed_ribbon_direction,
     build_buy_hold_equity_curve,
     build_equity_curve,
@@ -432,6 +433,62 @@ class TestBacktestRibbonAccumulation:
         assert summary["ending_equity"] == 16000.0
         assert sum(t["quantity"] for t in trades if t.get("open")) == pytest.approx(160.0)
         assert hold_equity[-1]["value"] == 16000.0
+
+
+class TestBacktestWeeklyCoreDailyOverlay:
+    def test_keeps_core_when_overlay_breaks(self):
+        idx = pd.date_range("2024-01-01", periods=5, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 100, 100, 100, 100],
+                "High": [101, 101, 101, 101, 101],
+                "Low": [99, 99, 99, 99, 99],
+                "Close": [100, 100, 100, 100, 100],
+                "Volume": [1, 1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        core = pd.Series([1, 1, 1, 1, 1], index=idx)
+        overlay = pd.Series([1, -1, -1, -1, -1], index=idx)
+
+        trades, summary, _ = backtest_weekly_core_daily_overlay(df, core, overlay)
+
+        closed_overlay_qty = sum(
+            t["quantity"] for t in trades if not t.get("open") and t.get("sleeve") == "overlay"
+        )
+        open_core_qty = sum(
+            t["quantity"] for t in trades if t.get("open") and t.get("sleeve") == "core"
+        )
+        open_overlay_qty = sum(
+            t["quantity"] for t in trades if t.get("open") and t.get("sleeve") == "overlay"
+        )
+
+        assert summary["total_trades"] == 1
+        assert summary["open_trades"] == 1
+        assert closed_overlay_qty == pytest.approx(30.0)
+        assert open_core_qty == pytest.approx(70.0)
+        assert open_overlay_qty == pytest.approx(0.0)
+
+    def test_goes_flat_when_weekly_core_breaks(self):
+        idx = pd.date_range("2024-01-01", periods=5, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 100, 100, 100, 100],
+                "High": [101, 101, 101, 101, 101],
+                "Low": [99, 99, 99, 99, 99],
+                "Close": [100, 100, 100, 100, 100],
+                "Volume": [1, 1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        core = pd.Series([1, 1, -1, -1, -1], index=idx)
+        overlay = pd.Series([1, 1, 1, 1, 1], index=idx)
+
+        trades, summary, _ = backtest_weekly_core_daily_overlay(df, core, overlay)
+
+        assert summary["total_trades"] == 2
+        assert summary["open_trades"] == 0
+        assert sorted(t["sleeve"] for t in trades) == ["core", "overlay"]
 
 
 class TestBuildWeeklyConfirmedRibbonDirection:

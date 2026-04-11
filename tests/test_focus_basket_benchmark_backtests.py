@@ -63,6 +63,41 @@ def _chart_query(chart_request: dict, ticker: str) -> str:
     )
 
 
+def _evaluate_strategy_on_fixture_basket(
+    client,
+    focus_chart_spec: dict,
+    mock_focus_download,
+    strategy_key: str,
+):
+    results = []
+    for ticker in focus_chart_spec["tickers"]:
+        _cache.clear()
+        with patch("routes.chart.cached_download", side_effect=mock_focus_download):
+            resp = client.get(_chart_query(focus_chart_spec["chart_request"], ticker))
+
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        data = resp.get_json()
+        assert "error" not in data
+
+        strategy_payload = data["strategies"][strategy_key]
+        summary = strategy_payload["summary"]
+        buy_hold_net_profit_pct = _buy_hold_net_profit_pct(strategy_payload)
+        results.append(
+            {
+                "ticker": ticker,
+                "payload": strategy_payload,
+                "summary": summary,
+                "buy_hold_net_profit_pct": buy_hold_net_profit_pct,
+                "score": _score_from_metrics(
+                    summary["net_profit_pct"],
+                    summary["max_drawdown_pct"],
+                    buy_hold_net_profit_pct,
+                ),
+            }
+        )
+    return results
+
+
 def test_focus_basket_corpus_trend_respects_promoted_ratchet_baseline(
     app, client, focus_chart_spec, mock_focus_download
 ):
@@ -76,24 +111,18 @@ def test_focus_basket_corpus_trend_respects_promoted_ratchet_baseline(
     improved_tickers = 0
     regressed_scores = 0
 
-    for ticker in tickers:
-        _cache.clear()
-        with patch("routes.chart.cached_download", side_effect=mock_focus_download):
-            resp = client.get(_chart_query(focus_chart_spec["chart_request"], ticker))
-
-        assert resp.status_code == 200, resp.get_data(as_text=True)
-        data = resp.get_json()
-        assert "error" not in data
-
-        strategy_payload = data["strategies"][strategy_key]
-        summary = strategy_payload["summary"]
+    for result in _evaluate_strategy_on_fixture_basket(
+        client,
+        focus_chart_spec,
+        mock_focus_download,
+        strategy_key,
+    ):
+        ticker = result["ticker"]
+        strategy_payload = result["payload"]
+        summary = result["summary"]
         pinned = focus_chart_spec["per_ticker"][ticker]
-        buy_hold_net_profit_pct = _buy_hold_net_profit_pct(strategy_payload)
-        score = _score_from_metrics(
-            summary["net_profit_pct"],
-            summary["max_drawdown_pct"],
-            buy_hold_net_profit_pct,
-        )
+        buy_hold_net_profit_pct = result["buy_hold_net_profit_pct"]
+        score = result["score"]
         aggregate_scores.append(score)
 
         pinned_buy_hold_gap_pct = round(
@@ -122,3 +151,51 @@ def test_focus_basket_corpus_trend_respects_promoted_ratchet_baseline(
     assert aggregate_score >= focus_chart_spec["aggregate_score_floor"]
     assert improved_tickers >= min_tickers_improved
     assert regressed_scores <= len(tickers) - min_tickers_improved
+
+
+def test_weekly_core_overlay_candidate_improves_scores_but_fails_drawdown_promotion_guard(
+    app, client, focus_chart_spec, mock_focus_download
+):
+    candidate_results = _evaluate_strategy_on_fixture_basket(
+        client,
+        focus_chart_spec,
+        mock_focus_download,
+        "weekly_core_overlay_v1",
+    )
+    max_drawdown_regression = focus_chart_spec["max_drawdown_regression_limit_pct"]
+    buy_hold_gap_regression = focus_chart_spec["buy_hold_gap_regression_limit_pct"]
+
+    aggregate_score = round(sum(r["score"] for r in candidate_results) / len(candidate_results), 2)
+    improved_tickers = 0
+    drawdown_violations = []
+    buy_hold_gap_violations = []
+
+    for result in candidate_results:
+        ticker = result["ticker"]
+        summary = result["summary"]
+        pinned = focus_chart_spec["per_ticker"][ticker]
+        if result["score"] >= pinned["score"]:
+            improved_tickers += 1
+
+        pinned_buy_hold_gap_pct = round(
+            pinned["net_profit_pct"] - pinned["buy_hold_net_profit_pct"],
+            2,
+        )
+        actual_buy_hold_gap_pct = round(
+            summary["net_profit_pct"] - result["buy_hold_net_profit_pct"],
+            2,
+        )
+
+        if summary["max_drawdown_pct"] > (
+            pinned["max_drawdown_pct"] + max_drawdown_regression
+        ):
+            drawdown_violations.append(ticker)
+        if actual_buy_hold_gap_pct < (
+            pinned_buy_hold_gap_pct - buy_hold_gap_regression
+        ):
+            buy_hold_gap_violations.append(ticker)
+
+    assert aggregate_score >= focus_chart_spec["aggregate_score_floor"]
+    assert improved_tickers == len(focus_chart_spec["tickers"])
+    assert drawdown_violations == ["BTC-USD", "ETH-USD", "TSLA", "AAPL", "NVDA", "GOOG"]
+    assert buy_hold_gap_violations == []

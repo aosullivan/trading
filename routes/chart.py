@@ -57,6 +57,7 @@ from lib.backtesting import (
     backtest_corpus_trend_layered,
     backtest_direction,
     backtest_managed,
+    backtest_weekly_core_daily_overlay,
     build_weekly_confirmed_ribbon_direction,
     build_buy_hold_equity_curve,
 )
@@ -112,6 +113,20 @@ CONFIRMATION_PRESETS = {
     },
 }
 
+CORE_OVERLAY_STRATEGY_PROFILES = {
+    "BTC-USD": {
+        "core": "donchian",
+        "overlay": "donchian",
+    },
+    "ETH-USD": {
+        "core": "donchian",
+        "overlay": "donchian",
+    },
+    "COIN": {
+        "core": "macd",
+        "overlay": "keltner",
+    },
+}
 WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
     {
         "ribbon",
@@ -350,6 +365,16 @@ def _strategy_payload(
     return payload
 
 
+def _core_overlay_profile(ticker: str) -> dict[str, str]:
+    return CORE_OVERLAY_STRATEGY_PROFILES.get(
+        ticker,
+        {
+            "core": "cb150",
+            "overlay": "donchian",
+        },
+    )
+
+
 def _run_direction_backtest(
     df_view,
     direction,
@@ -475,6 +500,24 @@ def _run_corpus_trend_layered_backtest(
         stop_line.loc[view_index],
         start_in_position=prior_direction == 1,
         prior_direction=prior_direction,
+    )
+
+
+def _run_weekly_core_overlay_backtest(
+    df_view,
+    core_direction,
+    overlay_direction,
+    full_index,
+    view_index,
+):
+    prior_core_direction = _prior_direction(core_direction, full_index, view_index)
+    prior_overlay_direction = _prior_direction(overlay_direction, full_index, view_index)
+    return backtest_weekly_core_daily_overlay(
+        df_view,
+        core_direction.loc[view_index],
+        overlay_direction.loc[view_index],
+        prior_core_direction=prior_core_direction,
+        prior_overlay_direction=prior_overlay_direction,
     )
 
 
@@ -935,9 +978,9 @@ def chart_data():
 
     active_mm_config = _parse_mm_config()
     confirmation_config = _parse_confirmation_config()
-    confirmation_weekly_bundle = None
-    confirmation_weekly_bundle_hit = False
-    if confirmation_config and interval == "1d":
+    weekly_bundle = None
+    weekly_bundle_hit = False
+    if interval == "1d":
         try:
             df_w = _resample_ohlcv(source_df, "W-FRI")
             if not df_w.empty:
@@ -945,7 +988,7 @@ def chart_data():
                     df_w.columns = df_w.columns.get_level_values(0)
                 if df_w.index.duplicated().any():
                     df_w = df_w[~df_w.index.duplicated(keep="last")]
-                confirmation_weekly_bundle, confirmation_weekly_bundle_hit = _get_weekly_bundle(
+                weekly_bundle, weekly_bundle_hit = _get_weekly_bundle(
                     ticker,
                     df_w,
                     period_val,
@@ -966,57 +1009,57 @@ def chart_data():
         period_val,
         multiplier_val,
     )
-    weekly_confirmation_supported = interval == "1d" and confirmation_weekly_bundle is not None
+    weekly_confirmation_supported = interval == "1d" and weekly_bundle is not None
     cb50_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "cb50", df.index
+        weekly_bundle, "cb50", df.index
     )
     cb150_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "cb150", df.index
+        weekly_bundle, "cb150", df.index
     )
     sma_10_100_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "sma_10_100", df.index
+        weekly_bundle, "sma_10_100", df.index
     )
     sma_10_200_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "sma_10_200", df.index
+        weekly_bundle, "sma_10_200", df.index
     )
     ema_trend_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "ema_trend", df.index
+        weekly_bundle, "ema_trend", df.index
     )
     yearly_ma_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "yearly_ma", df.index
+        weekly_bundle, "yearly_ma", df.index
     )
     supertrend_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "supertrend", df.index
+        weekly_bundle, "supertrend", df.index
     )
     ema_crossover_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "ema_crossover", df.index
+        weekly_bundle, "ema_crossover", df.index
     )
     macd_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "macd", df.index
+        weekly_bundle, "macd", df.index
     )
     donchian_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "donchian", df.index
+        weekly_bundle, "donchian", df.index
     )
     corpus_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "corpus_trend", df.index
+        weekly_bundle, "corpus_trend", df.index
     )
     bb_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "bb_breakout", df.index
+        weekly_bundle, "bb_breakout", df.index
     )
     keltner_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "keltner", df.index
+        weekly_bundle, "keltner", df.index
     )
     psar_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "parabolic_sar", df.index
+        weekly_bundle, "parabolic_sar", df.index
     )
     cci_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "cci_trend", df.index
+        weekly_bundle, "cci_trend", df.index
     )
     orb_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "orb_breakout", df.index
+        weekly_bundle, "orb_breakout", df.index
     )
     ribbon_weekly_direction = _weekly_direction_for_strategy(
-        confirmation_weekly_bundle, "ribbon", df.index
+        weekly_bundle, "ribbon", df.index
     )
     strategy_confirmation_config = (
         lambda key: _confirmation_config_for_strategy(
@@ -1183,6 +1226,25 @@ def chart_data():
         active_mm_config,
         weekly_direction=keltner_weekly_direction,
         confirmation_config=strategy_confirmation_config("keltner"),
+    )
+    weekly_core_overlay_profile = _core_overlay_profile(ticker)
+    weekly_core_overlay_core_key = weekly_core_overlay_profile["core"]
+    weekly_core_overlay_overlay_key = weekly_core_overlay_profile["overlay"]
+    weekly_core_overlay_core_direction = {
+        "cb150": cb150_weekly_direction if weekly_confirmation_supported else cb150_direction,
+        "donchian": donchian_weekly_direction if weekly_confirmation_supported else donch_direction,
+        "macd": macd_weekly_direction if weekly_confirmation_supported else macd_direction,
+    }.get(weekly_core_overlay_core_key, cb150_direction)
+    weekly_core_overlay_overlay_direction = {
+        "donchian": donch_direction,
+        "keltner": kelt_direction,
+    }.get(weekly_core_overlay_overlay_key, donch_direction)
+    weekly_core_overlay_trades, weekly_core_overlay_summary, weekly_core_overlay_equity_curve = _run_weekly_core_overlay_backtest(
+        df_view,
+        weekly_core_overlay_core_direction,
+        weekly_core_overlay_overlay_direction,
+        df.index,
+        df_view.index,
     )
 
     psar_line = indicator_bundle["psar_line"]
@@ -1696,6 +1758,27 @@ def chart_data():
                     confirmation_config,
                     supported=False,
                 ),
+            ),
+            "weekly_core_overlay_v1": _strategy_payload(
+                weekly_core_overlay_trades,
+                weekly_core_overlay_summary,
+                weekly_core_overlay_equity_curve,
+                buy_hold_equity_curve=buy_hold_equity_curve,
+                backtest_meta={
+                    "confirmation_supported": False,
+                    "architecture_label": "Weekly Core + Daily Overlay",
+                    "architecture_core_strategy": f"{weekly_core_overlay_core_key}_weekly",
+                    "architecture_overlay_strategy": f"{weekly_core_overlay_overlay_key}_daily",
+                    "architecture_hint": (
+                        "keep a 70% weekly donchian core on while the weekly regime stays bullish, then add or remove the final 30% using daily donchian timing."
+                        if weekly_core_overlay_core_key == "donchian"
+                        else (
+                            "keep a 70% weekly macd core on while the weekly regime stays bullish, then add or remove the final 30% using daily keltner timing."
+                            if weekly_core_overlay_core_key == "macd"
+                            else "keep a 70% weekly cb150 core on while the weekly regime stays bullish, then add or remove the final 30% using daily donchian timing."
+                        )
+                    ),
+                },
             ),
             "bb_breakout": _strategy_payload(
                 bb_trades,

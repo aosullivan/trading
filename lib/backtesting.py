@@ -1253,6 +1253,140 @@ def backtest_confirmation_layering(
     return trades, summary, equity_curve
 
 
+def backtest_weekly_core_daily_overlay(
+    df,
+    core_direction,
+    overlay_direction,
+    *,
+    prior_core_direction=None,
+    prior_overlay_direction=None,
+    initial_capital=INITIAL_CAPITAL,
+    core_fraction=0.70,
+    overlay_fraction=0.30,
+):
+    """Backtest a two-speed architecture with weekly core and daily overlay.
+
+    The core sleeve stays invested while the slower regime remains bullish.
+    The overlay sleeve adds only when the faster regime is also bullish.
+    """
+    if df.empty:
+        summary = compute_summary([], [], initial_capital=initial_capital)
+        return [], summary, []
+
+    core_fraction = max(0.0, float(core_fraction))
+    overlay_fraction = max(0.0, float(overlay_fraction))
+    total_fraction = core_fraction + overlay_fraction
+    if total_fraction <= 0:
+        summary = compute_summary([], [], initial_capital=initial_capital)
+        return [], summary, []
+    if total_fraction > 1.0:
+        core_fraction /= total_fraction
+        overlay_fraction /= total_fraction
+
+    core_direction = core_direction.reindex(df.index).ffill().fillna(0)
+    overlay_direction = overlay_direction.reindex(df.index).ffill().fillna(0)
+    open_prices = df["Open"]
+    close_prices = df["Close"]
+    dates = df.index
+
+    trades = []
+    equity_curve = []
+    cash = float(initial_capital)
+    open_lots = []
+
+    def _buy_weight(weight, execution_idx, sleeve):
+        nonlocal cash
+        execution_price = round(float(open_prices.iloc[execution_idx]), 2)
+        if execution_price <= 0 or weight <= 0:
+            return False
+        budget = min(cash, initial_capital * weight)
+        if budget <= 0:
+            return False
+        _buy_lot(open_lots, dates[execution_idx], execution_price, budget, sleeve=sleeve)
+        cash -= budget
+        return True
+
+    def _sell_sleeve(sleeve, execution_idx):
+        nonlocal cash
+        execution_price = round(float(open_prices.iloc[execution_idx]), 2)
+        if execution_price <= 0:
+            return 0.0
+        proceeds = _sell_fraction(
+            open_lots,
+            trades,
+            dates[execution_idx],
+            execution_price,
+            1.0,
+            sleeve=sleeve,
+        )
+        cash += proceeds
+        return proceeds
+
+    def _sync_target(execution_idx, want_core, want_overlay):
+        core_active = _position_quantity(open_lots, sleeve="core") > 0
+        overlay_active = _position_quantity(open_lots, sleeve="overlay") > 0
+
+        if overlay_active and not want_overlay:
+            _sell_sleeve("overlay", execution_idx)
+        if core_active and not want_core:
+            _sell_sleeve("core", execution_idx)
+
+        core_active = _position_quantity(open_lots, sleeve="core") > 0
+        overlay_active = _position_quantity(open_lots, sleeve="overlay") > 0
+        if want_core and not core_active:
+            _buy_weight(core_fraction, execution_idx, "core")
+        if want_overlay and not overlay_active:
+            _buy_weight(overlay_fraction, execution_idx, "overlay")
+
+    initial_core = (
+        int(prior_core_direction)
+        if prior_core_direction is not None and not pd.isna(prior_core_direction)
+        else _direction_at(core_direction, 0, 0)
+    )
+    initial_overlay = (
+        int(prior_overlay_direction)
+        if prior_overlay_direction is not None and not pd.isna(prior_overlay_direction)
+        else _direction_at(overlay_direction, 0, 0)
+    )
+    want_core = initial_core == 1
+    want_overlay = want_core and initial_overlay == 1
+    if want_core:
+        _buy_weight(core_fraction, 0, "core")
+    if want_overlay:
+        _buy_weight(overlay_fraction, 0, "overlay")
+
+    prev_core = initial_core
+    prev_overlay = initial_overlay
+
+    for i in range(len(df)):
+        market_value = _position_quantity(open_lots) * float(close_prices.iloc[i])
+        equity_curve.append(
+            {
+                "time": int(dates[i].timestamp()),
+                "value": round(cash + market_value, 2),
+            }
+        )
+
+        if i >= len(df) - 1:
+            continue
+
+        curr_core = _direction_at(core_direction, i, prev_core)
+        curr_overlay = _direction_at(overlay_direction, i, prev_overlay)
+        want_core = curr_core == 1
+        want_overlay = want_core and curr_overlay == 1
+        _sync_target(i + 1, want_core, want_overlay)
+        prev_core = curr_core
+        prev_overlay = curr_overlay
+
+    if open_lots:
+        trades.extend(
+            _mark_open_lots_to_market(open_lots, dates[-1], close_prices.iloc[-1])
+        )
+
+    summary = compute_summary(trades, equity_curve, initial_capital=initial_capital)
+    return trades, summary, equity_curve
+
+
 def _direction_at(series, idx, fallback):
     value = series.iloc[idx]
     if pd.isna(value):

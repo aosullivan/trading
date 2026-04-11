@@ -96,9 +96,12 @@ def test_backtest_template_and_js_match_pinned_config_contract(client, config_ra
     assert _extract_select_options(page, "mm-compound") == [
         (option["value"], option["label"]) for option in mm["compound"]["options"]
     ]
-    assert _extract_select_options(page, "bt-confirm-mode") == [
-        (option["value"], option["label"]) for option in mm["confirmation"]["options"]
-    ]
+    if "confirmation" in mm:
+        assert _extract_select_options(page, "bt-confirm-mode") == [
+            (option["value"], option["label"]) for option in mm["confirmation"]["options"]
+        ]
+    else:
+        assert 'id="bt-confirm-mode"' not in page
 
     stop_input_match = re.search(
         r'<input[^>]*id="mm-stop-val"[^>]*value="([^"]+)"',

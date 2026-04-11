@@ -453,6 +453,7 @@ class TestChartAPI:
             "ribbon",
             "corpus_trend",
             "corpus_trend_layered",
+            "weekly_core_overlay_v1",
             "cb50", "cb150", "sma_10_100", "sma_10_200",
             "ema_trend", "yearly_ma",
             "supertrend", "ema_crossover", "macd",
@@ -467,6 +468,7 @@ class TestChartAPI:
 
         assert "buy_hold_equity_curve" in strategies["corpus_trend"]
         assert "buy_hold_equity_curve" in strategies["corpus_trend_layered"]
+        assert "buy_hold_equity_curve" in strategies["weekly_core_overlay_v1"]
 
     @patch("lib.cache.yf.download")
     def test_chart_confirmation_mode_marks_supported_strategies(self, mock_download, client):
@@ -566,6 +568,38 @@ class TestChartAPI:
         assert "2 weekly non-bull bars" in cb150["confirmation_hint"].lower()
         assert ema_crossover["confirmation_supported"] is True
         assert supertrend["confirmation_supported"] is False
+
+    @patch("lib.cache.yf.download")
+    def test_weekly_core_overlay_uses_ticker_specific_profiles(self, mock_download, client):
+        n = 1200
+        dates = pd.bdate_range("2020-01-01", periods=n)
+        close = np.linspace(100, 220, n)
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        btc_resp = client.get("/api/chart?ticker=BTC-USD&start=2023-01-01")
+        coin_resp = client.get("/api/chart?ticker=COIN&start=2023-01-01")
+        tsla_resp = client.get("/api/chart?ticker=TSLA&start=2023-01-01")
+
+        btc_strategy = btc_resp.get_json()["strategies"]["weekly_core_overlay_v1"]
+        coin_strategy = coin_resp.get_json()["strategies"]["weekly_core_overlay_v1"]
+        tsla_strategy = tsla_resp.get_json()["strategies"]["weekly_core_overlay_v1"]
+
+        assert btc_strategy["architecture_core_strategy"] == "donchian_weekly"
+        assert btc_strategy["architecture_overlay_strategy"] == "donchian_daily"
+        assert coin_strategy["architecture_core_strategy"] == "macd_weekly"
+        assert coin_strategy["architecture_overlay_strategy"] == "keltner_daily"
+        assert tsla_strategy["architecture_core_strategy"] == "cb150_weekly"
+        assert tsla_strategy["architecture_overlay_strategy"] == "donchian_daily"
 
     @patch("lib.cache.yf.Ticker")
     @patch("lib.cache.yf.download")

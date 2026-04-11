@@ -104,7 +104,7 @@ function updateRibbonStrategyHint(strategyKey){
   const confirmEl=document.getElementById('bt-confirm-hint');
   if(confirmEl){
     const strategy=lastData?.strategies?.[strategyKey];
-    const showConfirmHint=Boolean(strategy?.confirmation_mode);
+    const showConfirmHint=Boolean(strategy?.confirmation_mode||strategy?.architecture_label);
     confirmEl.hidden=!showConfirmHint;
     if(showConfirmHint){
       if(strategy?.confirmation_supported){
@@ -112,6 +112,8 @@ function updateRibbonStrategyHint(strategyKey){
         const confirmedPct=Math.round(Number(strategy.confirmation_confirmed_fraction||0)*100);
         const defaultHint=`keep ${starterPct}% exposure when daily and weekly disagree, move to 100% only when both are bullish, then scale back out in reverse as confirmation weakens.`;
         confirmEl.textContent=`${strategy.confirmation_label}: ${strategy.confirmation_hint||defaultHint}`;
+      }else if(strategy?.architecture_label){
+        confirmEl.textContent=`${strategy.architecture_label}: ${strategy.architecture_hint||''}`;
       }else{
         confirmEl.textContent=`${strategy.confirmation_label} is not available for this strategy, so it is using the standard backtest path.`;
       }
