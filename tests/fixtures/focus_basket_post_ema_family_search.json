@@ -1,0 +1,73 @@
+{
+  "_comment": "Deterministic v1.11 post-EMA family comparison surface on the frozen focus basket. Keeps the exhausted weekly-core/daily-overlay, breakout, and current EMA confirmation lines out of scope.",
+  "candidates": [
+    {
+      "candidate_key": "supertrend",
+      "strategy_key": "supertrend",
+      "query_params": {},
+      "aggregate_score": 513.93,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": ["AAPL"],
+      "severe_drawdown_violations": ["ETH-USD", "COIN", "NVDA", "GOOG"]
+    },
+    {
+      "candidate_key": "orb_breakout",
+      "strategy_key": "orb_breakout",
+      "query_params": {},
+      "aggregate_score": 435.48,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": ["TSLA"],
+      "severe_drawdown_violations": ["ETH-USD", "COIN", "AAPL", "GOOG"]
+    },
+    {
+      "candidate_key": "macd__layered_50_50",
+      "strategy_key": "macd",
+      "query_params": {
+        "confirm_mode": "layered_50_50"
+      },
+      "aggregate_score": -284.18,
+      "improved_tickers": 5,
+      "buy_hold_gap_violations": ["TSLA", "NVDA"],
+      "moderate_drawdown_violations": ["AAPL"],
+      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+    },
+    {
+      "candidate_key": "parabolic_sar__layered_50_50",
+      "strategy_key": "parabolic_sar",
+      "query_params": {
+        "confirm_mode": "layered_50_50"
+      },
+      "aggregate_score": -374.34,
+      "improved_tickers": 4,
+      "buy_hold_gap_violations": ["ETH-USD", "TSLA", "NVDA"],
+      "moderate_drawdown_violations": ["GOOG"],
+      "severe_drawdown_violations": ["ETH-USD"]
+    },
+    {
+      "candidate_key": "cci_trend",
+      "strategy_key": "cci_trend",
+      "query_params": {},
+      "aggregate_score": 740.62,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": [],
+      "severe_drawdown_violations": ["ETH-USD", "COIN", "TSLA", "AAPL", "NVDA", "GOOG"]
+    },
+    {
+      "candidate_key": "cci_trend__layered_50_50",
+      "strategy_key": "cci_trend",
+      "query_params": {
+        "confirm_mode": "layered_50_50"
+      },
+      "aggregate_score": -173.31,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": [],
+      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+    }
+  ],
+  "recommended_family_lead": "cci_trend",
+  "recommended_hardening_probe": "cci_trend__layered_50_50"
+}

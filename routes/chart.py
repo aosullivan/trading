@@ -24,9 +24,12 @@ from lib.technical_indicators import (
     BOLLINGER_STD_DEV,
     CB50_PERIOD,
     CB150_PERIOD,
+    CCI_PERIOD,
     DONCHIAN_PERIOD,
     EMA_FAST_PERIOD,
     EMA_SLOW_PERIOD,
+    CCI_HYSTERESIS_ENTRY_THRESHOLD,
+    CCI_HYSTERESIS_EXIT_THRESHOLD,
     SMA_CROSS_FAST_10,
     SMA_CROSS_SLOW_100,
     SMA_CROSS_SLOW_200,
@@ -45,6 +48,7 @@ from lib.technical_indicators import (
     compute_keltner_breakout,
     compute_parabolic_sar,
     compute_cci_trend,
+    compute_cci_hysteresis,
     compute_trend_ribbon,
     compute_orb_breakout,
 )
@@ -158,6 +162,7 @@ WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
         "keltner",
         "parabolic_sar",
         "cci_trend",
+        "cci_hysteresis",
         "orb_breakout",
     }
 )
@@ -634,6 +639,12 @@ def _get_indicator_bundle(
     kelt_upper, kelt_mid, kelt_lower, kelt_direction = compute_keltner_breakout(df)
     psar_line, psar_direction = compute_parabolic_sar(df)
     cci_val, cci_direction = compute_cci_trend(df)
+    cci_hyst_val, cci_hyst_direction = compute_cci_hysteresis(
+        df,
+        period=CCI_PERIOD,
+        entry_threshold=CCI_HYSTERESIS_ENTRY_THRESHOLD,
+        exit_threshold=CCI_HYSTERESIS_EXIT_THRESHOLD,
+    )
     orb_range_high, orb_range_low, orb_range_mid, orb_trend_ema, orb_direction = compute_orb_breakout(df)
     ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(
         df,
@@ -656,6 +667,7 @@ def _get_indicator_bundle(
         "keltner": kelt_direction,
         "parabolic_sar": psar_direction,
         "cci_trend": cci_direction,
+        "cci_hysteresis": cci_hyst_direction,
         "orb_breakout": orb_direction,
         "ribbon": ribbon_dir,
     }
@@ -695,6 +707,8 @@ def _get_indicator_bundle(
         "psar_direction": psar_direction,
         "cci_val": cci_val,
         "cci_direction": cci_direction,
+        "cci_hyst_val": cci_hyst_val,
+        "cci_hyst_direction": cci_hyst_direction,
         "orb_range_high": orb_range_high,
         "orb_range_low": orb_range_low,
         "orb_range_mid": orb_range_mid,
@@ -765,6 +779,12 @@ def _get_weekly_bundle(
     _kelt_upper, _kelt_mid, _kelt_lower, kelt_direction = compute_keltner_breakout(df_w)
     _psar_line, psar_direction = compute_parabolic_sar(df_w)
     _cci_val, cci_direction = compute_cci_trend(df_w)
+    _cci_hyst_val, cci_hyst_direction = compute_cci_hysteresis(
+        df_w,
+        period=CCI_PERIOD,
+        entry_threshold=CCI_HYSTERESIS_ENTRY_THRESHOLD,
+        exit_threshold=CCI_HYSTERESIS_EXIT_THRESHOLD,
+    )
     _, _, _, _, orb_direction = compute_orb_breakout(df_w)
     sma_w50 = df_w["Close"].rolling(window=50).mean()
     sma_w100 = df_w["Close"].rolling(window=100).mean()
@@ -789,6 +809,7 @@ def _get_weekly_bundle(
         "keltner": kelt_direction,
         "parabolic_sar": psar_direction,
         "cci_trend": cci_direction,
+        "cci_hysteresis": cci_hyst_direction,
         "orb_breakout": orb_direction,
         "ribbon": ribbon_dir,
     }
@@ -1305,6 +1326,15 @@ def chart_data():
         active_mm_config,
         weekly_direction=cci_weekly_direction,
         confirmation_config=strategy_confirmation_config("cci_trend"),
+    )
+    cci_hyst_direction = indicator_bundle["cci_hyst_direction"]
+    cci_hyst_trades, cci_hyst_summary, cci_hyst_equity_curve = _run_direction_backtest(
+        df_view,
+        cci_hyst_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        strategy_key="cci_hysteresis",
     )
 
     orb_range_high = indicator_bundle["orb_range_high"]
@@ -1857,6 +1887,16 @@ def chart_data():
                         cci_direction, df.index, df_view.index, window_meta_config
                     ),
                     strategy_confirmation_meta("cci_trend"),
+                ),
+            ),
+            "cci_hysteresis": _strategy_payload(
+                cci_hyst_trades,
+                cci_hyst_summary,
+                cci_hyst_equity_curve,
+                buy_hold_equity_curve=buy_hold_equity_curve,
+                backtest_meta=_confirmation_meta(
+                    None,
+                    supported=False,
                 ),
             ),
             "orb_breakout": _strategy_payload(

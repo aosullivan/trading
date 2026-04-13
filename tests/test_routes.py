@@ -459,7 +459,7 @@ class TestChartAPI:
             "ema_trend", "yearly_ma",
             "supertrend", "ema_crossover", "macd",
             "donchian", "bb_breakout",
-            "keltner", "parabolic_sar", "cci_trend", "polymarket",
+            "keltner", "parabolic_sar", "cci_trend", "cci_hysteresis", "polymarket",
         ]
         for key in expected_keys:
             assert key in strategies, f"Missing strategy: {key}"
@@ -470,6 +470,7 @@ class TestChartAPI:
         assert "buy_hold_equity_curve" in strategies["corpus_trend"]
         assert "buy_hold_equity_curve" in strategies["corpus_trend_layered"]
         assert "buy_hold_equity_curve" in strategies["weekly_core_overlay_v1"]
+        assert "buy_hold_equity_curve" in strategies["cci_hysteresis"]
 
     @patch("lib.cache.yf.download")
     def test_chart_confirmation_mode_marks_supported_strategies(self, mock_download, client):

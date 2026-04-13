@@ -24,6 +24,8 @@ PSAR_AF_INCREMENT = 0.01
 PSAR_AF_MAX = 0.1
 CCI_PERIOD = 30
 CCI_THRESHOLD = 80
+CCI_HYSTERESIS_ENTRY_THRESHOLD = 150
+CCI_HYSTERESIS_EXIT_THRESHOLD = -40
 RIBBON_EMA_PERIOD = 34
 RIBBON_ATR_PERIOD = 14
 RIBBON_FAST_PERIOD = 8
@@ -421,6 +423,40 @@ def compute_cci_trend(df, period=CCI_PERIOD, threshold=CCI_THRESHOLD):
             direction.iloc[i] = -1
         else:
             direction.iloc[i] = direction.iloc[i - 1]
+    return cci, direction
+
+
+def compute_cci_hysteresis(
+    df,
+    period=CCI_PERIOD,
+    entry_threshold=CCI_HYSTERESIS_ENTRY_THRESHOLD,
+    exit_threshold=CCI_HYSTERESIS_EXIT_THRESHOLD,
+):
+    """Compute a CCI trend with asymmetric entry and exit thresholds.
+
+    This keeps long exposure sticky once CCI proves strong enough to enter,
+    then exits only after momentum decays past a separate lower threshold.
+    """
+    close = df["Close"]
+    high = df["High"]
+    low = df["Low"]
+    tp = (high + low + close) / 3
+    sma = tp.rolling(window=period).mean()
+    mad = tp.rolling(window=period).apply(lambda x: np.abs(x - x.mean()).mean(), raw=True)
+    cci = (tp - sma) / (0.015 * mad)
+
+    direction = pd.Series(0, index=df.index)
+    state = 0
+    for i in range(period, len(df)):
+        val = cci.iloc[i]
+        if pd.isna(val):
+            direction.iloc[i] = state
+            continue
+        if state != 1 and val > entry_threshold:
+            state = 1
+        elif state == 1 and val < exit_threshold:
+            state = -1
+        direction.iloc[i] = state
     return cci, direction
 
 

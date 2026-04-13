@@ -16,9 +16,9 @@
     "period": 10,
     "multiplier": 2.5
   },
-  "strategy_key": "corpus_trend",
+  "strategy_key": "cci_hysteresis",
   "score_formula": "score = net_profit_pct - 0.35 * max_drawdown_pct - max(0, buy_hold_net_profit_pct - net_profit_pct)",
-  "aggregate_score_floor": -479.94,
+  "aggregate_score_floor": 311.52,
   "approved_policy": {
     "id": "tiered_drawdown_v1",
     "label": "Tiered Drawdown Ratchet",
@@ -34,52 +34,52 @@
   "per_ticker": {
     "BTC-USD": {
       "fixture_csv": "tests/fixtures/focus_basket/btc_usd_1d_benchmark.csv",
-      "net_profit_pct": 215.63,
-      "max_drawdown_pct": 41.54,
+      "net_profit_pct": 1084.16,
+      "max_drawdown_pct": 35.31,
       "buy_hold_net_profit_pct": 835.25,
-      "score": -418.53
+      "score": 1071.8
     },
     "ETH-USD": {
       "fixture_csv": "tests/fixtures/focus_basket/eth_usd_1d_benchmark.csv",
-      "net_profit_pct": 594.16,
-      "max_drawdown_pct": 19.03,
+      "net_profit_pct": 2490.4,
+      "max_drawdown_pct": 25.6,
       "buy_hold_net_profit_pct": 1493.27,
-      "score": -311.61
+      "score": 2481.44
     },
     "COIN": {
       "fixture_csv": "tests/fixtures/focus_basket/coin_1d_benchmark.csv",
-      "net_profit_pct": 90.16,
-      "max_drawdown_pct": 23.93,
+      "net_profit_pct": 105.48,
+      "max_drawdown_pct": 31.89,
       "buy_hold_net_profit_pct": -55.0,
-      "score": 81.78
+      "score": 94.32
     },
     "TSLA": {
       "fixture_csv": "tests/fixtures/focus_basket/tsla_1d_benchmark.csv",
-      "net_profit_pct": 440.72,
-      "max_drawdown_pct": 34.89,
+      "net_profit_pct": 801.39,
+      "max_drawdown_pct": 38.09,
       "buy_hold_net_profit_pct": 1174.17,
-      "score": -304.94
+      "score": 415.28
     },
     "AAPL": {
       "fixture_csv": "tests/fixtures/focus_basket/aapl_1d_benchmark.csv",
-      "net_profit_pct": 55.48,
-      "max_drawdown_pct": 16.82,
+      "net_profit_pct": 201.34,
+      "max_drawdown_pct": 19.13,
       "buy_hold_net_profit_pct": 258.38,
-      "score": -153.31
+      "score": 137.6
     },
     "NVDA": {
       "fixture_csv": "tests/fixtures/focus_basket/nvda_1d_benchmark.csv",
-      "net_profit_pct": 444.56,
-      "max_drawdown_pct": 25.84,
+      "net_profit_pct": 502.51,
+      "max_drawdown_pct": 33.02,
       "buy_hold_net_profit_pct": 2886.36,
-      "score": -2006.28
+      "score": -1892.9
     },
     "GOOG": {
       "fixture_csv": "tests/fixtures/focus_basket/goog_1d_benchmark.csv",
-      "net_profit_pct": 51.77,
-      "max_drawdown_pct": 21.71,
+      "net_profit_pct": 111.71,
+      "max_drawdown_pct": 22.09,
       "buy_hold_net_profit_pct": 342.6,
-      "score": -246.66
+      "score": -126.91
     }
   }
 }

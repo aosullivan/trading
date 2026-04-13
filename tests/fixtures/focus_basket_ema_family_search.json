@@ -1,0 +1,65 @@
+{
+  "_comment": "Deterministic v1.8 remaining-family shortlist and EMA-family comparison surface on the frozen focus basket.",
+  "candidates": [
+    {
+      "candidate_key": "ema_crossover",
+      "strategy_key": "ema_crossover",
+      "query_params": {},
+      "aggregate_score": 533.18,
+      "improved_tickers": 7,
+      "buy_hold_gap_violations": [],
+      "moderate_drawdown_violations": ["NVDA"],
+      "severe_drawdown_violations": ["ETH-USD", "COIN", "TSLA", "GOOG"]
+    },
+    {
+      "candidate_key": "ema_crossover__layered_50_50",
+      "strategy_key": "ema_crossover",
+      "query_params": {
+        "confirm_mode": "layered_50_50"
+      },
+      "aggregate_score": -265.03,
+      "improved_tickers": 7,
+      "buy_hold_gap_violations": [],
+      "moderate_drawdown_violations": ["GOOG"],
+      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+    },
+    {
+      "candidate_key": "ema_crossover__layered_30_70",
+      "strategy_key": "ema_crossover",
+      "query_params": {
+        "confirm_mode": "layered_30_70"
+      },
+      "aggregate_score": -375.89,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": ["COIN"],
+      "severe_drawdown_violations": ["ETH-USD"]
+    },
+    {
+      "candidate_key": "cci_trend__layered_50_50",
+      "strategy_key": "cci_trend",
+      "query_params": {
+        "confirm_mode": "layered_50_50"
+      },
+      "aggregate_score": -173.31,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": [],
+      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+    },
+    {
+      "candidate_key": "ribbon__layered_50_50",
+      "strategy_key": "ribbon",
+      "query_params": {
+        "confirm_mode": "layered_50_50"
+      },
+      "aggregate_score": -257.94,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": ["TSLA"],
+      "severe_drawdown_violations": ["ETH-USD", "COIN", "NVDA"]
+    }
+  ],
+  "recommended_family_lead": "ema_crossover",
+  "recommended_hardening_probe": "ema_crossover__layered_50_50"
+}

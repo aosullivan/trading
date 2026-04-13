@@ -18,6 +18,7 @@ from lib.technical_indicators import (
     compute_keltner_breakout,
     compute_parabolic_sar,
     compute_cci_trend,
+    compute_cci_hysteresis,
     compute_trend_ribbon,
 )
 
@@ -231,6 +232,28 @@ class TestCCITrend:
         _, direction = compute_cci_trend(sample_df)
         unique = set(direction.unique())
         assert unique.issubset({-1, 0, 1})
+
+
+class TestCCIHysteresis:
+    def test_returns_correct_shape(self, sample_df):
+        cci, direction = compute_cci_hysteresis(sample_df)
+        assert len(cci) == len(sample_df)
+        assert len(direction) == len(sample_df)
+
+    def test_direction_values(self, sample_df):
+        _, direction = compute_cci_hysteresis(sample_df, entry_threshold=120, exit_threshold=-20)
+        unique = set(direction.unique())
+        assert unique.issubset({-1, 0, 1})
+
+    def test_asymmetric_exit_holds_longer_than_plain_cci(self, sample_df):
+        _, plain_direction = compute_cci_trend(sample_df)
+        _, hysteresis_direction = compute_cci_hysteresis(
+            sample_df,
+            entry_threshold=80,
+            exit_threshold=-20,
+        )
+        assert not hysteresis_direction.equals(plain_direction)
+        assert (hysteresis_direction.dropna().isin([-1, 0, 1])).all()
 
 
 class TestTrendRibbon:

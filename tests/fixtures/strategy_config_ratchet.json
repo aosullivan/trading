@@ -26,6 +26,7 @@
     {"value": "keltner", "label": "Keltner Breakout (30/10/1.5)"},
     {"value": "parabolic_sar", "label": "Parabolic SAR (0.01/0.01/0.1)"},
     {"value": "cci_trend", "label": "CCI Trend (30/80)"},
+    {"value": "cci_hysteresis", "label": "CCI Hysteresis (30/150/-40)"},
     {"value": "orb_breakout", "label": "ORB Breakout (5)"},
     {"value": "polymarket", "label": "Polymarket Skew"}
   ],
@@ -97,6 +98,7 @@
       "keltner",
       "parabolic_sar",
       "cci_trend",
+      "cci_hysteresis",
       "orb_breakout",
       "polymarket"
     ],
@@ -104,7 +106,8 @@
       "ribbon",
       "corpus_trend",
       "corpus_trend_layered",
-      "weekly_core_overlay_v1"
+      "weekly_core_overlay_v1",
+      "cci_hysteresis"
     ]
   }
 }

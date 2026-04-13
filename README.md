@@ -19,6 +19,40 @@ python3 app.py
 
 Opens at http://localhost:5050
 
+## Project Workflow (GSD)
+
+This repo uses **GSD (Get Shit Done)** for milestone, phase, and planning workflow.
+
+Important: in this project, GSD is used primarily through **Codex / Claude slash commands**, not as a normal standalone shell CLI.
+
+The main workflow is:
+
+```text
+/gsd-progress -> /gsd-plan-phase <n> -> /gsd-execute-phase <n>
+```
+
+Useful commands:
+
+- `/gsd-progress` — inspect the current milestone, phase, and recommended next action
+- `/gsd-resume-work` — restore context from the last session
+- `/gsd-plan-phase <n>` — create the next detailed phase plan
+- `/gsd-execute-phase <n>` — execute a planned phase
+- `/gsd-new-milestone "<name>"` — start the next milestone when the current one is complete
+- `/gsd-complete-milestone <version>` — archive a finished milestone
+
+Planning artifacts live in [`/.planning`](.planning):
+
+- `.planning/PROJECT.md` — project intent and current milestone posture
+- `.planning/ROADMAP.md` — active milestone roadmap
+- `.planning/STATE.md` — current position and resume point
+- `.planning/phases/` — per-phase plans, summaries, and context
+- `.planning/milestones/` — archived milestone requirements and roadmaps
+
+The repo also vendors GSD internals in [`.codex/get-shit-done/`](.codex/get-shit-done/).
+That bundle includes workflows, templates, and the low-level helper `node .codex/get-shit-done/bin/gsd-tools.cjs`.
+
+`gsd-tools.cjs` is **internal plumbing**, not the primary day-to-day interface. Use the `/gsd-*` commands above for normal project workflow.
+
 ## macOS App
 
 Build a local `.app` bundle:

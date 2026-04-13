@@ -1,4 +1,4 @@
-"""Deterministic ratchet benchmark for the seven-ticker corpus_trend basket."""
+"""Deterministic ratchet benchmark for the promoted seven-ticker strategy basket."""
 
 from __future__ import annotations
 
@@ -164,7 +164,7 @@ def _evaluate_approved_policy(candidate_results: list[dict], focus_chart_spec: d
     }
 
 
-def test_focus_basket_corpus_trend_respects_promoted_ratchet_baseline(
+def test_focus_basket_promoted_strategy_respects_promoted_ratchet_baseline(
     app, client, focus_chart_spec, mock_focus_download
 ):
     strategy_key = focus_chart_spec["strategy_key"]
@@ -183,7 +183,7 @@ def test_focus_basket_corpus_trend_respects_promoted_ratchet_baseline(
     assert outcome["severe_drawdown_violations"] == []
 
 
-def test_weekly_core_overlay_candidate_improves_scores_but_fails_approved_tiered_drawdown_guard(
+def test_weekly_core_overlay_candidate_still_fails_against_the_promoted_hysteresis_floor(
     app, client, focus_chart_spec, mock_focus_download
 ):
     outcome = _evaluate_approved_policy(
@@ -196,14 +196,11 @@ def test_weekly_core_overlay_candidate_improves_scores_but_fails_approved_tiered
         focus_chart_spec,
     )
     assert outcome["aggregate_score"] >= focus_chart_spec["aggregate_score_floor"]
-    assert outcome["improved_tickers"] == len(focus_chart_spec["tickers"])
-    assert outcome["buy_hold_gap_violations"] == []
-    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == [
-        "BTC-USD",
-        "AAPL",
-        "NVDA",
-    ]
+    assert outcome["improved_tickers"] == 5
+    assert outcome["buy_hold_gap_violations"] == ["BTC-USD", "ETH-USD"]
+    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == ["AAPL"]
     assert [item["ticker"] for item in outcome["severe_drawdown_violations"]] == [
+        "BTC-USD",
         "ETH-USD",
         "TSLA",
         "GOOG",

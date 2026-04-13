@@ -1,0 +1,121 @@
+{
+  "_comment": "Deterministic v1.10 crypto-focused EMA-family prototypes on top of the v1.9 equity-confirmed control.",
+  "candidates": [
+    {
+      "candidate_key": "ema_equity_confirmed_v1",
+      "strategy_key": "ema_crossover",
+      "params_by_ticker": {
+        "TSLA": {
+          "confirm_mode": "layered_50_50"
+        },
+        "NVDA": {
+          "confirm_mode": "layered_50_50"
+        },
+        "GOOG": {
+          "confirm_mode": "layered_50_50"
+        }
+      },
+      "aggregate_score": 164.65,
+      "improved_tickers": 7,
+      "buy_hold_gap_violations": [],
+      "moderate_drawdown_violations": ["GOOG"],
+      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+    },
+    {
+      "candidate_key": "ema_coin_family_escalation_70_30",
+      "strategy_key": "ema_crossover",
+      "params_by_ticker": {
+        "TSLA": {
+          "confirm_mode": "layered_50_50"
+        },
+        "NVDA": {
+          "confirm_mode": "layered_50_50"
+        },
+        "GOOG": {
+          "confirm_mode": "layered_50_50"
+        },
+        "COIN": {
+          "confirm_mode": "family_escalation_70_30"
+        }
+      },
+      "aggregate_score": 162.7,
+      "improved_tickers": 7,
+      "buy_hold_gap_violations": [],
+      "moderate_drawdown_violations": ["GOOG"],
+      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+    },
+    {
+      "candidate_key": "ema_coin_layered_30_70",
+      "strategy_key": "ema_crossover",
+      "params_by_ticker": {
+        "TSLA": {
+          "confirm_mode": "layered_50_50"
+        },
+        "NVDA": {
+          "confirm_mode": "layered_50_50"
+        },
+        "GOOG": {
+          "confirm_mode": "layered_50_50"
+        },
+        "COIN": {
+          "confirm_mode": "layered_30_70"
+        }
+      },
+      "aggregate_score": 156.5,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": ["COIN", "GOOG"],
+      "severe_drawdown_violations": ["ETH-USD"]
+    },
+    {
+      "candidate_key": "ema_eth_usd_family_escalation_70_30",
+      "strategy_key": "ema_crossover",
+      "params_by_ticker": {
+        "TSLA": {
+          "confirm_mode": "layered_50_50"
+        },
+        "NVDA": {
+          "confirm_mode": "layered_50_50"
+        },
+        "GOOG": {
+          "confirm_mode": "layered_50_50"
+        },
+        "ETH-USD": {
+          "confirm_mode": "family_escalation_70_30"
+        }
+      },
+      "aggregate_score": -212.94,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["ETH-USD"],
+      "moderate_drawdown_violations": ["GOOG"],
+      "severe_drawdown_violations": ["COIN"]
+    },
+    {
+      "candidate_key": "ema_eth_family_escalation_70_30__coin_layered_30_70",
+      "strategy_key": "ema_crossover",
+      "params_by_ticker": {
+        "TSLA": {
+          "confirm_mode": "layered_50_50"
+        },
+        "NVDA": {
+          "confirm_mode": "layered_50_50"
+        },
+        "GOOG": {
+          "confirm_mode": "layered_50_50"
+        },
+        "ETH-USD": {
+          "confirm_mode": "family_escalation_70_30"
+        },
+        "COIN": {
+          "confirm_mode": "layered_30_70"
+        }
+      },
+      "aggregate_score": -221.1,
+      "improved_tickers": 5,
+      "buy_hold_gap_violations": ["ETH-USD", "COIN"],
+      "moderate_drawdown_violations": ["COIN", "GOOG"],
+      "severe_drawdown_violations": []
+    }
+  ],
+  "recommended_lead": "ema_equity_confirmed_v1"
+}

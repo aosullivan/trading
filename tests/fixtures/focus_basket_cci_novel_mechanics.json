@@ -1,0 +1,128 @@
+{
+  "_comment": "Deterministic v1.13 novel CCI mechanics comparison surface on the frozen focus basket.",
+  "comparison_baseline": {
+    "strategy_key": "corpus_trend",
+    "aggregate_score_floor": -479.94,
+    "approved_policy": {
+      "id": "tiered_drawdown_v1",
+      "label": "Tiered Drawdown Ratchet",
+      "drawdown_mode": "tiered_limit",
+      "aggregate_score_floor_source": "promoted_floor",
+      "min_tickers_improved": 5,
+      "base_drawdown_regression_limit_pct": 5.0,
+      "moderate_overshoot_limit_pct": 6.0,
+      "max_moderate_violations": 3,
+      "max_severe_violations": 0,
+      "buy_hold_gap_regression_limit_pct": 10.0
+    },
+    "per_ticker": {
+      "BTC-USD": {
+        "net_profit_pct": 215.63,
+        "max_drawdown_pct": 41.54,
+        "buy_hold_net_profit_pct": 835.25,
+        "score": -418.53
+      },
+      "ETH-USD": {
+        "net_profit_pct": 594.16,
+        "max_drawdown_pct": 19.03,
+        "buy_hold_net_profit_pct": 1493.27,
+        "score": -311.61
+      },
+      "COIN": {
+        "net_profit_pct": 90.16,
+        "max_drawdown_pct": 23.93,
+        "buy_hold_net_profit_pct": -55.0,
+        "score": 81.78
+      },
+      "TSLA": {
+        "net_profit_pct": 440.72,
+        "max_drawdown_pct": 34.89,
+        "buy_hold_net_profit_pct": 1174.17,
+        "score": -304.94
+      },
+      "AAPL": {
+        "net_profit_pct": 55.48,
+        "max_drawdown_pct": 16.82,
+        "buy_hold_net_profit_pct": 258.38,
+        "score": -153.31
+      },
+      "NVDA": {
+        "net_profit_pct": 444.56,
+        "max_drawdown_pct": 25.84,
+        "buy_hold_net_profit_pct": 2886.36,
+        "score": -2006.28
+      },
+      "GOOG": {
+        "net_profit_pct": 51.77,
+        "max_drawdown_pct": 21.71,
+        "buy_hold_net_profit_pct": 342.6,
+        "score": -246.66
+      }
+    }
+  },
+  "candidates": [
+    {
+      "candidate_key": "cci_trend_raw_control",
+      "mechanic": "raw_cci_trend",
+      "passed": false,
+      "aggregate_score": 740.62,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": [],
+      "severe_drawdown_violations": ["ETH-USD", "COIN", "TSLA", "AAPL", "NVDA", "GOOG"]
+    },
+    {
+      "candidate_key": "cci_hysteresis_140_-40_v1",
+      "mechanic": "cci_hysteresis",
+      "period": 30,
+      "entry_threshold": 140,
+      "exit_threshold": -40,
+      "passed": false,
+      "aggregate_score": 343.87,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": ["COIN", "AAPL", "NVDA", "GOOG"],
+      "severe_drawdown_violations": ["ETH-USD"]
+    },
+    {
+      "candidate_key": "cci_hysteresis_150_-40_v1",
+      "mechanic": "cci_hysteresis",
+      "period": 30,
+      "entry_threshold": 150,
+      "exit_threshold": -40,
+      "passed": true,
+      "aggregate_score": 311.65,
+      "improved_tickers": 7,
+      "buy_hold_gap_violations": [],
+      "moderate_drawdown_violations": ["ETH-USD", "COIN", "NVDA"],
+      "severe_drawdown_violations": []
+    },
+    {
+      "candidate_key": "cci_hysteresis_150_-60_v1",
+      "mechanic": "cci_hysteresis",
+      "period": 30,
+      "entry_threshold": 150,
+      "exit_threshold": -60,
+      "passed": false,
+      "aggregate_score": 272.55,
+      "improved_tickers": 7,
+      "buy_hold_gap_violations": [],
+      "moderate_drawdown_violations": ["ETH-USD", "COIN", "TSLA", "NVDA", "GOOG"],
+      "severe_drawdown_violations": []
+    },
+    {
+      "candidate_key": "cci_hysteresis_160_-40_v1",
+      "mechanic": "cci_hysteresis",
+      "period": 30,
+      "entry_threshold": 160,
+      "exit_threshold": -40,
+      "passed": false,
+      "aggregate_score": 168.76,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": [],
+      "moderate_drawdown_violations": ["COIN", "NVDA"],
+      "severe_drawdown_violations": ["ETH-USD"]
+    }
+  ],
+  "recommended_lead": "cci_hysteresis_150_-40_v1"
+}
