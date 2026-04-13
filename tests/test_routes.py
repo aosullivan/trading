@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from lib.backtesting import build_weekly_confirmed_ribbon_direction
+import routes.chart as chart_module
 from routes.chart import _align_weekly_direction_to_daily, _carry_neutral_direction
 
 
@@ -600,6 +601,48 @@ class TestChartAPI:
         assert coin_strategy["architecture_overlay_strategy"] == "keltner_daily"
         assert tsla_strategy["architecture_core_strategy"] == "cb150_weekly"
         assert tsla_strategy["architecture_overlay_strategy"] == "donchian_daily"
+        assert btc_strategy["architecture_core_fraction"] == pytest.approx(0.70)
+        assert btc_strategy["architecture_overlay_fraction"] == pytest.approx(0.30)
+
+    @patch("lib.cache.yf.download")
+    def test_weekly_core_overlay_supports_profile_level_sleeve_weights(
+        self, mock_download, client, monkeypatch
+    ):
+        n = 1200
+        dates = pd.bdate_range("2020-01-01", periods=n)
+        close = np.linspace(100, 220, n)
+        df = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        mock_download.return_value = df
+
+        monkeypatch.setattr(
+            chart_module,
+            "CORE_OVERLAY_STRATEGY_PROFILES",
+            {
+                "BTC-USD": {
+                    "core": "donchian",
+                    "overlay": "donchian",
+                    "core_fraction": 0.80,
+                    "overlay_fraction": 0.20,
+                }
+            },
+        )
+
+        resp = client.get("/api/chart?ticker=BTC-USD&start=2023-01-01")
+        strategy = resp.get_json()["strategies"]["weekly_core_overlay_v1"]
+
+        assert strategy["architecture_core_fraction"] == pytest.approx(0.80)
+        assert strategy["architecture_overlay_fraction"] == pytest.approx(0.20)
+        assert "80%" in strategy["architecture_hint"]
+        assert "20%" in strategy["architecture_hint"]
 
     @patch("lib.cache.yf.Ticker")
     @patch("lib.cache.yf.download")

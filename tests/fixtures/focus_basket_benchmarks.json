@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned focus-basket baseline for the Phase 3 ratchet benchmark. Regenerate CSVs with: python scripts/regen_focus_basket_benchmark_fixtures.py. Promote a new baseline by updating this JSON, docs/focus-basket-ratchet-benchmark.md, and .planning/phases/03-build-ratchet-benchmark-and-diagnostics/focus-basket-baseline.md together.",
+  "_comment": "Pinned focus-basket baseline plus approved promotion-policy contract. Regenerate CSVs with: python scripts/regen_focus_basket_benchmark_fixtures.py. Move the ratchet only when you intentionally update this JSON, docs/focus-basket-ratchet-benchmark.md, and the related planning decision artifacts together.",
   "tickers": [
     "BTC-USD",
     "ETH-USD",
@@ -19,9 +19,18 @@
   "strategy_key": "corpus_trend",
   "score_formula": "score = net_profit_pct - 0.35 * max_drawdown_pct - max(0, buy_hold_net_profit_pct - net_profit_pct)",
   "aggregate_score_floor": -479.94,
-  "min_tickers_improved": 5,
-  "max_drawdown_regression_limit_pct": 5.0,
-  "buy_hold_gap_regression_limit_pct": 10.0,
+  "approved_policy": {
+    "id": "tiered_drawdown_v1",
+    "label": "Tiered Drawdown Ratchet",
+    "drawdown_mode": "tiered_limit",
+    "aggregate_score_floor_source": "promoted_floor",
+    "min_tickers_improved": 5,
+    "base_drawdown_regression_limit_pct": 5.0,
+    "moderate_overshoot_limit_pct": 6.0,
+    "max_moderate_violations": 3,
+    "max_severe_violations": 0,
+    "buy_hold_gap_regression_limit_pct": 10.0
+  },
   "per_ticker": {
     "BTC-USD": {
       "fixture_csv": "tests/fixtures/focus_basket/btc_usd_1d_benchmark.csv",

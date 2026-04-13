@@ -490,6 +490,40 @@ class TestBacktestWeeklyCoreDailyOverlay:
         assert summary["open_trades"] == 0
         assert sorted(t["sleeve"] for t in trades) == ["core", "overlay"]
 
+    def test_respects_custom_sleeve_weights(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100, 100, 100, 100],
+                "High": [101, 101, 101, 101],
+                "Low": [99, 99, 99, 99],
+                "Close": [100, 100, 100, 100],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+        core = pd.Series([1, 1, 1, 1], index=idx)
+        overlay = pd.Series([1, 1, 1, 1], index=idx)
+
+        trades, summary, _ = backtest_weekly_core_daily_overlay(
+            df,
+            core,
+            overlay,
+            core_fraction=0.80,
+            overlay_fraction=0.20,
+        )
+
+        open_core_qty = sum(
+            t["quantity"] for t in trades if t.get("open") and t.get("sleeve") == "core"
+        )
+        open_overlay_qty = sum(
+            t["quantity"] for t in trades if t.get("open") and t.get("sleeve") == "overlay"
+        )
+
+        assert summary["open_trades"] == 2
+        assert open_core_qty == pytest.approx(80.0)
+        assert open_overlay_qty == pytest.approx(20.0)
+
 
 class TestBuildWeeklyConfirmedRibbonDirection:
     def test_holds_previous_regime_until_daily_and_weekly_agree(self):

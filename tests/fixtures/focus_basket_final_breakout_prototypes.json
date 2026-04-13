@@ -1,0 +1,93 @@
+{
+  "_comment": "Deterministic v1.7 final breakout-family prototype surface with ticker-scoped confirmation overrides on the frozen focus basket.",
+  "candidates": [
+    {
+      "candidate_key": "coin_goog_keltner_v1",
+      "ticker_strategy_map": {
+        "BTC-USD": "bb_breakout",
+        "ETH-USD": "bb_breakout",
+        "COIN": "keltner",
+        "TSLA": "bb_breakout",
+        "AAPL": "bb_breakout",
+        "NVDA": "bb_breakout",
+        "GOOG": "keltner"
+      },
+      "params_by_ticker": {},
+      "aggregate_score": 314.59,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": ["NVDA", "GOOG"],
+      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+    },
+    {
+      "candidate_key": "coin_goog_keltner_coin_esc50_v1",
+      "ticker_strategy_map": {
+        "BTC-USD": "bb_breakout",
+        "ETH-USD": "bb_breakout",
+        "COIN": "keltner",
+        "TSLA": "bb_breakout",
+        "AAPL": "bb_breakout",
+        "NVDA": "bb_breakout",
+        "GOOG": "keltner"
+      },
+      "params_by_ticker": {
+        "COIN": {
+          "confirm_mode": "escalation_50_50"
+        }
+      },
+      "aggregate_score": 319.36,
+      "improved_tickers": 6,
+      "buy_hold_gap_violations": ["COIN"],
+      "moderate_drawdown_violations": ["NVDA", "GOOG"],
+      "severe_drawdown_violations": ["ETH-USD"]
+    },
+    {
+      "candidate_key": "coin_goog_keltner_eth_esc50_v1",
+      "ticker_strategy_map": {
+        "BTC-USD": "bb_breakout",
+        "ETH-USD": "bb_breakout",
+        "COIN": "keltner",
+        "TSLA": "bb_breakout",
+        "AAPL": "bb_breakout",
+        "NVDA": "bb_breakout",
+        "GOOG": "keltner"
+      },
+      "params_by_ticker": {
+        "ETH-USD": {
+          "confirm_mode": "escalation_50_50"
+        }
+      },
+      "aggregate_score": -175.08,
+      "improved_tickers": 5,
+      "buy_hold_gap_violations": ["ETH-USD", "COIN"],
+      "moderate_drawdown_violations": ["NVDA", "GOOG"],
+      "severe_drawdown_violations": ["COIN"]
+    },
+    {
+      "candidate_key": "coin_goog_keltner_coin_eth_esc50_v1",
+      "ticker_strategy_map": {
+        "BTC-USD": "bb_breakout",
+        "ETH-USD": "bb_breakout",
+        "COIN": "keltner",
+        "TSLA": "bb_breakout",
+        "AAPL": "bb_breakout",
+        "NVDA": "bb_breakout",
+        "GOOG": "keltner"
+      },
+      "params_by_ticker": {
+        "COIN": {
+          "confirm_mode": "escalation_50_50"
+        },
+        "ETH-USD": {
+          "confirm_mode": "escalation_50_50"
+        }
+      },
+      "aggregate_score": -170.32,
+      "improved_tickers": 5,
+      "buy_hold_gap_violations": ["ETH-USD", "COIN"],
+      "moderate_drawdown_violations": ["NVDA", "GOOG"],
+      "severe_drawdown_violations": []
+    }
+  ],
+  "recommended_lead": "coin_goog_keltner_coin_esc50_v1"
+}

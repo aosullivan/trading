@@ -113,18 +113,31 @@ CONFIRMATION_PRESETS = {
     },
 }
 
+DEFAULT_CORE_OVERLAY_PROFILE = {
+    "core": "cb150",
+    "overlay": "donchian",
+    "core_fraction": 0.70,
+    "overlay_fraction": 0.30,
+}
+
 CORE_OVERLAY_STRATEGY_PROFILES = {
     "BTC-USD": {
         "core": "donchian",
         "overlay": "donchian",
+        "core_fraction": 0.70,
+        "overlay_fraction": 0.30,
     },
     "ETH-USD": {
         "core": "donchian",
         "overlay": "donchian",
+        "core_fraction": 0.70,
+        "overlay_fraction": 0.30,
     },
     "COIN": {
         "core": "macd",
         "overlay": "keltner",
+        "core_fraction": 0.70,
+        "overlay_fraction": 0.30,
     },
 }
 WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
@@ -365,14 +378,10 @@ def _strategy_payload(
     return payload
 
 
-def _core_overlay_profile(ticker: str) -> dict[str, str]:
-    return CORE_OVERLAY_STRATEGY_PROFILES.get(
-        ticker,
-        {
-            "core": "cb150",
-            "overlay": "donchian",
-        },
-    )
+def _core_overlay_profile(ticker: str) -> dict[str, float | str]:
+    profile = dict(DEFAULT_CORE_OVERLAY_PROFILE)
+    profile.update(CORE_OVERLAY_STRATEGY_PROFILES.get(ticker, {}))
+    return profile
 
 
 def _run_direction_backtest(
@@ -509,6 +518,9 @@ def _run_weekly_core_overlay_backtest(
     overlay_direction,
     full_index,
     view_index,
+    *,
+    core_fraction=0.70,
+    overlay_fraction=0.30,
 ):
     prior_core_direction = _prior_direction(core_direction, full_index, view_index)
     prior_overlay_direction = _prior_direction(overlay_direction, full_index, view_index)
@@ -518,12 +530,28 @@ def _run_weekly_core_overlay_backtest(
         overlay_direction.loc[view_index],
         prior_core_direction=prior_core_direction,
         prior_overlay_direction=prior_overlay_direction,
+        core_fraction=core_fraction,
+        overlay_fraction=overlay_fraction,
     )
 
 
 def _carry_neutral_direction(direction: pd.Series) -> pd.Series:
     """Carry the prior non-zero state through neutral bridge bars."""
     return direction.replace(0, pd.NA).ffill().fillna(0).astype(int)
+
+
+def _weekly_core_overlay_hint(
+    core_key: str,
+    overlay_key: str,
+    core_fraction: float,
+    overlay_fraction: float,
+) -> str:
+    core_pct = int(round(float(core_fraction) * 100))
+    overlay_pct = int(round(float(overlay_fraction) * 100))
+    return (
+        f"keep a {core_pct}% weekly {core_key} core on while the weekly regime stays bullish, "
+        f"then add or remove the final {overlay_pct}% using daily {overlay_key} timing."
+    )
 
 
 def _align_weekly_direction_to_daily(
@@ -1230,6 +1258,12 @@ def chart_data():
     weekly_core_overlay_profile = _core_overlay_profile(ticker)
     weekly_core_overlay_core_key = weekly_core_overlay_profile["core"]
     weekly_core_overlay_overlay_key = weekly_core_overlay_profile["overlay"]
+    weekly_core_overlay_core_fraction = float(
+        weekly_core_overlay_profile.get("core_fraction", 0.70)
+    )
+    weekly_core_overlay_overlay_fraction = float(
+        weekly_core_overlay_profile.get("overlay_fraction", 0.30)
+    )
     weekly_core_overlay_core_direction = {
         "cb150": cb150_weekly_direction if weekly_confirmation_supported else cb150_direction,
         "donchian": donchian_weekly_direction if weekly_confirmation_supported else donch_direction,
@@ -1245,6 +1279,8 @@ def chart_data():
         weekly_core_overlay_overlay_direction,
         df.index,
         df_view.index,
+        core_fraction=weekly_core_overlay_core_fraction,
+        overlay_fraction=weekly_core_overlay_overlay_fraction,
     )
 
     psar_line = indicator_bundle["psar_line"]
@@ -1769,14 +1805,13 @@ def chart_data():
                     "architecture_label": "Weekly Core + Daily Overlay",
                     "architecture_core_strategy": f"{weekly_core_overlay_core_key}_weekly",
                     "architecture_overlay_strategy": f"{weekly_core_overlay_overlay_key}_daily",
-                    "architecture_hint": (
-                        "keep a 70% weekly donchian core on while the weekly regime stays bullish, then add or remove the final 30% using daily donchian timing."
-                        if weekly_core_overlay_core_key == "donchian"
-                        else (
-                            "keep a 70% weekly macd core on while the weekly regime stays bullish, then add or remove the final 30% using daily keltner timing."
-                            if weekly_core_overlay_core_key == "macd"
-                            else "keep a 70% weekly cb150 core on while the weekly regime stays bullish, then add or remove the final 30% using daily donchian timing."
-                        )
+                    "architecture_core_fraction": weekly_core_overlay_core_fraction,
+                    "architecture_overlay_fraction": weekly_core_overlay_overlay_fraction,
+                    "architecture_hint": _weekly_core_overlay_hint(
+                        weekly_core_overlay_core_key,
+                        weekly_core_overlay_overlay_key,
+                        weekly_core_overlay_core_fraction,
+                        weekly_core_overlay_overlay_fraction,
                     ),
                 },
             ),
