@@ -81,6 +81,27 @@ def _incremental_data_failed_validation(
     return ratio > 2 or ratio < 0.5
 
 
+def _clamped_requested_end(end) -> pd.Timestamp | None:
+    if not end:
+        return None
+    requested_end = pd.Timestamp(end)
+    now = pd.Timestamp.now().tz_localize(None)
+    return min(requested_end, now)
+
+
+def _cached_range_covers_request(cached_df: pd.DataFrame | None, start, end) -> bool:
+    if cached_df is None or cached_df.empty:
+        return False
+    cached_min = pd.Timestamp(cached_df.index.min())
+    cached_max = pd.Timestamp(cached_df.index.max())
+    if start and pd.Timestamp(start) < cached_min:
+        return False
+    requested_end = _clamped_requested_end(end)
+    if requested_end is not None and requested_end > cached_max:
+        return False
+    return True
+
+
 def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
     """Download OHLCV data with persistent local file cache."""
     interval = kwargs.get("interval", "1d")
@@ -115,14 +136,20 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
         try:
             with open(meta_p) as f:
                 meta = json.load(f)
-            if (now - meta.get("last_fetch", 0)) < _DISK_CACHE_FRESHNESS and cached_df is not None:
+            if (
+                (now - meta.get("last_fetch", 0)) < _DISK_CACHE_FRESHNESS
+                and _cached_range_covers_request(cached_df, start, end)
+            ):
                 return _slice_df(cached_df, start, end)
         except Exception:
             pass
 
     if cached_df is not None and not cached_df.empty:
+        first_cached = cached_df.index.min()
         last_cached = cached_df.index.max()
-        if interval == "1wk":
+        if start and pd.Timestamp(start) < pd.Timestamp(first_cached):
+            fetch_start = start
+        elif interval == "1wk":
             fetch_start = last_cached.strftime("%Y-%m-%d")
         else:
             fetch_start = (last_cached + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
