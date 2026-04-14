@@ -1,6 +1,9 @@
 // Map strategy names to their overlay series
 const overlayMap={
   ribbon:[()=>ribbonUpperSeries,()=>ribbonLowerSeries,()=>ribbonCenterSeries],
+  ema_crossover:[()=>ema9Series,()=>ema21Series],
+  bb_breakout:[()=>bbUpperSeries,()=>bbMidSeries,()=>bbLowerSeries],
+  cci_trend:[()=>cciLineSeries],
 };
 
 function forEachSeriesRef(seriesRef,cb){

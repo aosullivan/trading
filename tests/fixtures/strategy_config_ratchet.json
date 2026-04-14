@@ -12,7 +12,11 @@
     {"value": "corpus_trend", "label": "Corpus Trend (Donchian/ATR)"},
     {"value": "corpus_trend_layered", "label": "Corpus Trend Layered"},
     {"value": "cci_hysteresis", "label": "CCI Hysteresis (30/150/-40)"},
-    {"value": "polymarket", "label": "Polymarket Skew"}
+    {"value": "polymarket", "label": "Polymarket Skew"},
+    {"value": "weekly_core_overlay_v1", "label": "Weekly Core + Daily Overlay"},
+    {"value": "bb_breakout", "label": "BB Breakout (30/1.5)"},
+    {"value": "ema_crossover", "label": "EMA 5/20 Cross"},
+    {"value": "cci_trend", "label": "CCI Trend (30/80)"}
   ],
   "money_management": {
     "stop_input_default_value": "3",
@@ -67,6 +71,10 @@
       "ribbon",
       "corpus_trend",
       "corpus_trend_layered",
+      "weekly_core_overlay_v1",
+      "bb_breakout",
+      "ema_crossover",
+      "cci_trend",
       "cci_hysteresis",
       "polymarket"
     ],
@@ -74,6 +82,7 @@
       "ribbon",
       "corpus_trend",
       "corpus_trend_layered",
+      "weekly_core_overlay_v1",
       "cci_hysteresis"
     ]
   }

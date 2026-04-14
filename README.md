@@ -132,6 +132,9 @@ plus the dedicated Polymarket benchmark in
 
 The maintained product surface is intentionally narrow now: `ribbon`,
 `corpus_trend`, `corpus_trend_layered`, `cci_hysteresis`, and `polymarket`.
+The backtest selector also exposes a small experimental shelf for previously
+promising strategies: `weekly_core_overlay_v1`, `bb_breakout`,
+`ema_crossover`, and `cci_trend`.
 
 For the retained daily trend strategies, the backtest panel still supports staged confirmation modes:
 - `Daily 30 / Weekly 70`

@@ -1,0 +1,99 @@
+{
+  "_comment": "Deterministic portfolio backtest route contract ratchet. Uses mocked data + mocked signal generation so the payload stays offline-safe and stable.",
+  "supported_strategies": [
+    "ribbon",
+    "corpus_trend",
+    "cci_hysteresis"
+  ],
+  "basket_sources": [
+    "watchlist",
+    "manual",
+    "preset"
+  ],
+  "preset_baskets": {
+    "focus": [
+      "BTC-USD",
+      "ETH-USD",
+      "COIN",
+      "TSLA",
+      "AAPL",
+      "NVDA",
+      "GOOG"
+    ]
+  },
+  "request": {
+    "stream": "0",
+    "strategy": "corpus_trend",
+    "basket_source": "manual",
+    "tickers": "MSFT,NVDA",
+    "start": "2024-01-02"
+  },
+  "expected_response": {
+    "strategy": "corpus_trend",
+    "tickers": [
+      "MSFT",
+      "NVDA"
+    ],
+    "basket": {
+      "source": "manual",
+      "preset": null,
+      "requested_tickers": [
+        "MSFT",
+        "NVDA"
+      ],
+      "effective_tickers": [
+        "MSFT",
+        "NVDA"
+      ],
+      "included_count": 2,
+      "skipped_count": 0
+    },
+    "basket_diagnostics": {
+      "count": 2,
+      "size_bucket": "small",
+      "composition": "equity_only",
+      "crypto_count": 0,
+      "equity_count": 2,
+      "traded_tickers": 1,
+      "active_tickers": 0,
+      "skipped_count": 0
+    },
+    "comparison": {
+      "strategy_ending_equity": 10291.26,
+      "buy_hold_ending_equity": 10600.0,
+      "strategy_return_pct": 2.91,
+      "buy_hold_return_pct": 6.0,
+      "equity_gap": -308.74,
+      "return_gap_pct": -3.09,
+      "winner": "buy_hold"
+    },
+    "orders": [
+      {
+        "ticker": "MSFT",
+        "entry_date": "2024-01-04",
+        "entry_price": 103.0,
+        "exit_date": "2024-01-06",
+        "exit_price": 106.0,
+        "quantity": 97.08737864,
+        "side": "long",
+        "status": "closed",
+        "pnl": 291.26,
+        "pnl_pct": 2.91
+      }
+    ],
+    "config": {
+      "strategy": "corpus_trend",
+      "basket_source": "manual",
+      "basket_preset": null,
+      "requested_tickers": [
+        "MSFT",
+        "NVDA"
+      ],
+      "sizing_method": "fixed_fraction",
+      "risk_fraction": 0.02,
+      "stop_type": "atr",
+      "heat_limit": 0.2,
+      "initial_capital": 10000.0
+    }
+  }
+}

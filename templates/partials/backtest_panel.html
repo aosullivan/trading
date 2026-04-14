@@ -10,11 +10,19 @@
         </div>
       </div>
       <select id="strategy-select" class="inp" style="font-size:11px;padding:4px 8px;border-radius:20px" onchange="switchStrategy(this.value)">
-        <option value="ribbon">Trend-Driven</option>
-        <option value="corpus_trend">Corpus Trend (Donchian/ATR)</option>
-        <option value="corpus_trend_layered">Corpus Trend Layered</option>
-        <option value="cci_hysteresis">CCI Hysteresis (30/150/-40)</option>
-        <option value="polymarket">Polymarket Skew</option>
+        <optgroup label="Maintained">
+          <option value="ribbon">Trend-Driven</option>
+          <option value="corpus_trend">Corpus Trend (Donchian/ATR)</option>
+          <option value="corpus_trend_layered">Corpus Trend Layered</option>
+          <option value="cci_hysteresis">CCI Hysteresis (30/150/-40)</option>
+          <option value="polymarket">Polymarket Skew</option>
+        </optgroup>
+        <optgroup label="Experimental">
+          <option value="weekly_core_overlay_v1">Weekly Core + Daily Overlay</option>
+          <option value="bb_breakout">BB Breakout (30/1.5)</option>
+          <option value="ema_crossover">EMA 5/20 Cross</option>
+          <option value="cci_trend">CCI Trend (30/80)</option>
+        </optgroup>
       </select>
       <div class="bt-head-actions">
         <div class="bt-head-loading" id="bt-head-loading" aria-live="polite" aria-hidden="true" data-state="idle">

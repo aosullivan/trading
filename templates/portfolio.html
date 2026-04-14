@@ -26,8 +26,34 @@
     </div>
     <div class="pf-ctrl-group">
       <label class="tb-lbl">Strategy</label>
-      <select id="pf-strategy" class="inp" style="width:100px">
+      <select id="pf-strategy" class="inp" style="width:180px">
         <option value="ribbon" selected>Ribbon</option>
+        <option value="corpus_trend">Corpus Trend</option>
+        <option value="cci_hysteresis">CCI Hysteresis</option>
+      </select>
+    </div>
+    <div class="pf-ctrl-group">
+      <label class="tb-lbl">Basket</label>
+      <select id="pf-basket-source" class="inp" style="width:140px">
+        <option value="watchlist" selected>Watchlist</option>
+        <option value="manual">Manual</option>
+        <option value="preset">Preset</option>
+      </select>
+    </div>
+    <div class="pf-ctrl-group" id="pf-manual-wrap" style="display:none;min-width:260px">
+      <label class="tb-lbl">Tickers</label>
+      <input
+        type="text"
+        id="pf-manual-tickers"
+        class="inp"
+        placeholder="AAPL, NVDA, BTC-USD"
+        style="width:260px"
+      >
+    </div>
+    <div class="pf-ctrl-group" id="pf-preset-wrap" style="display:none">
+      <label class="tb-lbl">Preset</label>
+      <select id="pf-preset" class="inp" style="width:140px">
+        <option value="focus">Focus Basket</option>
       </select>
     </div>
     <div class="pf-ctrl-group">
@@ -45,6 +71,79 @@
       <div class="pf-progress-bar" id="pf-progress-bar" style="width:0%"></div>
     </div>
     <span class="pf-progress-text" id="pf-progress-text"></span>
+  </div>
+
+  <!-- Campaign dashboard -->
+  <div class="pf-section">
+    <h3 class="pf-section-title">Campaign Dashboard <span class="pf-section-sub">Plan, queue, and monitor portfolio experiment runs</span></h3>
+    <div class="pf-campaign-builder">
+      <div class="pf-campaign-builder-grid">
+        <div class="pf-ctrl-group">
+          <label class="tb-lbl">Campaign Name</label>
+          <input type="text" id="pf-campaign-name" class="inp" placeholder="Core Portfolio Sweep">
+        </div>
+        <div class="pf-ctrl-group">
+          <label class="tb-lbl">Goal</label>
+          <input type="text" id="pf-campaign-goal" class="inp" placeholder="Compare retained strategies across baskets">
+        </div>
+        <div class="pf-ctrl-group">
+          <label class="tb-lbl">Tags</label>
+          <input type="text" id="pf-campaign-tags" class="inp" placeholder="small, favorites, mixed">
+        </div>
+      </div>
+      <div class="pf-campaign-builder-actions">
+        <button class="btn-go" id="pf-save-campaign" type="button">Save Current Run As Campaign</button>
+        <span class="pf-section-sub" id="pf-campaign-feedback"></span>
+      </div>
+    </div>
+    <div class="pf-campaign-layout">
+      <div class="pf-campaign-panel">
+        <div class="pf-campaign-panel-head">
+          <span class="pf-panel-title">Saved Campaigns</span>
+          <button class="tk-action" id="pf-refresh-campaigns" type="button">Refresh</button>
+        </div>
+        <div id="pf-campaign-list" class="pf-campaign-list"></div>
+      </div>
+      <div class="pf-campaign-panel">
+        <div class="pf-campaign-panel-head">
+          <span class="pf-panel-title">Selected Campaign</span>
+        </div>
+        <div class="pf-campaign-schedule">
+          <div class="pf-campaign-builder-grid">
+            <div class="pf-ctrl-group">
+              <label class="tb-lbl">Schedule</label>
+              <select id="pf-schedule-cadence" class="inp">
+                <option value="manual">Manual only</option>
+                <option value="hourly">Hourly interval</option>
+                <option value="weekly">Weekly</option>
+              </select>
+            </div>
+            <div class="pf-ctrl-group" id="pf-schedule-interval-wrap">
+              <label class="tb-lbl">Every (hours)</label>
+              <input type="number" id="pf-schedule-interval-hours" class="inp inp-n" min="1" step="1" value="24">
+            </div>
+            <div class="pf-ctrl-group" id="pf-schedule-weekdays-wrap" style="display:none">
+              <label class="tb-lbl">Weekdays</label>
+              <input type="text" id="pf-schedule-weekdays" class="inp" placeholder="mon, wed, fri">
+            </div>
+            <div class="pf-ctrl-group" id="pf-schedule-hour-wrap" style="display:none">
+              <label class="tb-lbl">Hour</label>
+              <input type="number" id="pf-schedule-hour" class="inp inp-n" min="0" max="23" step="1" value="9">
+            </div>
+            <div class="pf-ctrl-group" id="pf-schedule-minute-wrap" style="display:none">
+              <label class="tb-lbl">Minute</label>
+              <input type="number" id="pf-schedule-minute" class="inp inp-n" min="0" max="59" step="1" value="0">
+            </div>
+          </div>
+          <div class="pf-campaign-builder-actions">
+            <button class="tk-action" id="pf-save-schedule" type="button">Save Schedule</button>
+            <button class="tk-action" id="pf-rerun-campaign" type="button">Rerun Campaign</button>
+            <span class="pf-section-sub" id="pf-schedule-feedback"></span>
+          </div>
+        </div>
+        <div id="pf-campaign-detail" class="pf-campaign-detail"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Equity chart -->
@@ -69,6 +168,41 @@
     <div id="pf-stats" class="pf-stats-grid"></div>
   </div>
 
+  <!-- Comparison -->
+  <div class="pf-section">
+    <h3 class="pf-section-title">Strategy Vs Buy &amp; Hold</h3>
+    <div id="pf-comparison" class="pf-stats-grid"></div>
+  </div>
+
+  <!-- Basket diagnostics -->
+  <div class="pf-section">
+    <h3 class="pf-section-title">Basket Diagnostics</h3>
+    <div class="pf-config-bar" id="pf-basket-diagnostics"></div>
+  </div>
+
+  <!-- Orders -->
+  <div class="pf-section">
+    <h3 class="pf-section-title">Order Activity</h3>
+    <div class="t-scroll">
+      <table class="ttbl">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Status</th>
+            <th>Entry</th>
+            <th>Exit</th>
+            <th>Entry Px</th>
+            <th>Exit Px</th>
+            <th>Qty</th>
+            <th>P&amp;L</th>
+            <th>P&amp;L %</th>
+          </tr>
+        </thead>
+        <tbody id="pf-orders-body"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- Per-ticker breakdown -->
   <div class="pf-section">
     <h3 class="pf-section-title">Per-Ticker Breakdown</h3>
@@ -77,10 +211,12 @@
         <thead>
           <tr>
             <th>Ticker</th>
+            <th>Status</th>
             <th>Trades</th>
             <th>Win Rate</th>
             <th>Net P&amp;L</th>
             <th>Net %</th>
+            <th>Capital Now</th>
             <th>Max DD %</th>
             <th>Profit Factor</th>
           </tr>

@@ -138,6 +138,9 @@ WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
     {
         "ribbon",
         "corpus_trend",
+        "bb_breakout",
+        "ema_crossover",
+        "cci_trend",
     }
 )
 
@@ -1687,6 +1690,59 @@ def chart_data():
                 backtest_meta=_confirmation_meta(
                     confirmation_config,
                     supported=False,
+                ),
+            ),
+            "weekly_core_overlay_v1": _strategy_payload(
+                weekly_core_overlay_trades,
+                weekly_core_overlay_summary,
+                weekly_core_overlay_equity_curve,
+                buy_hold_equity_curve=buy_hold_equity_curve,
+                backtest_meta={
+                    "confirmation_supported": False,
+                    "architecture_label": "Weekly Core + Daily Overlay",
+                    "architecture_core_strategy": f"{weekly_core_overlay_core_key}_weekly",
+                    "architecture_overlay_strategy": f"{weekly_core_overlay_overlay_key}_daily",
+                    "architecture_core_fraction": weekly_core_overlay_core_fraction,
+                    "architecture_overlay_fraction": weekly_core_overlay_overlay_fraction,
+                    "architecture_hint": _weekly_core_overlay_hint(
+                        weekly_core_overlay_core_key,
+                        weekly_core_overlay_overlay_key,
+                        weekly_core_overlay_core_fraction,
+                        weekly_core_overlay_overlay_fraction,
+                    ),
+                },
+            ),
+            "bb_breakout": _strategy_payload(
+                bb_trades,
+                bb_summary,
+                bb_equity_curve,
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        bb_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    strategy_confirmation_meta("bb_breakout"),
+                ),
+            ),
+            "ema_crossover": _strategy_payload(
+                ema_trades,
+                ema_summary,
+                ema_equity_curve,
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        ema_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    strategy_confirmation_meta("ema_crossover"),
+                ),
+            ),
+            "cci_trend": _strategy_payload(
+                cci_trades,
+                cci_summary,
+                cci_equity_curve,
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        cci_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    strategy_confirmation_meta("cci_trend"),
                 ),
             ),
             "cci_hysteresis": _strategy_payload(

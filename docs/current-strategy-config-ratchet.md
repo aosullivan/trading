@@ -9,13 +9,15 @@ The machine-readable source of truth is [`tests/fixtures/strategy_config_ratchet
 It pins:
 
 - the current backtest defaults, including `default_strategy: "ribbon"`
-- the exact strategy selector order and labels exposed in `/backtest`
+- the exact strategy selector order and labels exposed in `/backtest`, including the experimental shelf
 - the additive exposure of `corpus_trend_layered` as the remaining comparison-only strategy
 - the current money-management defaults and option lists
 - the backend `/api/chart` strategy inventory and required payload fields
 - the frozen deterministic fixture paths `tests/fixtures/btc_usd_1d_benchmark.csv` and `tests/fixtures/polymarket_probability_history_benchmark.json`
 
-The current contract no longer exposes confirmation experiments through the main `/backtest` control bar. Those paths may still exist internally or by URL for research continuity, but they are not part of the pinned primary UI surface.
+The current contract keeps the primary maintained surface narrow while allowing a
+small set of experimental strategy options in the `/backtest` selector for
+comparison work.
 
 ## Why This Exists
 

@@ -423,3 +423,33 @@ body.pf-page{display:block;overflow-y:auto}
 .pf-progress-track{flex:1;height:4px;background:var(--bg-3);border-radius:2px;overflow:hidden}
 .pf-progress-bar{height:100%;background:linear-gradient(90deg,var(--accent),#4a5cff);border-radius:2px;transition:width .3s ease}
 .pf-progress-text{font-size:11px;color:var(--text-3);white-space:nowrap;min-width:120px}
+.pf-campaign-builder{background:var(--bg-2);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:14px}
+.pf-campaign-builder-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.pf-campaign-builder-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}
+.pf-campaign-layout{display:grid;grid-template-columns:minmax(280px,.9fr) minmax(0,1.4fr);gap:16px}
+.pf-campaign-panel{background:var(--bg-2);border:1px solid var(--border);border-radius:10px;padding:14px}
+.pf-campaign-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+.pf-campaign-schedule{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--border)}
+.pf-panel-title{font-size:11px;font-weight:800;color:var(--text-2);text-transform:uppercase;letter-spacing:.7px}
+.pf-campaign-list{display:flex;flex-direction:column;gap:10px}
+.pf-campaign-card{background:linear-gradient(180deg,#171a28,#10131d);border:1px solid var(--border);border-radius:10px;padding:12px;transition:all .15s}
+.pf-campaign-card.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(91,127,255,.18)}
+.pf-campaign-card-head,.pf-campaign-summary-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.pf-campaign-name{font-size:14px;font-weight:700;color:var(--text-1)}
+.pf-campaign-goal{font-size:11px;color:var(--text-3);margin-top:4px;line-height:1.4}
+.pf-campaign-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.pf-campaign-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.pf-campaign-detail{min-height:180px}
+.pf-campaign-summary{margin-bottom:12px}
+.pf-status{display:inline-flex;align-items:center;justify-content:center;padding:4px 9px;border-radius:999px;border:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;background:var(--bg-3);color:var(--text-2)}
+.pf-status-planned{color:var(--text-2)}
+.pf-status-queued{color:var(--yellow);border-color:rgba(255,214,68,.25);background:rgba(255,214,68,.08)}
+.pf-status-running{color:var(--accent);border-color:rgba(91,127,255,.25);background:rgba(91,127,255,.08)}
+.pf-status-completed{color:var(--green);border-color:rgba(0,230,138,.25);background:rgba(0,230,138,.08)}
+.pf-status-failed{color:var(--red);border-color:rgba(255,82,116,.25);background:rgba(255,82,116,.08)}
+.pf-status-skipped{color:var(--text-3)}
+.pf-empty{padding:16px;border:1px dashed var(--border-2);border-radius:10px;background:var(--bg-1);color:var(--text-3);font-size:12px;line-height:1.5}
+.pf-inline-tags{display:flex;gap:6px;flex-wrap:wrap}
+@media (max-width: 900px){
+  .pf-campaign-layout{grid-template-columns:1fr}
+}

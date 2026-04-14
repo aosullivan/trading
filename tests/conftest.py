@@ -17,6 +17,8 @@ def app(tmp_path):
     wl_file = tmp_path / "watchlist.json"
     wl_file.write_text(json.dumps(["AAPL", "TSLA"]))
     flask_app.config["TESTING"] = True
+    original_user_data_dir = os.environ.get("TRIEDINGVIEW_USER_DATA_DIR")
+    os.environ["TRIEDINGVIEW_USER_DATA_DIR"] = str(tmp_path)
     # Patch the watchlist file path
     import routes.watchlist as watchlist_module
     import lib.data_fetching as data_fetching_module
@@ -34,6 +36,10 @@ def app(tmp_path):
     cache_module._watchlist_trends_cache.clear()
     cache_module._watchlist_trend_refreshing.clear()
     yield flask_app
+    if original_user_data_dir is None:
+        os.environ.pop("TRIEDINGVIEW_USER_DATA_DIR", None)
+    else:
+        os.environ["TRIEDINGVIEW_USER_DATA_DIR"] = original_user_data_dir
     watchlist_module.WATCHLIST_FILE = original_wl
     watchlist_module._TRENDS_CACHE_DIR = original_trends_cache_dir
     data_fetching_module._DATA_CACHE_DIR = original_cache_dir

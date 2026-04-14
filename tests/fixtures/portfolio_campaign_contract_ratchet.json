@@ -1,0 +1,52 @@
+{
+  "create_request": {
+    "name": "Core Portfolio Sweep",
+    "goal": "Compare retained strategies across favorite baskets",
+    "tags": ["favorites", "mixed"],
+    "runs": [
+      {
+        "name": "Manual corpus run",
+        "strategy": "corpus_trend",
+        "basket_source": "manual",
+        "tickers": ["MSFT", "NVDA"],
+        "start": "2024-01-02",
+        "end": "",
+        "heat_limit": 0.2,
+        "money_management": {
+          "sizing_method": "fixed_fraction",
+          "stop_type": "atr",
+          "stop_atr_period": 20,
+          "stop_atr_multiple": 3.0
+        }
+      }
+    ]
+  },
+  "schedule_request": {
+    "enabled": true,
+    "cadence": "hourly",
+    "interval_hours": 12
+  },
+  "expected_defaults": {
+    "campaign_status": "planned",
+    "run_status": "planned",
+    "progress": {
+      "completed": 0,
+      "failed": 0,
+      "percent_completed": 0.0,
+      "planned": 1,
+      "queued": 0,
+      "remaining": 1,
+      "running": 0,
+      "skipped": 0,
+      "total": 1
+    }
+  },
+  "expected_schedule": {
+    "enabled": true,
+    "cadence": "hourly",
+    "interval_hours": 12,
+    "weekdays": [],
+    "hour": 9,
+    "minute": 0
+  }
+}

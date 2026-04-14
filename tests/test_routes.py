@@ -1,6 +1,7 @@
 """Tests for Flask API routes."""
 
 import json
+from pathlib import Path
 import time
 from unittest.mock import patch, MagicMock
 
@@ -10,7 +11,15 @@ import pytest
 
 from lib.backtesting import build_weekly_confirmed_ribbon_direction
 import routes.chart as chart_module
+import routes.portfolio as portfolio_module
 from routes.chart import _align_weekly_direction_to_daily, _carry_neutral_direction
+
+PORTFOLIO_CONTRACT_RATCHET_PATH = (
+    Path(__file__).resolve().parent / "fixtures" / "portfolio_backtest_contract_ratchet.json"
+)
+PORTFOLIO_CAMPAIGN_CONTRACT_RATCHET_PATH = (
+    Path(__file__).resolve().parent / "fixtures" / "portfolio_campaign_contract_ratchet.json"
+)
 
 
 class TestIndexRoute:
@@ -24,6 +33,23 @@ class TestIndexRoute:
         assert resp.status_code == 200
         assert b"Backtest Report" in resp.data
         assert b"strategy-select" in resp.data
+
+    def test_portfolio_page_exposes_strategy_and_basket_controls(self, client):
+        resp = client.get("/portfolio")
+        assert resp.status_code == 200
+        assert b'option value="ribbon"' in resp.data
+        assert b'option value="corpus_trend"' in resp.data
+        assert b'option value="cci_hysteresis"' in resp.data
+        assert b'option value="watchlist"' in resp.data
+        assert b'option value="manual"' in resp.data
+        assert b'option value="preset"' in resp.data
+        assert b"Strategy Vs Buy &amp; Hold" in resp.data
+        assert b"Order Activity" in resp.data
+        assert b"Basket Diagnostics" in resp.data
+        assert b"Campaign Dashboard" in resp.data
+        assert b"Save Current Run As Campaign" in resp.data
+        assert b"Saved Campaigns" in resp.data
+        assert b"Selected Campaign" in resp.data
 
 
 class TestChartHelpers:
@@ -200,6 +226,341 @@ class TestWatchlistAPI:
             assert data["loading"] is False
             assert data["stale"] is False
             mock_build.assert_called_once()
+
+
+class TestPortfolioBacktestAPI:
+    @staticmethod
+    def _sample_portfolio_df():
+        idx = pd.date_range("2024-01-02", periods=5, freq="D")
+        return pd.DataFrame(
+            {
+                "Open": [100.0, 101.0, 103.0, 104.0, 105.0],
+                "High": [101.0, 103.0, 104.0, 106.0, 107.0],
+                "Low": [99.0, 100.0, 102.0, 103.0, 104.0],
+                "Close": [100.0, 102.0, 103.0, 105.0, 106.0],
+                "Volume": [1000, 1000, 1000, 1000, 1000],
+            },
+            index=idx,
+        )
+
+    @staticmethod
+    def _sample_direction(df):
+        return pd.Series([0, 1, 1, 1, -1], index=df.index)
+
+    @patch("routes.portfolio._compute_signal_for_strategy")
+    @patch("routes.portfolio.cached_download")
+    def test_portfolio_backtest_supports_manual_basket_and_retained_strategy(
+        self, mock_download, mock_compute_signal, client
+    ):
+        df = self._sample_portfolio_df()
+        mock_download.return_value = df
+        mock_compute_signal.side_effect = (
+            lambda strategy, ticker, frame: self._sample_direction(frame)
+        )
+
+        resp = client.get(
+            "/api/portfolio/backtest",
+            query_string={
+                "stream": "0",
+                "strategy": "corpus_trend",
+                "basket_source": "manual",
+                "tickers": "MSFT,NVDA",
+                "start": "2024-01-02",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["strategy"] == "corpus_trend"
+        assert data["basket"]["source"] == "manual"
+        assert data["config"]["strategy"] == "corpus_trend"
+        assert data["config"]["basket_source"] == "manual"
+        assert data["basket"]["requested_tickers"] == ["MSFT", "NVDA"]
+        assert data["basket_diagnostics"]["size_bucket"] == "small"
+        assert data["basket_diagnostics"]["composition"] == "equity_only"
+        assert data["basket_diagnostics"]["traded_tickers"] >= 1
+        assert data["comparison"]["winner"] in {"strategy", "buy_hold", "tie"}
+        assert data["orders"]
+        assert {order["ticker"] for order in data["orders"]}.issubset({"MSFT", "NVDA"})
+        assert set(data["tickers"]) == {"MSFT", "NVDA"}
+        assert {call.args[0] for call in mock_compute_signal.call_args_list} == {"corpus_trend"}
+        assert {call.args[1] for call in mock_compute_signal.call_args_list} == {"MSFT", "NVDA"}
+
+    @patch("routes.portfolio._compute_signal_for_strategy")
+    @patch("routes.portfolio.cached_download")
+    def test_portfolio_backtest_supports_focus_preset_basket(
+        self, mock_download, mock_compute_signal, client
+    ):
+        df = self._sample_portfolio_df()
+        mock_download.return_value = df
+        mock_compute_signal.side_effect = (
+            lambda strategy, ticker, frame: self._sample_direction(frame)
+        )
+
+        resp = client.get(
+            "/api/portfolio/backtest",
+            query_string={
+                "stream": "0",
+                "strategy": "cci_hysteresis",
+                "basket_source": "preset",
+                "preset": "focus",
+                "start": "2024-01-02",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["strategy"] == "cci_hysteresis"
+        assert data["basket"]["source"] == "preset"
+        assert data["basket"]["preset"] == "focus"
+        assert data["config"]["basket_preset"] == "focus"
+        assert data["basket_diagnostics"]["composition"] == "mixed"
+        assert data["comparison"]["strategy_ending_equity"] > 0
+        assert len(data["tickers"]) == len(portfolio_module._PORTFOLIO_PRESET_BASKETS["focus"])
+        assert set(data["tickers"]) == set(portfolio_module._PORTFOLIO_PRESET_BASKETS["focus"])
+
+    def test_portfolio_backtest_rejects_unsupported_strategy(self, client):
+        resp = client.get(
+            "/api/portfolio/backtest",
+            query_string={"stream": "0", "strategy": "polymarket"},
+        )
+
+        assert resp.status_code == 400
+        assert "Unsupported portfolio strategy" in resp.get_json()["error"]
+
+    def test_portfolio_backtest_rejects_empty_manual_basket(self, client):
+        resp = client.get(
+            "/api/portfolio/backtest",
+            query_string={
+                "stream": "0",
+                "basket_source": "manual",
+                "tickers": "",
+            },
+        )
+
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "Manual basket requires at least one ticker"
+
+    @patch("routes.portfolio._compute_signal_for_strategy")
+    @patch("routes.portfolio.cached_download")
+    def test_portfolio_contract_ratchet(self, mock_download, mock_compute_signal, client):
+        fixture = json.loads(PORTFOLIO_CONTRACT_RATCHET_PATH.read_text())
+        df = self._sample_portfolio_df()
+        mock_download.return_value = df
+        mock_compute_signal.side_effect = (
+            lambda strategy, ticker, frame: self._sample_direction(frame)
+        )
+
+        resp = client.get("/api/portfolio/backtest", query_string=fixture["request"])
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+
+        assert sorted(portfolio_module._SUPPORTED_PORTFOLIO_STRATEGIES) == sorted(
+            fixture["supported_strategies"]
+        )
+        assert sorted(portfolio_module._PORTFOLIO_PRESET_BASKETS) == sorted(
+            fixture["preset_baskets"]
+        )
+        assert data["strategy"] == fixture["expected_response"]["strategy"]
+        assert data["tickers"] == fixture["expected_response"]["tickers"]
+        assert data["basket"] == fixture["expected_response"]["basket"]
+        assert data["basket_diagnostics"] == fixture["expected_response"]["basket_diagnostics"]
+        assert data["comparison"] == fixture["expected_response"]["comparison"]
+        assert data["orders"] == fixture["expected_response"]["orders"]
+        assert data["config"] == fixture["expected_response"]["config"]
+
+
+class TestPortfolioCampaignAPI:
+    @staticmethod
+    def _campaign_payload():
+        return {
+            "name": "Core Sweep",
+            "goal": "Compare retained strategies across baskets",
+            "tags": ["small", "favorites"],
+            "runs": [
+                {
+                    "name": "Manual corpus run",
+                    "strategy": "corpus_trend",
+                    "basket_source": "manual",
+                    "tickers": ["MSFT", "NVDA"],
+                    "start": "2024-01-02",
+                    "end": "",
+                    "heat_limit": 0.2,
+                    "money_management": {
+                        "sizing_method": "fixed_fraction",
+                        "stop_type": "atr",
+                        "stop_atr_period": 20,
+                        "stop_atr_multiple": 3.0,
+                    },
+                }
+            ],
+        }
+
+    @patch("routes.portfolio._start_campaign_worker")
+    def test_create_and_list_portfolio_campaigns(self, mock_start_worker, client):
+        resp = client.post("/api/portfolio/campaigns", json=self._campaign_payload())
+
+        assert resp.status_code == 201
+        campaign = resp.get_json()
+        assert campaign["name"] == "Core Sweep"
+        assert campaign["runs"][0]["status"] == "planned"
+
+        listed = client.get("/api/portfolio/campaigns")
+        assert listed.status_code == 200
+        items = listed.get_json()["items"]
+        assert any(item["campaign_id"] == campaign["campaign_id"] for item in items)
+        mock_start_worker.assert_not_called()
+
+    def test_schedule_portfolio_campaign_persists_schedule_contract(self, client):
+        create = client.post("/api/portfolio/campaigns", json=self._campaign_payload())
+        campaign_id = create.get_json()["campaign_id"]
+
+        resp = client.post(
+            f"/api/portfolio/campaigns/{campaign_id}/schedule",
+            json={
+                "enabled": True,
+                "cadence": "weekly",
+                "weekdays": ["mon", "wed", "fri"],
+                "hour": 9,
+                "minute": 30,
+            },
+        )
+
+        assert resp.status_code == 200
+        campaign = resp.get_json()
+        assert campaign["schedule"]["enabled"] is True
+        assert campaign["schedule"]["cadence"] == "weekly"
+        assert campaign["schedule"]["weekdays"] == ["mon", "wed", "fri"]
+        assert campaign["schedule"]["hour"] == 9
+        assert campaign["schedule"]["minute"] == 30
+        assert campaign["schedule"]["next_run_at"]
+
+    def test_portfolio_campaign_contract_ratchet(self, client):
+        fixture = json.loads(PORTFOLIO_CAMPAIGN_CONTRACT_RATCHET_PATH.read_text())
+
+        create = client.post("/api/portfolio/campaigns", json=fixture["create_request"])
+
+        assert create.status_code == 201
+        campaign = create.get_json()
+        assert campaign["status"] == fixture["expected_defaults"]["campaign_status"]
+        assert campaign["runs"][0]["status"] == fixture["expected_defaults"]["run_status"]
+        assert campaign["progress"] == fixture["expected_defaults"]["progress"]
+
+        schedule = client.post(
+            f"/api/portfolio/campaigns/{campaign['campaign_id']}/schedule",
+            json=fixture["schedule_request"],
+        )
+
+        assert schedule.status_code == 200
+        scheduled_campaign = schedule.get_json()
+        for key, value in fixture["expected_schedule"].items():
+            assert scheduled_campaign["schedule"][key] == value
+        assert scheduled_campaign["schedule"]["next_run_at"]
+
+    @patch("routes.portfolio.cached_download")
+    @patch("routes.portfolio._compute_signal_for_strategy")
+    def test_queue_portfolio_campaign_executes_runs_and_persists_summary(
+        self, mock_compute_signal, mock_download, client
+    ):
+        df = TestPortfolioBacktestAPI._sample_portfolio_df()
+        mock_download.return_value = df
+        mock_compute_signal.side_effect = (
+            lambda strategy, ticker, frame: TestPortfolioBacktestAPI._sample_direction(frame)
+        )
+
+        create = client.post("/api/portfolio/campaigns", json=self._campaign_payload())
+        campaign_id = create.get_json()["campaign_id"]
+
+        with patch(
+            "routes.portfolio._start_campaign_worker",
+            side_effect=lambda campaign_id: portfolio_module._campaign_worker(campaign_id),
+        ):
+            queued = client.post(f"/api/portfolio/campaigns/{campaign_id}/queue")
+
+        assert queued.status_code == 202
+        queued_payload = queued.get_json()
+        assert queued_payload["queued"] == 1
+        campaign = queued_payload["campaign"]
+        run = campaign["runs"][0]
+        assert run["status"] == "completed"
+        assert run["last_result"]["winner"] in {"strategy", "buy_hold", "tie"}
+        assert run["last_result"]["order_count"] >= 1
+
+        fetched = client.get(f"/api/portfolio/campaigns/{campaign_id}")
+        assert fetched.status_code == 200
+        fetched_campaign = fetched.get_json()
+        assert fetched_campaign["progress"]["completed"] == 1
+        assert fetched_campaign["progress"]["remaining"] == 0
+        assert fetched_campaign["runs"][0]["status"] == "completed"
+
+    @patch("routes.portfolio.cached_download")
+    @patch("routes.portfolio._compute_signal_for_strategy")
+    def test_rerun_portfolio_campaign_requeues_completed_runs(
+        self, mock_compute_signal, mock_download, client
+    ):
+        df = TestPortfolioBacktestAPI._sample_portfolio_df()
+        mock_download.return_value = df
+        mock_compute_signal.side_effect = (
+            lambda strategy, ticker, frame: TestPortfolioBacktestAPI._sample_direction(frame)
+        )
+
+        create = client.post("/api/portfolio/campaigns", json=self._campaign_payload())
+        campaign_id = create.get_json()["campaign_id"]
+
+        with patch(
+            "routes.portfolio._start_campaign_worker",
+            side_effect=lambda queued_campaign_id: portfolio_module._campaign_worker(queued_campaign_id),
+        ):
+            first = client.post(f"/api/portfolio/campaigns/{campaign_id}/queue")
+            rerun = client.post(f"/api/portfolio/campaigns/{campaign_id}/rerun")
+
+        assert first.status_code == 202
+        assert rerun.status_code == 202
+        rerun_payload = rerun.get_json()
+        assert rerun_payload["queued"] == 1
+        assert rerun_payload["campaign"]["runs"][0]["status"] == "completed"
+
+    @patch("routes.portfolio.cached_download")
+    @patch("routes.portfolio._compute_signal_for_strategy")
+    def test_run_due_portfolio_campaigns_queues_scheduled_campaigns(
+        self, mock_compute_signal, mock_download, client
+    ):
+        df = TestPortfolioBacktestAPI._sample_portfolio_df()
+        mock_download.return_value = df
+        mock_compute_signal.side_effect = (
+            lambda strategy, ticker, frame: TestPortfolioBacktestAPI._sample_direction(frame)
+        )
+
+        create = client.post("/api/portfolio/campaigns", json=self._campaign_payload())
+        campaign_id = create.get_json()["campaign_id"]
+        client.post(
+            f"/api/portfolio/campaigns/{campaign_id}/schedule",
+            json={
+                "enabled": True,
+                "cadence": "hourly",
+                "interval_hours": 12,
+                "next_run_at": "2000-01-01T00:00:00+00:00",
+            },
+        )
+
+        with patch(
+            "routes.portfolio._start_campaign_worker",
+            side_effect=lambda queued_campaign_id: portfolio_module._campaign_worker(queued_campaign_id),
+        ):
+            due = client.post("/api/portfolio/campaigns/run-due")
+
+        assert due.status_code == 200
+        payload = due.get_json()
+        assert payload["count"] == 1
+        assert payload["queued_campaigns"][0]["campaign_id"] == campaign_id
+
+        fetched = client.get(f"/api/portfolio/campaigns/{campaign_id}")
+        assert fetched.status_code == 200
+        campaign = fetched.get_json()
+        assert campaign["runs"][0]["status"] == "completed"
+        assert campaign["schedule"]["last_queued_at"]
+        assert campaign["schedule"]["next_run_at"]
 
     def test_watchlist_trends_returns_disk_snapshots_on_cold_memory_cache(self, client):
         import routes.watchlist as watchlist_module
@@ -454,6 +815,10 @@ class TestChartAPI:
             "ribbon",
             "corpus_trend",
             "corpus_trend_layered",
+            "weekly_core_overlay_v1",
+            "bb_breakout",
+            "ema_crossover",
+            "cci_trend",
             "cci_hysteresis",
             "polymarket",
         ]
@@ -465,6 +830,7 @@ class TestChartAPI:
 
         assert "buy_hold_equity_curve" in strategies["corpus_trend"]
         assert "buy_hold_equity_curve" in strategies["corpus_trend_layered"]
+        assert "buy_hold_equity_curve" in strategies["weekly_core_overlay_v1"]
         assert "buy_hold_equity_curve" in strategies["cci_hysteresis"]
 
     @patch("lib.cache.yf.download")
@@ -493,6 +859,10 @@ class TestChartAPI:
         ribbon = data["strategies"]["ribbon"]
         corpus = data["strategies"]["corpus_trend"]
         layered = data["strategies"]["corpus_trend_layered"]
+        weekly_core_overlay = data["strategies"]["weekly_core_overlay_v1"]
+        bb_breakout = data["strategies"]["bb_breakout"]
+        ema_crossover = data["strategies"]["ema_crossover"]
+        cci_trend = data["strategies"]["cci_trend"]
         cci_hysteresis = data["strategies"]["cci_hysteresis"]
         polymarket = data["strategies"]["polymarket"]
 
@@ -503,6 +873,10 @@ class TestChartAPI:
         assert corpus["confirmation_mode"] == "layered_30_70"
         assert corpus["confirmation_supported"] is True
         assert layered["confirmation_supported"] is False
+        assert weekly_core_overlay["confirmation_supported"] is False
+        assert bb_breakout["confirmation_supported"] is True
+        assert ema_crossover["confirmation_supported"] is True
+        assert cci_trend["confirmation_supported"] is True
         assert cci_hysteresis["confirmation_supported"] is False
         assert polymarket["confirmation_supported"] is False
 
@@ -531,12 +905,18 @@ class TestChartAPI:
 
         ribbon = data["strategies"]["ribbon"]
         corpus = data["strategies"]["corpus_trend"]
+        ema_crossover = data["strategies"]["ema_crossover"]
+        bb_breakout = data["strategies"]["bb_breakout"]
+        cci_trend = data["strategies"]["cci_trend"]
         assert ribbon["confirmation_mode"] == "escalation_50_50"
         assert ribbon["confirmation_supported"] is True
         assert ribbon["confirmation_starter_fraction"] == pytest.approx(0.50)
         assert ribbon["confirmation_confirmed_fraction"] == pytest.approx(0.50)
         assert "base 50%" in ribbon["confirmation_hint"].lower()
         assert corpus["confirmation_supported"] is True
+        assert ema_crossover["confirmation_supported"] is True
+        assert bb_breakout["confirmation_supported"] is True
+        assert cci_trend["confirmation_supported"] is True
 
     @patch("lib.cache.yf.Ticker")
     @patch("lib.cache.yf.download")
