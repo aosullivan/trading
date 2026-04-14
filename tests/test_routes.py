@@ -197,19 +197,21 @@ class TestWatchlistAPI:
 
     def test_watchlist_trends_returns_loading_then_cached_rows(self, client):
         cold_rows = [
-            {"ticker": "AAPL", "daily": {}, "weekly": {}},
-            {"ticker": "TSLA", "daily": {}, "weekly": {}},
+            {"ticker": "AAPL", "daily": {}, "weekly": {}, "trade_setup": {}},
+            {"ticker": "TSLA", "daily": {}, "weekly": {}, "trade_setup": {}},
         ]
         rows = [
             {
                 "ticker": "AAPL",
                 "daily": {"ribbon": {"date": "2024-03-15", "dir": "bullish"}},
                 "weekly": {"ribbon": {"date": "2024-03-08", "dir": "bullish"}},
+                "trade_setup": {},
             },
             {
                 "ticker": "TSLA",
                 "daily": {"ribbon": {"date": "2024-03-14", "dir": "bearish"}},
                 "weekly": {"ribbon": {"date": "2024-02-23", "dir": "bearish"}},
+                "trade_setup": {},
             },
         ]
 
@@ -364,6 +366,9 @@ class TestPortfolioBacktestAPI:
         assert sorted(portfolio_module._SUPPORTED_PORTFOLIO_STRATEGIES) == sorted(
             fixture["supported_strategies"]
         )
+        assert sorted(portfolio_module.SUPPORTED_ALLOCATOR_POLICIES) == sorted(
+            fixture["supported_allocator_policies"]
+        )
         assert sorted(portfolio_module._PORTFOLIO_PRESET_BASKETS) == sorted(
             fixture["preset_baskets"]
         )
@@ -384,6 +389,34 @@ class TestPortfolioBacktestAPI:
 
         assert resp.status_code == 400
         assert "Unsupported allocator policy" in resp.get_json()["error"]
+
+    @patch("routes.portfolio._compute_signal_for_strategy")
+    @patch("routes.portfolio.cached_download")
+    def test_portfolio_backtest_supports_non_default_allocator_policy(
+        self, mock_download, mock_compute_signal, client
+    ):
+        df = self._sample_portfolio_df()
+        mock_download.return_value = df
+        mock_compute_signal.side_effect = (
+            lambda strategy, ticker, frame: self._sample_direction(frame)
+        )
+
+        resp = client.get(
+            "/api/portfolio/backtest",
+            query_string={
+                "stream": "0",
+                "strategy": "corpus_trend",
+                "allocator_policy": "signal_equal_weight_redeploy_v1",
+                "basket_source": "manual",
+                "tickers": "MSFT,NVDA",
+                "start": "2024-01-02",
+            },
+        )
+
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert payload["config"]["allocator_policy"] == "signal_equal_weight_redeploy_v1"
+        assert payload["portfolio_diagnostics"]["allocator_policy"] == "signal_equal_weight_redeploy_v1"
 
 
 class TestPortfolioCampaignAPI:
@@ -780,6 +813,7 @@ class TestPortfolioCampaignAPI:
             "ticker": "AAPL",
             "daily": {"ribbon": {"date": "2024-03-15", "dir": "bullish"}},
             "weekly": {"ribbon": {"date": "2024-03-08", "dir": "bullish"}},
+            "trade_setup": {},
         }
         watchlist_module._save_disk_trend_row("AAPL", "2024-03-15", "2024-03-08", snapshot_row)
 
@@ -790,7 +824,7 @@ class TestPortfolioCampaignAPI:
         assert resp.get_json() == {
             "items": [
                 snapshot_row,
-                {"ticker": "TSLA", "daily": {}, "weekly": {}},
+                {"ticker": "TSLA", "daily": {}, "weekly": {}, "trade_setup": {}},
             ],
             "loading": True,
             "stale": False,
@@ -798,8 +832,8 @@ class TestPortfolioCampaignAPI:
 
     def test_watchlist_trends_handles_malformed_rows(self, client):
         malformed = [
-            {"ticker": "AAPL", "daily": {}, "weekly": {}},
-            {"ticker": "TSLA", "daily": {"ribbon": {"date": None, "dir": None}}, "weekly": {}},
+            {"ticker": "AAPL", "daily": {}, "weekly": {}, "trade_setup": {}},
+            {"ticker": "TSLA", "daily": {"ribbon": {"date": None, "dir": None}}, "weekly": {}, "trade_setup": {}},
         ]
 
         with patch("routes.watchlist._build_watchlist_trends", return_value=malformed):
@@ -844,6 +878,7 @@ class TestPortfolioCampaignAPI:
             "ticker": "AAPL",
             "daily": {"ribbon": {"date": "2024-01-01", "dir": "bullish"}},
             "weekly": {"ribbon": {"date": "2024-01-05", "dir": "bullish"}},
+            "trade_setup": {"daily": {"score": 42}, "weekly": {"score": 55}, "shared": {"price": 123.45}},
         }
 
         with patch("routes.watchlist.cached_download", side_effect=[sample_df, weekly_df, sample_df, weekly_df]):
@@ -851,8 +886,12 @@ class TestPortfolioCampaignAPI:
                 "routes.watchlist.compute_all_trend_flips",
                 side_effect=[expected_row["daily"], expected_row["weekly"]],
             ) as mock_flips:
-                first = watchlist_module._build_trend_row("AAPL")
-                second = watchlist_module._build_trend_row("AAPL")
+                with patch(
+                    "routes.watchlist.compute_trade_setup",
+                    return_value=expected_row["trade_setup"],
+                ):
+                    first = watchlist_module._build_trend_row("AAPL")
+                    second = watchlist_module._build_trend_row("AAPL")
 
         assert first == expected_row
         assert second == expected_row
@@ -899,6 +938,8 @@ class TestChartAPI:
         assert "candles" in data
         assert "supertrend_up" in data
         assert "supertrend_down" in data
+        assert "trend_flips" in data
+        assert "trade_setup" in data
         assert "volumes" in data
         assert "buy_hold_equity_curve" in data
         assert "strategies" in data

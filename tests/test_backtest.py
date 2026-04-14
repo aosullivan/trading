@@ -880,6 +880,127 @@ class TestPortfolioAllocatorDiagnostics:
         assert diagnostics["avg_redeployment_lag_bars"] == 0.0
 
 
+class TestPortfolioRotationPolicies:
+    def test_equal_weight_redeploy_can_reenter_existing_bullish_name_after_exit(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 100.0, 102.0, 104.0, 105.0],
+                "High": [101.0, 101.0, 101.0, 103.0, 105.0, 106.0],
+                "Low": [99.0, 99.0, 99.0, 101.0, 103.0, 104.0],
+                "Close": [100.0, 100.0, 102.0, 104.0, 105.0, 105.0],
+                "Volume": [1] * 6,
+            },
+            index=idx,
+        )
+
+        baseline = backtest_portfolio(
+            {"A": df, "B": df},
+            {
+                "A": pd.Series([-1, 1, 1, -1, -1, -1], index=idx),
+                "B": pd.Series([-1, -1, 1, 1, 1, 1], index=idx),
+            },
+            heat_limit=1.0,
+            allocator_policy=DEFAULT_ALLOCATOR_POLICY,
+        )
+        redeploy = backtest_portfolio(
+            {"A": df, "B": df},
+            {
+                "A": pd.Series([-1, 1, 1, -1, -1, -1], index=idx),
+                "B": pd.Series([-1, -1, 1, 1, 1, 1], index=idx),
+            },
+            heat_limit=1.0,
+            allocator_policy="signal_equal_weight_redeploy_v1",
+        )
+
+        assert baseline.per_ticker["B"]["summary"]["open_trades"] == 0
+        assert redeploy.per_ticker["B"]["summary"]["open_trades"] == 1
+        assert redeploy.portfolio_diagnostics["redeployment_events"] == 1
+
+    def test_top_n_strength_omits_weaker_bullish_name(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        strong = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 103.0, 106.0, 109.0, 111.0],
+                "High": [101.0, 104.0, 107.0, 110.0, 112.0, 114.0],
+                "Low": [99.0, 99.0, 102.0, 105.0, 108.0, 110.0],
+                "Close": [100.0, 103.0, 106.0, 109.0, 111.0, 113.0],
+                "Volume": [1] * 6,
+            },
+            index=idx,
+        )
+        medium = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 101.0, 102.0, 103.0, 104.0],
+                "High": [101.0, 101.0, 102.0, 103.0, 104.0, 105.0],
+                "Low": [99.0, 99.0, 100.0, 101.0, 102.0, 103.0],
+                "Close": [100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
+                "Volume": [1] * 6,
+            },
+            index=idx,
+        )
+        weak = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 100.0, 99.0, 99.0, 99.0],
+                "High": [101.0, 101.0, 101.0, 100.0, 100.0, 100.0],
+                "Low": [99.0, 99.0, 98.0, 98.0, 98.0, 98.0],
+                "Close": [100.0, 100.0, 99.0, 99.0, 99.0, 99.0],
+                "Volume": [1] * 6,
+            },
+            index=idx,
+        )
+        bullish = pd.Series([-1, 1, 1, 1, 1, 1], index=idx)
+
+        result = backtest_portfolio(
+            {"STRONG": strong, "MEDIUM": medium, "WEAK": weak},
+            {"STRONG": bullish, "MEDIUM": bullish, "WEAK": bullish},
+            heat_limit=1.0,
+            allocator_policy="signal_top_n_strength_v1",
+        )
+
+        assert result.per_ticker["STRONG"]["summary"]["open_trades"] == 1
+        assert result.per_ticker["MEDIUM"]["summary"]["open_trades"] == 1
+        assert result.per_ticker["WEAK"]["summary"]["open_trades"] == 0
+
+    def test_core_plus_rotation_overweights_strongest_name(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        strong = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 105.0, 110.0, 112.0, 114.0],
+                "High": [101.0, 106.0, 111.0, 113.0, 115.0, 116.0],
+                "Low": [99.0, 99.0, 104.0, 109.0, 111.0, 113.0],
+                "Close": [100.0, 105.0, 110.0, 112.0, 114.0, 115.0],
+                "Volume": [1] * 6,
+            },
+            index=idx,
+        )
+        weak = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 101.0, 102.0, 103.0, 104.0],
+                "High": [101.0, 101.0, 102.0, 103.0, 104.0, 105.0],
+                "Low": [99.0, 99.0, 100.0, 101.0, 102.0, 103.0],
+                "Close": [100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
+                "Volume": [1] * 6,
+            },
+            index=idx,
+        )
+        bullish = pd.Series([-1, 1, 1, 1, 1, 1], index=idx)
+
+        result = backtest_portfolio(
+            {"STRONG": strong, "WEAK": weak},
+            {"STRONG": bullish, "WEAK": bullish},
+            heat_limit=1.0,
+            allocator_policy="core_plus_rotation_v1",
+        )
+
+        strong_trade = result.per_ticker["STRONG"]["trades"][0]
+        weak_trade = result.per_ticker["WEAK"]["trades"][0]
+        strong_notional = strong_trade["quantity"] * strong_trade["entry_price"]
+        weak_notional = weak_trade["quantity"] * weak_trade["entry_price"]
+
+        assert strong_notional > weak_notional
+
+
 class TestBacktestConfirmationLayering:
     def test_scales_from_starter_to_full_when_weekly_confirms(self):
         idx = pd.date_range("2024-01-01", periods=4, freq="D")

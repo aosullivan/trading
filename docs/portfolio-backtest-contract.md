@@ -31,15 +31,18 @@ The following are not part of the first portfolio selector:
 
 The current engine now exposes an explicit allocator policy input, even though the first product surface still uses the default policy silently.
 
-The only supported allocator policy right now is:
+The currently supported allocator policies are:
 
 - `signal_flip_v1`
+  New exposure comes only from fresh bullish flips. This is the backwards-compatible baseline.
+- `signal_equal_weight_redeploy_v1`
+  Freed capital can redeploy into any currently bullish unheld names with equal cash budgets.
+- `signal_top_n_strength_v1`
+  Freed capital is limited to the strongest currently bullish names using a simple cross-sectional strength ranking.
+- `core_plus_rotation_v1`
+  Capital is split into a broad core sleeve plus a tactical overweight to the strongest currently bullish name.
 
-`signal_flip_v1` is intentionally the backwards-compatible baseline:
-
-- new exposure comes from fresh bullish flips
-- exits still come from signal loss or stop behavior
-- there is now an explicit seam for later portfolio-policy variants
+These are the first portfolio-policy variants above the retained signal engines. They do not yet imply a full rebalance system, but they are enough to start testing whether allocator behavior helps at the portfolio level.
 
 ## Supported Basket Modes
 

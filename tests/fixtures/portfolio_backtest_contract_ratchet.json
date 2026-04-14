@@ -5,6 +5,12 @@
     "corpus_trend",
     "cci_hysteresis"
   ],
+  "supported_allocator_policies": [
+    "signal_flip_v1",
+    "signal_equal_weight_redeploy_v1",
+    "signal_top_n_strength_v1",
+    "core_plus_rotation_v1"
+  ],
   "basket_sources": [
     "watchlist",
     "manual",

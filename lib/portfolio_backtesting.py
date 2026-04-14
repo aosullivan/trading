@@ -22,7 +22,14 @@ from lib.backtesting import (
 from lib.settings import INITIAL_CAPITAL
 
 DEFAULT_ALLOCATOR_POLICY = "signal_flip_v1"
-SUPPORTED_ALLOCATOR_POLICIES = frozenset({DEFAULT_ALLOCATOR_POLICY})
+SUPPORTED_ALLOCATOR_POLICIES = frozenset(
+    {
+        DEFAULT_ALLOCATOR_POLICY,
+        "signal_equal_weight_redeploy_v1",
+        "signal_top_n_strength_v1",
+        "core_plus_rotation_v1",
+    }
+)
 
 
 @dataclass
@@ -94,6 +101,15 @@ def _count_available_bullish_names(
     return count
 
 
+def _strength_score(df: pd.DataFrame, bar_idx: int, lookback: int = 20) -> float:
+    start_idx = max(0, bar_idx - lookback)
+    start_price = float(df["Close"].iloc[start_idx])
+    end_price = float(df["Close"].iloc[bar_idx])
+    if start_price <= 0:
+        return 0.0
+    return (end_price / start_price) - 1
+
+
 def _build_entry_candidates(
     tickers: list[str],
     date: pd.Timestamp,
@@ -107,13 +123,17 @@ def _build_entry_candidates(
 ) -> list[dict]:
     allocator_policy = _validate_allocator_policy(allocator_policy)
     candidates: list[dict] = []
+    allow_existing_bullish = allocator_policy != DEFAULT_ALLOCATOR_POLICY
     for ticker in tickers:
         if ticker in positions or date not in ticker_bar_idx.get(ticker, {}):
             continue
         df = ticker_data[ticker]
         idx = ticker_bar_idx[ticker][date]
         curr_dir = _direction_at_bar(ticker_directions[ticker], idx)
-        if prev_dirs[ticker] == 1 or curr_dir != 1:
+        is_fresh_flip = prev_dirs[ticker] != 1 and curr_dir == 1
+        if curr_dir != 1:
+            continue
+        if not allow_existing_bullish and not is_fresh_flip:
             continue
         next_idx = idx + 1
         if next_idx >= len(df):
@@ -131,9 +151,41 @@ def _build_entry_candidates(
                 "execution_price": execution_price,
                 "stop_dist": stop_dist,
                 "risk_per_share": risk_per_share,
+                "fresh_flip": is_fresh_flip,
+                "strength_score": _strength_score(df, idx),
             }
         )
-    return candidates
+    if allocator_policy == DEFAULT_ALLOCATOR_POLICY:
+        return candidates
+
+    if allocator_policy == "signal_equal_weight_redeploy_v1":
+        selected = sorted(candidates, key=lambda item: (not item["fresh_flip"], item["ticker"]))
+        fraction = 1 / max(len(selected), 1)
+        for item in selected:
+            item["cash_budget_fraction"] = fraction
+        return selected
+
+    ranked = sorted(
+        candidates,
+        key=lambda item: (item["strength_score"], item["fresh_flip"], item["ticker"]),
+        reverse=True,
+    )
+    if allocator_policy == "signal_top_n_strength_v1":
+        selected = ranked[:2]
+        fraction = 1 / max(len(selected), 1)
+        for item in selected:
+            item["cash_budget_fraction"] = fraction
+        return selected
+
+    if allocator_policy == "core_plus_rotation_v1":
+        selected = ranked
+        for idx, item in enumerate(selected):
+            core_fraction = 0.5 / max(len(selected), 1)
+            bonus_fraction = 0.5 if idx == 0 else 0.0
+            item["cash_budget_fraction"] = core_fraction + bonus_fraction
+        return selected
+
+    return ranked
 
 
 def _summarize_portfolio_diagnostics(
@@ -434,6 +486,7 @@ def backtest_portfolio(
             allocator_policy,
         )
 
+        cash_snapshot = cash
         for candidate in entry_candidates:
             t = candidate["ticker"]
             df = ticker_data[t]
@@ -442,11 +495,15 @@ def backtest_portfolio(
             execution_price = candidate["execution_price"]
             stop_dist = candidate["stop_dist"]
             risk_per_share = candidate["risk_per_share"]
+            cash_budget_fraction = candidate.get("cash_budget_fraction")
             quantity = _compute_position_size(
                 config, equity, execution_price, df, idx, stop_dist
             )
             if quantity is None:
                 quantity = cash / execution_price if execution_price > 0 else 0.0
+            if cash_budget_fraction is not None:
+                budget_cap = (cash_snapshot * cash_budget_fraction) / execution_price
+                quantity = min(quantity, budget_cap)
             quantity = _apply_risk_caps(config, quantity, execution_price, equity, df, idx)
 
             trade_risk = risk_per_share * quantity
