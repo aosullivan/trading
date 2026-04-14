@@ -372,8 +372,18 @@ class TestPortfolioBacktestAPI:
         assert data["basket"] == fixture["expected_response"]["basket"]
         assert data["basket_diagnostics"] == fixture["expected_response"]["basket_diagnostics"]
         assert data["comparison"] == fixture["expected_response"]["comparison"]
+        assert data["portfolio_diagnostics"] == fixture["expected_response"]["portfolio_diagnostics"]
         assert data["orders"] == fixture["expected_response"]["orders"]
         assert data["config"] == fixture["expected_response"]["config"]
+
+    def test_portfolio_backtest_rejects_unsupported_allocator_policy(self, client):
+        resp = client.get(
+            "/api/portfolio/backtest",
+            query_string={"stream": "0", "allocator_policy": "top_n_strength_v1"},
+        )
+
+        assert resp.status_code == 400
+        assert "Unsupported allocator policy" in resp.get_json()["error"]
 
 
 class TestPortfolioCampaignAPI:

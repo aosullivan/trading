@@ -81,8 +81,23 @@
         "pnl_pct": 2.91
       }
     ],
+    "portfolio_diagnostics": {
+      "allocator_policy": "signal_flip_v1",
+      "avg_active_positions": 0.6,
+      "avg_cash_pct": 40.0,
+      "avg_invested_pct": 60.0,
+      "avg_redeployment_lag_bars": 0.0,
+      "avg_top_3_weight_pct": 60.0,
+      "max_active_positions": 1,
+      "max_single_name_weight_pct": 100.0,
+      "redeployment_events": 0,
+      "redeployment_opportunities": 0,
+      "turnover_pct": 202.91,
+      "unfilled_redeployment_opportunities": 0
+    },
     "config": {
       "strategy": "corpus_trend",
+      "allocator_policy": "signal_flip_v1",
       "basket_source": "manual",
       "basket_preset": null,
       "requested_tickers": [

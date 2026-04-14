@@ -405,6 +405,7 @@ function _collectCurrentRunSpec(){
   const run={
     name:`${strategy} · ${basketLabel}`,
     strategy,
+    allocator_policy:'signal_flip_v1',
     basket_source:basketSource,
     start,
     end,

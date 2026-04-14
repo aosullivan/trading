@@ -21,12 +21,16 @@ from lib.backtesting import (
 )
 from lib.settings import INITIAL_CAPITAL
 
+DEFAULT_ALLOCATOR_POLICY = "signal_flip_v1"
+SUPPORTED_ALLOCATOR_POLICIES = frozenset({DEFAULT_ALLOCATOR_POLICY})
+
 
 @dataclass
 class PortfolioResult:
     portfolio_equity_curve: list[dict]
     portfolio_buy_hold_curve: list[dict]
     portfolio_summary: dict
+    portfolio_diagnostics: dict
     per_ticker: dict[str, dict]
     heat_series: list[dict]
     tickers: list[str]
@@ -40,6 +44,14 @@ class _OpenPosition:
     quantity: float
     stop_price: Optional[float]
     risk_per_share: float
+
+
+def _validate_allocator_policy(policy: Optional[str]) -> str:
+    value = str(policy or DEFAULT_ALLOCATOR_POLICY).strip() or DEFAULT_ALLOCATOR_POLICY
+    if value not in SUPPORTED_ALLOCATOR_POLICIES:
+        supported = ", ".join(sorted(SUPPORTED_ALLOCATOR_POLICIES))
+        raise ValueError(f"Unsupported allocator policy '{value}'. Supported: {supported}")
+    return value
 
 
 def _build_union_index(
@@ -56,6 +68,104 @@ def _build_union_index(
 
 def _atr_at_bar(df: pd.DataFrame, bar_idx: int, period: int = 20) -> Optional[float]:
     return _compute_atr(df["High"], df["Low"], df["Close"], bar_idx, period)
+
+
+def _direction_at_bar(direction: pd.Series, bar_idx: int) -> int:
+    if bar_idx >= len(direction):
+        return 0
+    value = direction.iloc[bar_idx]
+    return int(value) if not pd.isna(value) else 0
+
+
+def _count_available_bullish_names(
+    tickers: list[str],
+    date: pd.Timestamp,
+    ticker_bar_idx: dict[str, dict[pd.Timestamp, int]],
+    ticker_directions: dict[str, pd.Series],
+    positions: dict[str, _OpenPosition],
+) -> int:
+    count = 0
+    for ticker in tickers:
+        if ticker in positions or date not in ticker_bar_idx.get(ticker, {}):
+            continue
+        idx = ticker_bar_idx[ticker][date]
+        if _direction_at_bar(ticker_directions[ticker], idx) == 1:
+            count += 1
+    return count
+
+
+def _build_entry_candidates(
+    tickers: list[str],
+    date: pd.Timestamp,
+    ticker_data: dict[str, pd.DataFrame],
+    ticker_bar_idx: dict[str, dict[pd.Timestamp, int]],
+    ticker_directions: dict[str, pd.Series],
+    prev_dirs: dict[str, int],
+    positions: dict[str, _OpenPosition],
+    config: MoneyManagementConfig,
+    allocator_policy: str,
+) -> list[dict]:
+    allocator_policy = _validate_allocator_policy(allocator_policy)
+    candidates: list[dict] = []
+    for ticker in tickers:
+        if ticker in positions or date not in ticker_bar_idx.get(ticker, {}):
+            continue
+        df = ticker_data[ticker]
+        idx = ticker_bar_idx[ticker][date]
+        curr_dir = _direction_at_bar(ticker_directions[ticker], idx)
+        if prev_dirs[ticker] == 1 or curr_dir != 1:
+            continue
+        next_idx = idx + 1
+        if next_idx >= len(df):
+            continue
+        execution_price = round(float(df["Open"].iloc[next_idx]), 2)
+        if execution_price <= 0:
+            continue
+        stop_dist = _compute_stop_distance(df, idx, config)
+        risk_per_share = stop_dist if stop_dist and stop_dist > 0 else execution_price * 0.02
+        candidates.append(
+            {
+                "ticker": ticker,
+                "bar_idx": idx,
+                "execution_idx": next_idx,
+                "execution_price": execution_price,
+                "stop_dist": stop_dist,
+                "risk_per_share": risk_per_share,
+            }
+        )
+    return candidates
+
+
+def _summarize_portfolio_diagnostics(
+    *,
+    allocator_policy: str,
+    invested_pct_series: list[float],
+    cash_pct_series: list[float],
+    active_positions_series: list[int],
+    max_single_name_weight_series: list[float],
+    top_3_weight_series: list[float],
+    turnover_notional: float,
+    initial_capital: float,
+    redeployment_opportunities: int,
+    redeployment_lags: list[int],
+) -> dict:
+    def avg(values):
+        return round(sum(values) / len(values), 2) if values else 0.0
+
+    return {
+        "allocator_policy": allocator_policy,
+        "avg_invested_pct": avg(invested_pct_series),
+        "avg_cash_pct": avg(cash_pct_series),
+        "avg_active_positions": avg(active_positions_series),
+        "max_active_positions": max(active_positions_series) if active_positions_series else 0,
+        "max_single_name_weight_pct": round(max(max_single_name_weight_series), 2) if max_single_name_weight_series else 0.0,
+        "avg_top_3_weight_pct": avg(top_3_weight_series),
+        "turnover_pct": round((turnover_notional / initial_capital) * 100, 2) if initial_capital else 0.0,
+        "redeployment_opportunities": redeployment_opportunities,
+        "redeployment_events": len(redeployment_lags),
+        "avg_redeployment_lag_bars": round(sum(redeployment_lags) / len(redeployment_lags), 2) if redeployment_lags else 0.0,
+        "unfilled_redeployment_opportunities": max(redeployment_opportunities - len(redeployment_lags), 0),
+    }
 
 
 def _compute_per_ticker_summary(trades: list[dict]) -> dict:
@@ -112,8 +222,10 @@ def backtest_portfolio(
     ticker_directions: dict[str, pd.Series],
     config: Optional[MoneyManagementConfig] = None,
     heat_limit: float = 0.20,
+    allocator_policy: str = DEFAULT_ALLOCATOR_POLICY,
 ) -> PortfolioResult:
     """Run a portfolio backtest across multiple tickers with shared capital."""
+    allocator_policy = _validate_allocator_policy(allocator_policy)
     if config is None:
         config = MoneyManagementConfig(
             sizing_method="fixed_fraction",
@@ -138,6 +250,18 @@ def backtest_portfolio(
             portfolio_equity_curve=[],
             portfolio_buy_hold_curve=[],
             portfolio_summary=empty_summary,
+            portfolio_diagnostics=_summarize_portfolio_diagnostics(
+                allocator_policy=allocator_policy,
+                invested_pct_series=[],
+                cash_pct_series=[],
+                active_positions_series=[],
+                max_single_name_weight_series=[],
+                top_3_weight_series=[],
+                turnover_notional=0.0,
+                initial_capital=config.initial_capital,
+                redeployment_opportunities=0,
+                redeployment_lags=[],
+            ),
             per_ticker={},
             heat_series=[],
             tickers=tickers,
@@ -158,16 +282,26 @@ def backtest_portfolio(
 
     portfolio_equity_curve: list[dict] = []
     heat_series: list[dict] = []
+    invested_pct_series: list[float] = []
+    cash_pct_series: list[float] = []
+    active_positions_series: list[int] = []
+    max_single_name_weight_series: list[float] = []
+    top_3_weight_series: list[float] = []
 
     prev_dirs: dict[str, int] = {t: 0 for t in tickers}
+    turnover_notional = 0.0
+    redeployment_opportunities = 0
+    redeployment_lags: list[int] = []
+    pending_redeployment_bar: int | None = None
 
     # Buy-hold: equal-weight, initialize lazily per ticker
     bh_shares: dict[str, float] = {}
     bh_last_close: dict[str, float] = {}
     bh_capital_per_ticker = config.initial_capital / max(len(tickers), 1)
 
-    for date in union_index:
+    for bar_number, date in enumerate(union_index):
         ts = int(date.timestamp())
+        exits_this_bar = False
 
         # Update last known close for every ticker that has data today
         for t in tickers:
@@ -204,6 +338,8 @@ def backtest_portfolio(
                     "pnl": round(pnl, 2), "pnl_pct": round(pnl_pct, 2), "ticker": t,
                 })
                 cash += pos.quantity * exit_price
+                turnover_notional += pos.quantity * exit_price
+                exits_this_bar = True
                 del positions[t]
 
         # ---- 2. Update trailing stops ----
@@ -256,6 +392,8 @@ def backtest_portfolio(
                     "pnl": round(pnl, 2), "pnl_pct": round(pnl_pct, 2), "ticker": t,
                 })
                 cash += pos.quantity * exit_price
+                turnover_notional += pos.quantity * exit_price
+                exits_this_bar = True
                 del positions[t]
 
         # ---- 4. Mark-to-market using last known close ----
@@ -278,35 +416,32 @@ def backtest_portfolio(
         available_risk = max(0.0, heat_limit * equity - current_risk)
 
         # ---- 6. Process entries ----
-        entry_candidates = []
-        for t in tickers:
-            if t in positions:
-                continue
-            if date not in ticker_bar_idx.get(t, {}):
-                continue
+        if exits_this_bar and _count_available_bullish_names(
+            tickers, date, ticker_bar_idx, ticker_directions, positions
+        ) > 0 and pending_redeployment_bar is None:
+            redeployment_opportunities += 1
+            pending_redeployment_bar = bar_number
+
+        entry_candidates = _build_entry_candidates(
+            tickers,
+            date,
+            ticker_data,
+            ticker_bar_idx,
+            ticker_directions,
+            prev_dirs,
+            positions,
+            config,
+            allocator_policy,
+        )
+
+        for candidate in entry_candidates:
+            t = candidate["ticker"]
             df = ticker_data[t]
-            idx = ticker_bar_idx[t][date]
-            direction = ticker_directions[t]
-            if idx >= len(direction):
-                continue
-            curr_dir = int(direction.iloc[idx]) if not pd.isna(direction.iloc[idx]) else 0
-            if prev_dirs[t] != 1 and curr_dir == 1:
-                entry_candidates.append(t)
-
-        for t in entry_candidates:
-            df = ticker_data[t]
-            idx = ticker_bar_idx[t][date]
-            next_idx = idx + 1
-            if next_idx >= len(df):
-                continue
-
-            execution_price = round(float(df["Open"].iloc[next_idx]), 2)
-            if execution_price <= 0:
-                continue
-
-            stop_dist = _compute_stop_distance(df, idx, config)
-            risk_per_share = stop_dist if stop_dist and stop_dist > 0 else execution_price * 0.02
-
+            idx = candidate["bar_idx"]
+            next_idx = candidate["execution_idx"]
+            execution_price = candidate["execution_price"]
+            stop_dist = candidate["stop_dist"]
+            risk_per_share = candidate["risk_per_share"]
             quantity = _compute_position_size(
                 config, equity, execution_price, df, idx, stop_dist
             )
@@ -347,6 +482,10 @@ def backtest_portfolio(
 
             cash -= cost
             available_risk -= trade_risk
+            turnover_notional += cost
+            if pending_redeployment_bar is not None:
+                redeployment_lags.append(bar_number - pending_redeployment_bar)
+                pending_redeployment_bar = None
 
         # ---- 7. Update prev_dirs ----
         for t in tickers:
@@ -358,9 +497,12 @@ def backtest_portfolio(
 
         # ---- 8. Record equity (use last_close for all positions) ----
         market_value = 0.0
+        position_values: list[float] = []
         for t, pos in positions.items():
             price = last_close.get(t, pos.entry_price)
-            market_value += pos.quantity * price
+            value = pos.quantity * price
+            market_value += value
+            position_values.append(value)
         equity = cash + market_value
 
         current_risk = 0.0
@@ -372,9 +514,21 @@ def backtest_portfolio(
                 risk = pos.risk_per_share * pos.quantity
             current_risk += risk
         heat_pct = current_risk / equity if equity > 0 else 0.0
+        invested_pct = (market_value / equity) * 100 if equity > 0 else 0.0
+        cash_pct = (cash / equity) * 100 if equity > 0 else 0.0
+        weights = (
+            sorted(((value / equity) * 100 for value in position_values), reverse=True)
+            if equity > 0 and position_values
+            else []
+        )
 
         portfolio_equity_curve.append({"time": ts, "value": round(equity, 2)})
         heat_series.append({"time": ts, "value": round(heat_pct * 100, 2)})
+        invested_pct_series.append(round(invested_pct, 2))
+        cash_pct_series.append(round(cash_pct, 2))
+        active_positions_series.append(len(positions))
+        max_single_name_weight_series.append(round(weights[0], 2) if weights else 0.0)
+        top_3_weight_series.append(round(sum(weights[:3]), 2) if weights else 0.0)
 
         for t in tickers:
             contribution = 0.0
@@ -433,11 +587,24 @@ def backtest_portfolio(
     portfolio_summary = compute_summary(
         all_trades, portfolio_equity_curve, initial_capital=config.initial_capital,
     )
+    portfolio_diagnostics = _summarize_portfolio_diagnostics(
+        allocator_policy=allocator_policy,
+        invested_pct_series=invested_pct_series,
+        cash_pct_series=cash_pct_series,
+        active_positions_series=active_positions_series,
+        max_single_name_weight_series=max_single_name_weight_series,
+        top_3_weight_series=top_3_weight_series,
+        turnover_notional=turnover_notional,
+        initial_capital=config.initial_capital,
+        redeployment_opportunities=redeployment_opportunities,
+        redeployment_lags=redeployment_lags,
+    )
 
     return PortfolioResult(
         portfolio_equity_curve=portfolio_equity_curve,
         portfolio_buy_hold_curve=portfolio_buy_hold_curve,
         portfolio_summary=portfolio_summary,
+        portfolio_diagnostics=portfolio_diagnostics,
         per_ticker=per_ticker_result,
         heat_series=heat_series,
         tickers=tickers,

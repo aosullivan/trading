@@ -19,7 +19,11 @@ from lib.data_fetching import (
     normalize_ticker,
 )
 from lib import portfolio_campaigns
-from lib.portfolio_backtesting import backtest_portfolio
+from lib.portfolio_backtesting import (
+    DEFAULT_ALLOCATOR_POLICY,
+    SUPPORTED_ALLOCATOR_POLICIES,
+    backtest_portfolio,
+)
 from lib.technical_indicators import compute_corpus_trend_signal, compute_cci_hysteresis
 from lib.ribbon_signals import compute_confirmed_ribbon_direction
 from lib.settings import DAILY_WARMUP_DAYS
@@ -131,6 +135,20 @@ def _parse_strategy() -> str:
     return _validate_strategy(request.args.get("strategy", "ribbon"))
 
 
+def _validate_allocator_policy(policy: str) -> str:
+    policy = policy.strip() or DEFAULT_ALLOCATOR_POLICY
+    if policy not in SUPPORTED_ALLOCATOR_POLICIES:
+        raise ValueError(
+            f"Unsupported allocator policy '{policy}'. "
+            f"Supported: {', '.join(sorted(SUPPORTED_ALLOCATOR_POLICIES))}"
+        )
+    return policy
+
+
+def _parse_allocator_policy() -> str:
+    return _validate_allocator_policy(request.args.get("allocator_policy", DEFAULT_ALLOCATOR_POLICY))
+
+
 def _resolve_basket_request_values(
     source: str,
     preset: str,
@@ -211,8 +229,9 @@ def _sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {_json.dumps(data)}\n\n"
 
 
-def _resolve_requested_portfolio() -> tuple[str, list[str], list[str], dict]:
+def _resolve_requested_portfolio() -> tuple[str, str, list[str], list[str], dict]:
     strategy = _parse_strategy()
+    allocator_policy = _parse_allocator_policy()
     tickers_raw, basket_meta = _resolve_basket_request()
     if not tickers_raw:
         raise ValueError("Selected basket is empty")
@@ -229,7 +248,7 @@ def _resolve_requested_portfolio() -> tuple[str, list[str], list[str], dict]:
         "included_count": len(tickers),
         "skipped_count": len(skipped),
     }
-    return strategy, tickers, skipped, basket
+    return strategy, allocator_policy, tickers, skipped, basket
 
 
 def _money_management_payload(mm_config: MoneyManagementConfig) -> dict:
@@ -369,7 +388,7 @@ def _build_order_ledger(per_ticker: dict[str, dict]) -> list[dict]:
     return orders
 
 
-def _serialize_result(result, skipped, mm_config, heat_limit, strategy, basket):
+def _serialize_result(result, skipped, mm_config, heat_limit, strategy, allocator_policy, basket):
     per_ticker_json = {}
     for t, data in result.per_ticker.items():
         per_ticker_json[t] = {
@@ -409,10 +428,12 @@ def _serialize_result(result, skipped, mm_config, heat_limit, strategy, basket):
         "portfolio_equity_curve": result.portfolio_equity_curve,
         "portfolio_buy_hold_curve": result.portfolio_buy_hold_curve,
         "portfolio_summary": result.portfolio_summary,
+        "portfolio_diagnostics": result.portfolio_diagnostics,
         "per_ticker": per_ticker_json,
         "heat_series": result.heat_series,
         "config": {
             "strategy": strategy,
+            "allocator_policy": allocator_policy,
             "basket_source": basket["source"],
             "basket_preset": basket.get("preset"),
             "requested_tickers": basket["requested_tickers"],
@@ -428,21 +449,25 @@ def _serialize_result(result, skipped, mm_config, heat_limit, strategy, basket):
 def _summarize_campaign_result(payload: dict) -> dict:
     comparison = payload.get("comparison", {})
     summary = payload.get("portfolio_summary", {})
+    diagnostics = payload.get("portfolio_diagnostics", {})
     basket_diagnostics = payload.get("basket_diagnostics", {})
     return {
         "completed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "allocator_policy": payload.get("config", {}).get("allocator_policy", DEFAULT_ALLOCATOR_POLICY),
         "winner": comparison.get("winner"),
         "strategy_ending_equity": comparison.get("strategy_ending_equity"),
         "buy_hold_ending_equity": comparison.get("buy_hold_ending_equity"),
         "return_gap_pct": comparison.get("return_gap_pct"),
         "equity_gap": comparison.get("equity_gap"),
         "max_drawdown_pct": summary.get("max_drawdown_pct"),
+        "avg_invested_pct": diagnostics.get("avg_invested_pct"),
+        "redeployment_events": diagnostics.get("redeployment_events"),
         "traded_tickers": basket_diagnostics.get("traded_tickers"),
         "order_count": len(payload.get("orders", [])),
     }
 
 
-def _execute_portfolio_payload(strategy, tickers, skipped, basket, start, end, heat_limit, mm_config):
+def _execute_portfolio_payload(strategy, allocator_policy, tickers, skipped, basket, start, end, heat_limit, mm_config):
     ticker_data: dict = {}
     with ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(_fetch_ticker_data, t, start, end): t for t in tickers}
@@ -486,12 +511,19 @@ def _execute_portfolio_payload(strategy, tickers, skipped, basket, start, end, h
     if not visible_data:
         raise ValueError("No data in the selected date range")
 
-    result = backtest_portfolio(visible_data, visible_directions, config=mm_config, heat_limit=heat_limit)
-    return _serialize_result(result, skipped, mm_config, heat_limit, strategy, basket)
+    result = backtest_portfolio(
+        visible_data,
+        visible_directions,
+        config=mm_config,
+        heat_limit=heat_limit,
+        allocator_policy=allocator_policy,
+    )
+    return _serialize_result(result, skipped, mm_config, heat_limit, strategy, allocator_policy, basket)
 
 
 def _resolve_portfolio_request_from_run_spec(run_spec: dict):
     strategy = _validate_strategy(run_spec.get("strategy", "ribbon"))
+    allocator_policy = _validate_allocator_policy(run_spec.get("allocator_policy", DEFAULT_ALLOCATOR_POLICY))
     raw_tickers, basket_meta = _resolve_basket_request_values(
         run_spec.get("basket_source", "watchlist"),
         run_spec.get("preset", "") or "",
@@ -516,7 +548,7 @@ def _resolve_portfolio_request_from_run_spec(run_spec: dict):
     end = run_spec.get("end") or ""
     heat_limit = float(run_spec.get("heat_limit", 0.20))
     mm_config = _build_mm_config_from_saved_payload(run_spec.get("money_management"))
-    return strategy, tickers, skipped, basket, start, end, heat_limit, mm_config
+    return strategy, allocator_policy, tickers, skipped, basket, start, end, heat_limit, mm_config
 
 
 def _campaign_worker(campaign_id: str) -> None:
@@ -586,7 +618,7 @@ def _ensure_scheduler_started() -> None:
 def portfolio_backtest():
     """Run a portfolio backtest with SSE progress streaming."""
     try:
-        strategy, tickers, skipped, basket = _resolve_requested_portfolio()
+        strategy, allocator_policy, tickers, skipped, basket = _resolve_requested_portfolio()
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
@@ -597,7 +629,7 @@ def portfolio_backtest():
 
     use_sse = request.args.get("stream", "1") == "1"
     if not use_sse:
-        return _run_sync(strategy, tickers, skipped, basket, start, end, heat_limit, mm_config)
+        return _run_sync(strategy, allocator_policy, tickers, skipped, basket, start, end, heat_limit, mm_config)
 
     def generate():
         t0 = _time.perf_counter()
@@ -691,11 +723,15 @@ def portfolio_backtest():
         })
 
         result = backtest_portfolio(
-            visible_data, visible_directions, config=mm_config, heat_limit=heat_limit
+            visible_data,
+            visible_directions,
+            config=mm_config,
+            heat_limit=heat_limit,
+            allocator_policy=allocator_policy,
         )
 
         yield _sse_event("progress", {"stage": "serialize", "message": "Building response…", "pct": 95})
-        payload = _serialize_result(result, skipped, mm_config, heat_limit, strategy, basket)
+        payload = _serialize_result(result, skipped, mm_config, heat_limit, strategy, allocator_policy, basket)
 
         elapsed = round(_time.perf_counter() - t0, 1)
         yield _sse_event("progress", {"stage": "done", "message": f"Done in {elapsed}s", "pct": 100})
@@ -803,10 +839,20 @@ def run_due_portfolio_campaigns():
     return jsonify({"queued_campaigns": queued, "count": len(queued)})
 
 
-def _run_sync(strategy, tickers, skipped, basket, start, end, heat_limit, mm_config):
+def _run_sync(strategy, allocator_policy, tickers, skipped, basket, start, end, heat_limit, mm_config):
     """Non-streaming fallback for programmatic callers."""
     try:
-        payload = _execute_portfolio_payload(strategy, tickers, skipped, basket, start, end, heat_limit, mm_config)
+        payload = _execute_portfolio_payload(
+            strategy,
+            allocator_policy,
+            tickers,
+            skipped,
+            basket,
+            start,
+            end,
+            heat_limit,
+            mm_config,
+        )
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
     return jsonify(payload)

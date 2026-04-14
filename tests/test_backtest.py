@@ -23,7 +23,7 @@ from lib.backtesting import (
     build_equity_curve,
     compute_summary,
 )
-from lib.portfolio_backtesting import backtest_portfolio
+from lib.portfolio_backtesting import DEFAULT_ALLOCATOR_POLICY, backtest_portfolio
 from lib.technical_indicators import (
     compute_supertrend,
     compute_ema_crossover,
@@ -792,6 +792,92 @@ class TestPortfolioBacktestDirectionAlignment:
             heat_limit=1.0,
         )
         assert result.per_ticker["T"]["summary"]["total_trades"] == 0
+
+
+class TestPortfolioAllocatorDiagnostics:
+    def test_default_allocator_reports_portfolio_state_diagnostics(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        df_a = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 101.0, 103.0, 104.0, 104.0],
+                "High": [101.0, 101.0, 102.0, 104.0, 105.0, 105.0],
+                "Low": [99.0, 99.0, 100.0, 102.0, 103.0, 103.0],
+                "Close": [100.0, 101.0, 103.0, 104.0, 104.0, 105.0],
+                "Volume": [1] * 6,
+            },
+            index=idx,
+        )
+        df_b = pd.DataFrame(
+            {
+                "Open": [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+                "High": [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+                "Low": [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+                "Close": [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+                "Volume": [1] * 6,
+            },
+            index=idx,
+        )
+        cfg = MoneyManagementConfig(
+            sizing_method="fixed_fraction",
+            risk_fraction=0.25,
+            stop_type="pct",
+            stop_pct=0.10,
+        )
+
+        result = backtest_portfolio(
+            {"A": df_a, "B": df_b},
+            {
+                "A": pd.Series([-1, 1, 1, 1, -1, -1], index=idx),
+                "B": pd.Series([-1, -1, -1, -1, -1, -1], index=idx),
+            },
+            config=cfg,
+            heat_limit=1.0,
+        )
+
+        diagnostics = result.portfolio_diagnostics
+
+        assert diagnostics["allocator_policy"] == DEFAULT_ALLOCATOR_POLICY
+        assert diagnostics["avg_invested_pct"] > 0
+        assert diagnostics["avg_cash_pct"] >= 0
+        assert diagnostics["max_active_positions"] == 1
+        assert diagnostics["max_single_name_weight_pct"] >= diagnostics["avg_top_3_weight_pct"] / 3
+        assert diagnostics["turnover_pct"] > 0
+        assert diagnostics["redeployment_opportunities"] == 0
+
+    def test_redeployment_diagnostics_track_same_bar_rotation(self):
+        idx = pd.date_range("2024-01-01", periods=6, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 100.0, 102.0, 104.0, 105.0],
+                "High": [101.0, 101.0, 101.0, 103.0, 105.0, 106.0],
+                "Low": [99.0, 99.0, 99.0, 101.0, 103.0, 104.0],
+                "Close": [100.0, 100.0, 102.0, 104.0, 105.0, 105.0],
+                "Volume": [1] * 6,
+            },
+            index=idx,
+        )
+        cfg = MoneyManagementConfig(
+            sizing_method="fixed_fraction",
+            risk_fraction=0.25,
+            stop_type="pct",
+            stop_pct=0.10,
+        )
+
+        result = backtest_portfolio(
+            {"A": df, "B": df},
+            {
+                "A": pd.Series([-1, 1, 1, -1, -1, -1], index=idx),
+                "B": pd.Series([-1, -1, -1, 1, 1, 1], index=idx),
+            },
+            config=cfg,
+            heat_limit=1.0,
+        )
+
+        diagnostics = result.portfolio_diagnostics
+
+        assert diagnostics["redeployment_opportunities"] == 1
+        assert diagnostics["redeployment_events"] == 1
+        assert diagnostics["avg_redeployment_lag_bars"] == 0.0
 
 
 class TestBacktestConfirmationLayering:

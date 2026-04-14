@@ -5,6 +5,7 @@ This document describes the live portfolio backtesting surface added in mileston
 It explains the current product contract in repo terms:
 
 - which strategies are supported
+- which allocator posture is active
 - which basket modes are supported
 - how portfolio buy-and-hold is defined
 - which comparison and order diagnostics the route and page now expose
@@ -25,6 +26,20 @@ The following are not part of the first portfolio selector:
 
 - `corpus_trend_layered`
 - `polymarket`
+
+## Allocator Posture
+
+The current engine now exposes an explicit allocator policy input, even though the first product surface still uses the default policy silently.
+
+The only supported allocator policy right now is:
+
+- `signal_flip_v1`
+
+`signal_flip_v1` is intentionally the backwards-compatible baseline:
+
+- new exposure comes from fresh bullish flips
+- exits still come from signal loss or stop behavior
+- there is now an explicit seam for later portfolio-policy variants
 
 ## Supported Basket Modes
 
@@ -71,6 +86,7 @@ This keeps the first portfolio question understandable:
 - `basket`
 - `basket_diagnostics`
 - `comparison`
+- `portfolio_diagnostics`
 - `orders`
 - `tickers`
 - `skipped`
@@ -92,6 +108,25 @@ The `comparison` object is the portfolio-level answer to strategy vs buy-and-hol
 - equity gap
 - return gap percent
 - winner (`strategy`, `buy_hold`, or `tie`)
+
+## Portfolio Diagnostics
+
+The route now also exposes `portfolio_diagnostics`, which is the first allocator-research surface above the basic return comparison.
+
+It currently includes:
+
+- `allocator_policy`
+- `avg_invested_pct`
+- `avg_cash_pct`
+- `avg_active_positions`
+- `max_active_positions`
+- `max_single_name_weight_pct`
+- `avg_top_3_weight_pct`
+- `turnover_pct`
+- `redeployment_opportunities`
+- `redeployment_events`
+- `avg_redeployment_lag_bars`
+- `unfilled_redeployment_opportunities`
 
 ## Order And Participation Diagnostics
 
@@ -129,6 +164,8 @@ The existing portfolio page at `/portfolio` now exposes:
 - basket diagnostics section
 - order activity table
 - per-ticker participation table
+
+The route config payload now also records the active allocator policy so saved and compared runs can stay attributable as allocator research expands.
 
 ## Deterministic Guard
 
