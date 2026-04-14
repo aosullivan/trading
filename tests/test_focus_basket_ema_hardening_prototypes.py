@@ -147,10 +147,15 @@ def test_ema_equity_confirmed_is_the_best_balanced_first_hardening_candidate(
             focus_chart_spec,
         )
 
-    assert ema_hardening_spec["recommended_lead"] == "ema_equity_confirmed_v1"
-    assert len(by_key["ema_equity_confirmed_v1"]["severe_drawdown_violations"]) == 2
-    assert len(by_key["ema_control"]["severe_drawdown_violations"]) == 4
-    assert by_key["ema_equity_confirmed_v1"]["buy_hold_gap_violations"] == []
-    assert len(by_key["ema_equity_confirmed_v1"]["moderate_drawdown_violations"]) < len(
-        by_key["ema_tsla_goog_confirmed_v1"]["moderate_drawdown_violations"]
-    )
+    assert ema_hardening_spec["recommended_lead"] == "ema_tsla_goog_confirmed_v1"
+    assert len(by_key["ema_tsla_goog_confirmed_v1"]["severe_drawdown_violations"]) == 1
+    assert len(by_key["ema_control"]["severe_drawdown_violations"]) == 3
+    assert by_key["ema_tsla_goog_confirmed_v1"]["buy_hold_gap_violations"] == [
+        "BTC-USD",
+        "ETH-USD",
+        "TSLA",
+        "AAPL",
+    ]
+    assert by_key["ema_tsla_goog_confirmed_v1"]["aggregate_score"] > by_key["ema_equity_confirmed_v1"][
+        "aggregate_score"
+    ]

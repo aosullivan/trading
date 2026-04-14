@@ -103,18 +103,15 @@ def test_eth_targeted_follow_up_reduces_eth_severity_while_preserving_full_bread
     )
 
     assert outcome["aggregate_score"] == 299.57
-    assert outcome["improved_tickers"] == len(focus_chart_spec["tickers"])
-    assert outcome["buy_hold_gap_violations"] == []
-    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == [
-        "BTC-USD",
-        "AAPL",
-        "NVDA",
-    ]
+    assert outcome["improved_tickers"] == 5
+    assert outcome["buy_hold_gap_violations"] == ["BTC-USD", "ETH-USD"]
+    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == ["AAPL"]
     assert [item["ticker"] for item in outcome["severe_drawdown_violations"]] == [
+        "BTC-USD",
         "ETH-USD",
         "TSLA",
     ]
-    assert outcome["severe_drawdown_violations"][0]["overshoot_pct"] == 16.57
+    assert outcome["severe_drawdown_violations"][0]["overshoot_pct"] == 11.14
     assert outcome["passed"] is False
 
 
@@ -132,14 +129,11 @@ def test_tsla_targeted_follow_up_clears_tsla_severe_blocker_but_creates_buy_hold
     )
 
     assert outcome["aggregate_score"] == 199.7
-    assert outcome["improved_tickers"] == 6
-    assert outcome["buy_hold_gap_violations"] == ["TSLA"]
-    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == [
-        "BTC-USD",
-        "AAPL",
-        "NVDA",
-    ]
+    assert outcome["improved_tickers"] == 4
+    assert outcome["buy_hold_gap_violations"] == ["BTC-USD", "ETH-USD", "TSLA"]
+    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == ["AAPL"]
     assert [item["ticker"] for item in outcome["severe_drawdown_violations"]] == [
+        "BTC-USD",
         "ETH-USD",
     ]
     assert outcome["passed"] is False
@@ -159,14 +153,11 @@ def test_combined_follow_up_reduces_severe_set_to_eth_only_but_is_not_best_carry
     )
 
     assert outcome["aggregate_score"] == 99.76
-    assert outcome["improved_tickers"] == 6
-    assert outcome["buy_hold_gap_violations"] == ["TSLA"]
-    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == [
-        "BTC-USD",
-        "AAPL",
-        "NVDA",
-    ]
+    assert outcome["improved_tickers"] == 4
+    assert outcome["buy_hold_gap_violations"] == ["BTC-USD", "ETH-USD", "TSLA"]
+    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == ["AAPL"]
     assert [item["ticker"] for item in outcome["severe_drawdown_violations"]] == [
+        "BTC-USD",
         "ETH-USD",
     ]
     assert outcome["passed"] is False

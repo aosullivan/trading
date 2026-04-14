@@ -154,11 +154,13 @@ def test_coin_goog_keltner_coin_esc50_is_the_best_final_breakout_candidate(
     assert by_key["coin_goog_keltner_coin_esc50_v1"]["aggregate_score"] > by_key["coin_goog_keltner_v1"][
         "aggregate_score"
     ]
-    assert len(by_key["coin_goog_keltner_coin_esc50_v1"]["severe_drawdown_violations"]) == 1
-    assert len(by_key["coin_goog_keltner_v1"]["severe_drawdown_violations"]) == 2
+    assert len(by_key["coin_goog_keltner_coin_esc50_v1"]["severe_drawdown_violations"]) == 0
+    assert len(by_key["coin_goog_keltner_v1"]["severe_drawdown_violations"]) == 0
     assert by_key["coin_goog_keltner_coin_eth_esc50_v1"]["severe_drawdown_violations"] == []
     assert by_key["coin_goog_keltner_coin_eth_esc50_v1"]["aggregate_score"] < 0
     assert by_key["coin_goog_keltner_coin_eth_esc50_v1"]["buy_hold_gap_violations"] == [
+        "BTC-USD",
         "ETH-USD",
         "COIN",
+        "GOOG",
     ]

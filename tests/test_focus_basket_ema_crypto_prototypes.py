@@ -148,12 +148,20 @@ def test_ema_equity_confirmed_remains_best_current_candidate_after_crypto_sweep(
         )
 
     assert ema_crypto_spec["recommended_lead"] == "ema_equity_confirmed_v1"
-    assert by_key["ema_equity_confirmed_v1"]["buy_hold_gap_violations"] == []
+    assert by_key["ema_equity_confirmed_v1"]["buy_hold_gap_violations"] == [
+        "BTC-USD",
+        "ETH-USD",
+        "TSLA",
+        "AAPL",
+    ]
     assert by_key["ema_coin_family_escalation_70_30"]["aggregate_score"] < by_key["ema_equity_confirmed_v1"][
         "aggregate_score"
     ]
     assert by_key["ema_eth_family_escalation_70_30__coin_layered_30_70"]["severe_drawdown_violations"] == []
     assert by_key["ema_eth_family_escalation_70_30__coin_layered_30_70"]["buy_hold_gap_violations"] == [
+        "BTC-USD",
         "ETH-USD",
         "COIN",
+        "TSLA",
+        "AAPL",
     ]

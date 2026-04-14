@@ -14,8 +14,8 @@
         "GOOG": {"confirm_mode": "layered_50_50"}
       },
       "aggregate_score": -173.31,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
+      "improved_tickers": 2,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN", "TSLA", "AAPL"],
       "moderate_drawdown_violations": [],
       "severe_drawdown_violations": ["ETH-USD", "COIN"]
     },
@@ -31,10 +31,10 @@
         "GOOG": {"confirm_mode": "layered_50_50"}
       },
       "aggregate_score": -171.59,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
-      "moderate_drawdown_violations": [],
-      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+      "improved_tickers": 2,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN", "TSLA", "AAPL"],
+      "moderate_drawdown_violations": ["COIN"],
+      "severe_drawdown_violations": ["ETH-USD"]
     },
     {
       "candidate_key": "eth_escalation_50_50_v1",
@@ -48,8 +48,8 @@
         "GOOG": {"confirm_mode": "layered_50_50"}
       },
       "aggregate_score": -303.85,
-      "improved_tickers": 5,
-      "buy_hold_gap_violations": ["ETH-USD", "COIN"],
+      "improved_tickers": 2,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN", "TSLA", "AAPL"],
       "moderate_drawdown_violations": [],
       "severe_drawdown_violations": ["COIN"]
     },
@@ -65,10 +65,10 @@
         "GOOG": {"confirm_mode": "layered_50_50"}
       },
       "aggregate_score": -302.13,
-      "improved_tickers": 5,
-      "buy_hold_gap_violations": ["ETH-USD", "COIN"],
-      "moderate_drawdown_violations": [],
-      "severe_drawdown_violations": ["COIN"]
+      "improved_tickers": 2,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN", "TSLA", "AAPL"],
+      "moderate_drawdown_violations": ["COIN"],
+      "severe_drawdown_violations": []
     }
   ],
   "recommended_lead": "coin_raw_v1",

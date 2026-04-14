@@ -13,10 +13,10 @@
         "GOOG": "bb_breakout"
       },
       "aggregate_score": 316.63,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
-      "moderate_drawdown_violations": ["NVDA"],
-      "severe_drawdown_violations": ["ETH-USD", "COIN", "GOOG"]
+      "improved_tickers": 4,
+      "buy_hold_gap_violations": ["BTC-USD", "COIN"],
+      "moderate_drawdown_violations": ["ETH-USD"],
+      "severe_drawdown_violations": ["COIN", "GOOG"]
     },
     {
       "candidate_key": "coin_goog_keltner_v1",
@@ -30,10 +30,10 @@
         "GOOG": "keltner"
       },
       "aggregate_score": 314.59,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
-      "moderate_drawdown_violations": ["NVDA", "GOOG"],
-      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+      "improved_tickers": 4,
+      "buy_hold_gap_violations": ["BTC-USD", "COIN", "GOOG"],
+      "moderate_drawdown_violations": ["ETH-USD", "COIN", "GOOG"],
+      "severe_drawdown_violations": []
     },
     {
       "candidate_key": "eth_keltner_v1",
@@ -47,9 +47,9 @@
         "GOOG": "bb_breakout"
       },
       "aggregate_score": 193.86,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
-      "moderate_drawdown_violations": ["NVDA"],
+      "improved_tickers": 3,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN"],
+      "moderate_drawdown_violations": [],
       "severe_drawdown_violations": ["ETH-USD", "COIN", "GOOG"]
     },
     {
@@ -64,10 +64,10 @@
         "GOOG": "keltner"
       },
       "aggregate_score": 191.82,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
-      "moderate_drawdown_violations": ["NVDA", "GOOG"],
-      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+      "improved_tickers": 3,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN", "GOOG"],
+      "moderate_drawdown_violations": ["COIN", "GOOG"],
+      "severe_drawdown_violations": ["ETH-USD"]
     }
   ],
   "recommended_lead": "coin_goog_keltner_v1"

@@ -1,0 +1,79 @@
+{
+  "_comment": "Deterministic v1.14 final stateful challenger comparison surface under the promoted cci_hysteresis floor.",
+  "candidates": [
+    {
+      "candidate_key": "cci_reclaim_v1",
+      "mechanic": "cci_reclaim",
+      "reclaim_basis": "close",
+      "reclaim_lookback": 5,
+      "reclaim_pct": 0.0,
+      "passed": false,
+      "aggregate_score": 279.78,
+      "improved_tickers": 4,
+      "buy_hold_gap_violations": [
+        "ETH-USD"
+      ],
+      "moderate_drawdown_violations": [],
+      "severe_drawdown_violations": [
+        "ETH-USD"
+      ]
+    },
+    {
+      "candidate_key": "cci_hysteresis_cooldown_v1",
+      "mechanic": "cci_hysteresis_cooldown",
+      "cooldown_bars": 3,
+      "passed": false,
+      "aggregate_score": 291.27,
+      "improved_tickers": 5,
+      "buy_hold_gap_violations": [
+        "TSLA"
+      ],
+      "moderate_drawdown_violations": [],
+      "severe_drawdown_violations": []
+    },
+    {
+      "candidate_key": "cci_hysteresis_atr_trail_v1",
+      "mechanic": "cci_hysteresis_atr_trail",
+      "atr_period": 14,
+      "atr_multiplier": 3.5,
+      "passed": false,
+      "aggregate_score": 304.2,
+      "improved_tickers": 4,
+      "buy_hold_gap_violations": [
+        "BTC-USD",
+        "TSLA",
+        "NVDA"
+      ],
+      "moderate_drawdown_violations": [
+        "ETH-USD",
+        "TSLA"
+      ],
+      "severe_drawdown_violations": []
+    },
+    {
+      "candidate_key": "stateful_ribbon_reclaim_v1",
+      "mechanic": "stateful_ribbon_reclaim",
+      "reclaim_basis": "high",
+      "reclaim_lookback": 10,
+      "reclaim_pct": 0.0,
+      "passed": false,
+      "aggregate_score": -160.61,
+      "improved_tickers": 2,
+      "buy_hold_gap_violations": [
+        "BTC-USD",
+        "ETH-USD",
+        "COIN",
+        "TSLA",
+        "AAPL"
+      ],
+      "moderate_drawdown_violations": [],
+      "severe_drawdown_violations": [
+        "ETH-USD",
+        "COIN",
+        "TSLA"
+      ]
+    }
+  ],
+  "recommended_lead": "cci_hysteresis_cooldown_v1",
+  "final_decision": "retain_cci_hysteresis"
+}

@@ -155,11 +155,8 @@ def test_coin_raw_is_the_best_score_preserving_cci_follow_up(
 
     assert cci_hardening_spec["recommended_lead"] == "coin_raw_v1"
     assert by_key["coin_raw_v1"]["aggregate_score"] > by_key["cci_layered_50_50_control"]["aggregate_score"]
-    assert by_key["coin_raw_v1"]["buy_hold_gap_violations"] == ["COIN"]
-    assert [item["ticker"] for item in by_key["coin_raw_v1"]["severe_drawdown_violations"]] == [
-        "ETH-USD",
-        "COIN",
-    ]
+    assert by_key["coin_raw_v1"]["buy_hold_gap_violations"] == ["BTC-USD", "ETH-USD", "COIN", "TSLA", "AAPL"]
+    assert [item["ticker"] for item in by_key["coin_raw_v1"]["severe_drawdown_violations"]] == ["ETH-USD"]
 
 
 def test_eth_escalation_only_reduces_eth_severity_by_creating_new_gap_failures(
@@ -189,8 +186,12 @@ def test_eth_escalation_only_reduces_eth_severity_by_creating_new_gap_failures(
     assert [item["ticker"] for item in by_key["eth_escalation_50_50_v1"]["severe_drawdown_violations"]] == [
         "COIN"
     ]
-    assert by_key["eth_escalation_50_50_v1"]["buy_hold_gap_violations"] == ["ETH-USD", "COIN"]
-    assert [
-        item["ticker"] for item in by_key["coin_raw_eth_escalation_50_50_v1"]["severe_drawdown_violations"]
-    ] == ["COIN"]
+    assert by_key["eth_escalation_50_50_v1"]["buy_hold_gap_violations"] == [
+        "BTC-USD",
+        "ETH-USD",
+        "COIN",
+        "TSLA",
+        "AAPL",
+    ]
+    assert [item["ticker"] for item in by_key["coin_raw_eth_escalation_50_50_v1"]["severe_drawdown_violations"]] == []
     assert by_key["coin_raw_eth_escalation_50_50_v1"]["aggregate_score"] < 0

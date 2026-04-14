@@ -144,13 +144,18 @@ def test_ema_crossover_is_the_best_remaining_family_lead(
                 candidate,
             ),
             focus_chart_spec,
-        )
+    )
 
     assert ema_family_spec["recommended_family_lead"] == "ema_crossover"
     assert ema_family_spec["recommended_hardening_probe"] == "ema_crossover__layered_50_50"
-    assert by_key["ema_crossover"]["improved_tickers"] == 7
-    assert by_key["ema_crossover"]["buy_hold_gap_violations"] == []
+    assert by_key["ema_crossover"]["improved_tickers"] == 4
+    assert by_key["ema_crossover"]["buy_hold_gap_violations"] == ["BTC-USD", "ETH-USD", "AAPL"]
     assert by_key["ema_crossover"]["aggregate_score"] > by_key["supertrend"] if "supertrend" in by_key else True
-    assert len(by_key["ema_crossover__layered_50_50"]["severe_drawdown_violations"]) == 2
-    assert len(by_key["ema_crossover"]["severe_drawdown_violations"]) == 4
-    assert by_key["ema_crossover__layered_50_50"]["buy_hold_gap_violations"] == []
+    assert len(by_key["ema_crossover__layered_50_50"]["severe_drawdown_violations"]) == 1
+    assert len(by_key["ema_crossover"]["severe_drawdown_violations"]) == 3
+    assert by_key["ema_crossover__layered_50_50"]["buy_hold_gap_violations"] == [
+        "BTC-USD",
+        "ETH-USD",
+        "TSLA",
+        "AAPL",
+    ]

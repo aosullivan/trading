@@ -6,10 +6,10 @@
       "strategy_key": "ema_crossover",
       "query_params": {},
       "aggregate_score": 533.18,
-      "improved_tickers": 7,
-      "buy_hold_gap_violations": [],
-      "moderate_drawdown_violations": ["NVDA"],
-      "severe_drawdown_violations": ["ETH-USD", "COIN", "TSLA", "GOOG"]
+      "improved_tickers": 4,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "AAPL"],
+      "moderate_drawdown_violations": ["COIN"],
+      "severe_drawdown_violations": ["ETH-USD", "TSLA", "GOOG"]
     },
     {
       "candidate_key": "ema_crossover__layered_50_50",
@@ -18,10 +18,10 @@
         "confirm_mode": "layered_50_50"
       },
       "aggregate_score": -265.03,
-      "improved_tickers": 7,
-      "buy_hold_gap_violations": [],
+      "improved_tickers": 2,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "TSLA", "AAPL"],
       "moderate_drawdown_violations": ["GOOG"],
-      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+      "severe_drawdown_violations": ["ETH-USD"]
     },
     {
       "candidate_key": "ema_crossover__layered_30_70",
@@ -30,9 +30,9 @@
         "confirm_mode": "layered_30_70"
       },
       "aggregate_score": -375.89,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
-      "moderate_drawdown_violations": ["COIN"],
+      "improved_tickers": 1,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN", "TSLA", "AAPL", "NVDA"],
+      "moderate_drawdown_violations": [],
       "severe_drawdown_violations": ["ETH-USD"]
     },
     {
@@ -42,8 +42,8 @@
         "confirm_mode": "layered_50_50"
       },
       "aggregate_score": -173.31,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
+      "improved_tickers": 2,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN", "TSLA", "AAPL"],
       "moderate_drawdown_violations": [],
       "severe_drawdown_violations": ["ETH-USD", "COIN"]
     },
@@ -54,10 +54,10 @@
         "confirm_mode": "layered_50_50"
       },
       "aggregate_score": -257.94,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
-      "moderate_drawdown_violations": ["TSLA"],
-      "severe_drawdown_violations": ["ETH-USD", "COIN", "NVDA"]
+      "improved_tickers": 1,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN", "TSLA", "AAPL"],
+      "moderate_drawdown_violations": ["BTC-USD", "NVDA"],
+      "severe_drawdown_violations": ["ETH-USD", "COIN"]
     }
   ],
   "recommended_family_lead": "ema_crossover",

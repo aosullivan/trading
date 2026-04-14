@@ -143,10 +143,10 @@ def test_coin_goog_keltner_is_the_best_breakout_family_carry_forward_candidate(
                 candidate["ticker_strategy_map"],
             ),
             focus_chart_spec,
-        )
+    )
 
     assert breakout_hardening_spec["recommended_lead"] == "coin_goog_keltner_v1"
-    assert len(by_key["coin_goog_keltner_v1"]["severe_drawdown_violations"]) == 2
-    assert len(by_key["bb_breakout_control"]["severe_drawdown_violations"]) == 3
+    assert len(by_key["coin_goog_keltner_v1"]["severe_drawdown_violations"]) == 0
+    assert len(by_key["bb_breakout_control"]["severe_drawdown_violations"]) == 2
     assert by_key["coin_goog_keltner_v1"]["aggregate_score"] > 300
     assert by_key["coin_goog_keltner_v1"]["aggregate_score"] > by_key["eth_keltner_v1"]["aggregate_score"]

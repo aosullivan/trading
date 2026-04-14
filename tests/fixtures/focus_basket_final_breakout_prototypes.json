@@ -14,10 +14,10 @@
       },
       "params_by_ticker": {},
       "aggregate_score": 314.59,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
-      "moderate_drawdown_violations": ["NVDA", "GOOG"],
-      "severe_drawdown_violations": ["ETH-USD", "COIN"]
+      "improved_tickers": 4,
+      "buy_hold_gap_violations": ["BTC-USD", "COIN", "GOOG"],
+      "moderate_drawdown_violations": ["ETH-USD", "COIN", "GOOG"],
+      "severe_drawdown_violations": []
     },
     {
       "candidate_key": "coin_goog_keltner_coin_esc50_v1",
@@ -36,10 +36,10 @@
         }
       },
       "aggregate_score": 319.36,
-      "improved_tickers": 6,
-      "buy_hold_gap_violations": ["COIN"],
-      "moderate_drawdown_violations": ["NVDA", "GOOG"],
-      "severe_drawdown_violations": ["ETH-USD"]
+      "improved_tickers": 4,
+      "buy_hold_gap_violations": ["BTC-USD", "COIN", "GOOG"],
+      "moderate_drawdown_violations": ["ETH-USD", "GOOG"],
+      "severe_drawdown_violations": []
     },
     {
       "candidate_key": "coin_goog_keltner_eth_esc50_v1",
@@ -58,10 +58,10 @@
         }
       },
       "aggregate_score": -175.08,
-      "improved_tickers": 5,
-      "buy_hold_gap_violations": ["ETH-USD", "COIN"],
-      "moderate_drawdown_violations": ["NVDA", "GOOG"],
-      "severe_drawdown_violations": ["COIN"]
+      "improved_tickers": 3,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN", "GOOG"],
+      "moderate_drawdown_violations": ["COIN", "GOOG"],
+      "severe_drawdown_violations": []
     },
     {
       "candidate_key": "coin_goog_keltner_coin_eth_esc50_v1",
@@ -83,9 +83,9 @@
         }
       },
       "aggregate_score": -170.32,
-      "improved_tickers": 5,
-      "buy_hold_gap_violations": ["ETH-USD", "COIN"],
-      "moderate_drawdown_violations": ["NVDA", "GOOG"],
+      "improved_tickers": 3,
+      "buy_hold_gap_violations": ["BTC-USD", "ETH-USD", "COIN", "GOOG"],
+      "moderate_drawdown_violations": ["GOOG"],
       "severe_drawdown_violations": []
     }
   ],

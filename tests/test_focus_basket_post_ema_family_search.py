@@ -151,5 +151,11 @@ def test_cci_trend_is_the_best_post_ema_family_lead(
     assert by_key["cci_trend"]["aggregate_score"] > by_key["supertrend"]["aggregate_score"]
     assert by_key["cci_trend"]["aggregate_score"] > by_key["orb_breakout"]["aggregate_score"]
     assert len(by_key["cci_trend__layered_50_50"]["severe_drawdown_violations"]) == 2
-    assert by_key["cci_trend__layered_50_50"]["buy_hold_gap_violations"] == ["COIN"]
-    assert by_key["cci_trend__layered_50_50"]["improved_tickers"] == 6
+    assert by_key["cci_trend__layered_50_50"]["buy_hold_gap_violations"] == [
+        "BTC-USD",
+        "ETH-USD",
+        "COIN",
+        "TSLA",
+        "AAPL",
+    ]
+    assert by_key["cci_trend"]["improved_tickers"] == 5

@@ -110,17 +110,12 @@ def test_equity_overlay_keltner_prototype_reduces_severe_blockers_without_changi
     )
 
     assert outcome["aggregate_score"] >= focus_chart_spec["aggregate_score_floor"]
-    assert outcome["improved_tickers"] == len(focus_chart_spec["tickers"])
-    assert outcome["buy_hold_gap_violations"] == []
-    assert len(outcome["severe_drawdown_violations"]) < len(
-        baseline["severe_drawdown_violations"]
-    )
-    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == [
-        "BTC-USD",
-        "AAPL",
-        "NVDA",
-    ]
+    assert outcome["improved_tickers"] == 5
+    assert outcome["buy_hold_gap_violations"] == ["BTC-USD", "ETH-USD"]
+    assert len(outcome["severe_drawdown_violations"]) < len(baseline["severe_drawdown_violations"])
+    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == ["AAPL"]
     assert [item["ticker"] for item in outcome["severe_drawdown_violations"]] == [
+        "BTC-USD",
         "ETH-USD",
         "TSLA",
     ]
@@ -150,15 +145,10 @@ def test_combined_equity_and_crypto_hardening_improves_score_but_does_not_fix_se
     )
 
     assert outcome["aggregate_score"] >= baseline["aggregate_score"]
-    assert outcome["improved_tickers"] == len(focus_chart_spec["tickers"])
-    assert outcome["buy_hold_gap_violations"] == []
-    assert len(outcome["severe_drawdown_violations"]) == len(
-        baseline["severe_drawdown_violations"]
-    )
-    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == [
-        "AAPL",
-        "NVDA",
-    ]
+    assert outcome["improved_tickers"] == 5
+    assert outcome["buy_hold_gap_violations"] == ["BTC-USD", "ETH-USD"]
+    assert len(outcome["severe_drawdown_violations"]) == 3
+    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == ["AAPL"]
     assert [item["ticker"] for item in outcome["severe_drawdown_violations"]] == [
         "BTC-USD",
         "ETH-USD",

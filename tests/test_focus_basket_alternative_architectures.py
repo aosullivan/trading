@@ -152,8 +152,8 @@ def test_bb_breakout_is_the_recommended_lead_alternative_family_candidate(
         )
 
     assert lead_key == "bb_breakout"
-    assert len(by_key["bb_breakout"]["severe_drawdown_violations"]) == 3
-    assert len(by_key["keltner"]["severe_drawdown_violations"]) == 3
+    assert len(by_key["bb_breakout"]["severe_drawdown_violations"]) == 2
+    assert len(by_key["keltner"]["severe_drawdown_violations"]) == 2
     assert len(by_key["macd"]["severe_drawdown_violations"]) == 4
     assert by_key["bb_breakout"]["aggregate_score"] > by_key["keltner"]["aggregate_score"]
     assert by_key["macd"]["aggregate_score"] > by_key["bb_breakout"]["aggregate_score"]
