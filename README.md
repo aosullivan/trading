@@ -14,16 +14,41 @@ pip install -r requirements.txt
 
 ```bash
 source venv/bin/activate
-python3 app.py
+TRIEDINGVIEW_USER_DATA_DIR=/tmp/tv_user python3 app.py
 ```
 
+The `TRIEDINGVIEW_USER_DATA_DIR` env var keeps watchlist and cache data out of the repo working tree.
+
 Opens at http://localhost:5050
+
+## Testing
+
+```bash
+source venv/bin/activate
+TRIEDINGVIEW_USER_DATA_DIR=/tmp/tv_user pytest -q
+```
+
+UI tests in `tests/test_ui.py` are excluded by default and require Playwright plus Chromium:
+
+```bash
+pip install playwright
+playwright install
+```
+
+## Syntax Check
+
+No linter is configured in this project. For a basic syntax pass, run:
+
+```bash
+python3 -m compileall .
+```
 
 ## Project Workflow (GSD)
 
 This repo uses **GSD (Get Shit Done)** for milestone, phase, and planning workflow.
 
 Important: in this project, GSD is used primarily through **Codex / Claude slash commands**, not as a normal standalone shell CLI.
+The planning surface in `.planning/` is intentionally **local-only** in this repo and is gitignored, so GSD artifacts are meant for live workflow/state management rather than committed project history.
 
 The main workflow is:
 
@@ -48,10 +73,16 @@ Planning artifacts live in [`/.planning`](.planning):
 - `.planning/phases/` — per-phase plans, summaries, and context
 - `.planning/milestones/` — archived milestone requirements and roadmaps
 
+Because `.planning/` is gitignored here:
+
+- use GSD to drive the workflow and inspect local planning state
+- do not expect GSD planning artifacts to be committed or pushed
+- treat code/tests/docs in the tracked repo as the durable shared history
+
 The repo also vendors GSD internals in [`.codex/get-shit-done/`](.codex/get-shit-done/).
 That bundle includes workflows, templates, and the low-level helper `node .codex/get-shit-done/bin/gsd-tools.cjs`.
 
-`gsd-tools.cjs` is **internal plumbing**, not the primary day-to-day interface. Use the `/gsd-*` commands above for normal project workflow.
+`gsd-tools.cjs` is **internal plumbing**, not the primary day-to-day interface. Use the `/gsd-*` commands above for normal project workflow, and use the CLI helper mainly for local validation/status checks.
 
 ## macOS App
 
