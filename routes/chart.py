@@ -105,16 +105,6 @@ CONFIRMATION_PRESETS = {
         "semantics": "escalation_layered",
         "hint": "keep the base 50% only while the daily signal stays bullish, add the second 50% only when weekly confirms, and remove the add-on first when confirmation breaks.",
     },
-    "family_escalation_70_30": {
-        "mode": "family_escalation_70_30",
-        "starter_fraction": 0.70,
-        "confirmed_fraction": 0.30,
-        "label": "Daily 70 / Weekly 30 (Scoped)",
-        "semantics": "family_scoped_slow_exit",
-        "weekly_nonbull_exit_bars": 2,
-        "supported_strategies": frozenset({"cb50", "cb150", "donchian", "ema_crossover"}),
-        "hint": "for cb50, cb150, donchian, and ema crossover only: keep the 70% daily base on while daily stays bullish, add the final 30% on weekly confirmation, and only remove that add-on after 2 weekly non-bull bars.",
-    },
 }
 
 DEFAULT_CORE_OVERLAY_PROFILE = {
@@ -147,23 +137,7 @@ CORE_OVERLAY_STRATEGY_PROFILES = {
 WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
     {
         "ribbon",
-        "cb50",
-        "cb150",
-        "sma_10_100",
-        "sma_10_200",
-        "ema_trend",
-        "yearly_ma",
-        "supertrend",
-        "ema_crossover",
-        "macd",
-        "donchian",
         "corpus_trend",
-        "bb_breakout",
-        "keltner",
-        "parabolic_sar",
-        "cci_trend",
-        "cci_hysteresis",
-        "orb_breakout",
     }
 )
 
@@ -1693,116 +1667,6 @@ def chart_data():
                     strategy_confirmation_meta("ribbon"),
                 ),
             ),
-            "cb50": _strategy_payload(
-                cb50_trades,
-                cb50_summary,
-                cb50_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        cb50_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("cb50"),
-                ),
-            ),
-            "cb150": _strategy_payload(
-                cb150_trades,
-                cb150_summary,
-                cb150_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        cb150_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("cb150"),
-                ),
-            ),
-            "sma_10_100": _strategy_payload(
-                sma_10_100_trades,
-                sma_10_100_summary,
-                sma_10_100_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        sma_10_100_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("sma_10_100"),
-                ),
-            ),
-            "sma_10_200": _strategy_payload(
-                sma_10_200_trades,
-                sma_10_200_summary,
-                sma_10_200_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        sma_10_200_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("sma_10_200"),
-                ),
-            ),
-            "ema_trend": _strategy_payload(
-                ema_trend_trades,
-                ema_trend_summary,
-                ema_trend_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        ema_trend_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("ema_trend"),
-                ),
-            ),
-            "yearly_ma": _strategy_payload(
-                yearly_ma_trades,
-                yearly_ma_summary,
-                yearly_ma_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        yearly_ma_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("yearly_ma"),
-                ),
-            ),
-            "supertrend": _strategy_payload(
-                trades,
-                summary,
-                equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("supertrend"),
-                ),
-            ),
-            "ema_crossover": _strategy_payload(
-                ema_trades,
-                ema_summary,
-                ema_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        ema_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("ema_crossover"),
-                ),
-            ),
-            "macd": _strategy_payload(
-                macd_trades,
-                macd_summary,
-                macd_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        macd_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("macd"),
-                ),
-            ),
-            "donchian": _strategy_payload(
-                donch_trades,
-                donch_summary,
-                donch_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        donch_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("donchian"),
-                ),
-            ),
             "corpus_trend": _strategy_payload(
                 corpus_trend_trades,
                 corpus_trend_summary,
@@ -1825,89 +1689,14 @@ def chart_data():
                     supported=False,
                 ),
             ),
-            "weekly_core_overlay_v1": _strategy_payload(
-                weekly_core_overlay_trades,
-                weekly_core_overlay_summary,
-                weekly_core_overlay_equity_curve,
-                buy_hold_equity_curve=buy_hold_equity_curve,
-                backtest_meta={
-                    "confirmation_supported": False,
-                    "architecture_label": "Weekly Core + Daily Overlay",
-                    "architecture_core_strategy": f"{weekly_core_overlay_core_key}_weekly",
-                    "architecture_overlay_strategy": f"{weekly_core_overlay_overlay_key}_daily",
-                    "architecture_core_fraction": weekly_core_overlay_core_fraction,
-                    "architecture_overlay_fraction": weekly_core_overlay_overlay_fraction,
-                    "architecture_hint": _weekly_core_overlay_hint(
-                        weekly_core_overlay_core_key,
-                        weekly_core_overlay_overlay_key,
-                        weekly_core_overlay_core_fraction,
-                        weekly_core_overlay_overlay_fraction,
-                    ),
-                },
-            ),
-            "bb_breakout": _strategy_payload(
-                bb_trades,
-                bb_summary,
-                bb_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        bb_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("bb_breakout"),
-                ),
-            ),
-            "keltner": _strategy_payload(
-                kelt_trades,
-                kelt_summary,
-                kelt_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        kelt_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("keltner"),
-                ),
-            ),
-            "parabolic_sar": _strategy_payload(
-                psar_trades,
-                psar_summary,
-                psar_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        psar_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("parabolic_sar"),
-                ),
-            ),
-            "cci_trend": _strategy_payload(
-                cci_trades,
-                cci_summary,
-                cci_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        cci_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("cci_trend"),
-                ),
-            ),
             "cci_hysteresis": _strategy_payload(
                 cci_hyst_trades,
                 cci_hyst_summary,
                 cci_hyst_equity_curve,
                 buy_hold_equity_curve=buy_hold_equity_curve,
                 backtest_meta=_confirmation_meta(
-                    None,
+                    confirmation_config,
                     supported=False,
-                ),
-            ),
-            "orb_breakout": _strategy_payload(
-                orb_trades,
-                orb_summary,
-                orb_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        orb_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("orb_breakout"),
                 ),
             ),
             "polymarket": _strategy_payload(

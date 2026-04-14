@@ -1,15 +1,6 @@
 // Map strategy names to their overlay series
 const overlayMap={
   ribbon:[()=>ribbonUpperSeries,()=>ribbonLowerSeries,()=>ribbonCenterSeries],
-  supertrend:[()=>stUpSeries,()=>stDownSeries],
-  ema_crossover:[()=>ema9Series,()=>ema21Series],
-  macd:[()=>macdLineSeries,()=>macdSignalSeries,()=>macdHistSeries],
-  donchian:[()=>donchUpperSeries,()=>donchLowerSeries],
-  bb_breakout:[()=>bbUpperSeries,()=>bbMidSeries,()=>bbLowerSeries],
-  keltner:[()=>keltUpperSeries,()=>keltMidSeries,()=>keltLowerSeries],
-  parabolic_sar:[()=>psarBullSeries,()=>psarBearSeries],
-  cci_trend:[()=>cciLineSeries],
-  orb_breakout:[()=>orbUpperSeries,()=>orbLowerSeries,()=>orbMidSeries],
 };
 
 function forEachSeriesRef(seriesRef,cb){

@@ -104,9 +104,10 @@ resume, and export workflow for `scripts/optimize_trend_ribbon.py`.
 
 ## Benchmark backtests (CI)
 
-Pinned BTC-USD history and PnL floors guard selected strategies against regressions
-versus buy-and-hold. How to run tests, regenerate the fixture CSV, and update
-floors: [docs/benchmark-backtests.md](docs/benchmark-backtests.md).
+The maintained strategy contract is now guarded by the promoted focus-basket
+baseline in [docs/focus-basket-ratchet-benchmark.md](docs/focus-basket-ratchet-benchmark.md)
+plus the dedicated Polymarket benchmark in
+[`tests/test_polymarket_benchmark_backtests.py`](tests/test_polymarket_benchmark_backtests.py).
 
 
 ## Features
@@ -123,20 +124,16 @@ floors: [docs/benchmark-backtests.md](docs/benchmark-backtests.md).
 
 | # | Strategy | Description |
 |---|----------|-------------|
-| 1 | MA Confirm (180/1 up/5 down) | 1 close above 180 SMA to enter; 5 consecutive closes below 180 SMA to exit |
-| 2 | Supertrend (10/2.5) | ATR-based trend bands (period=10, multiplier=2.5) |
-| 3 | EMA 5/20 Cross | Fast/slow EMA crossover |
-| 4 | MACD Signal (16/32/9) | MACD/signal line crossover |
-| 5 | Donchian (10) | 10-period high/low channel breakout |
-| 6 | ADX Trend (14/25) | +DI/-DI direction when ADX > 25 |
-| 7 | Bollinger Breakout (30/1.5) | Close breaks above upper Bollinger Band |
-| 8 | Keltner Breakout (30/10/1.5) | Close breaks above upper Keltner Channel |
-| 9 | Parabolic SAR (0.01/0.01/0.1) | SAR flip with smoother AF settings |
-| 10 | CCI Trend (30/80) | CCI above +80 = long, below -80 = short |
+| 1 | Trend-Driven | Trend ribbon regime with weekly confirmation and cooldown logic |
+| 2 | Corpus Trend (Donchian/ATR) | Corpus stop-line trend following with optional confirmation layering |
+| 3 | Corpus Trend Layered | Comparison-only layered corpus exposure profile |
+| 4 | CCI Hysteresis (30/150/-40) | Final promoted baseline from the bounded search program |
+| 5 | Polymarket Skew | Prediction-market probability skew routed through the backtest engine |
 
-All strategies output a direction signal (1=long, -1=short/flat) and use the same `backtest_direction()` engine.
+The maintained product surface is intentionally narrow now: `ribbon`,
+`corpus_trend`, `corpus_trend_layered`, `cci_hysteresis`, and `polymarket`.
 
-For daily strategies, the backtest panel also supports staged confirmation modes:
+For the retained daily trend strategies, the backtest panel still supports staged confirmation modes:
 - `Daily 30 / Weekly 70`
 - `Daily 50 / Weekly 50`
 

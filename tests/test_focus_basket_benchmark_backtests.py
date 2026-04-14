@@ -181,28 +181,3 @@ def test_focus_basket_promoted_strategy_respects_promoted_ratchet_baseline(
     assert outcome["buy_hold_gap_violations"] == []
     assert outcome["moderate_drawdown_violations"] == []
     assert outcome["severe_drawdown_violations"] == []
-
-
-def test_weekly_core_overlay_candidate_still_fails_against_the_promoted_hysteresis_floor(
-    app, client, focus_chart_spec, mock_focus_download
-):
-    outcome = _evaluate_approved_policy(
-        _evaluate_strategy_on_fixture_basket(
-            client,
-            focus_chart_spec,
-            mock_focus_download,
-            "weekly_core_overlay_v1",
-        ),
-        focus_chart_spec,
-    )
-    assert outcome["aggregate_score"] >= focus_chart_spec["aggregate_score_floor"]
-    assert outcome["improved_tickers"] == 5
-    assert outcome["buy_hold_gap_violations"] == ["BTC-USD", "ETH-USD"]
-    assert [item["ticker"] for item in outcome["moderate_drawdown_violations"]] == ["AAPL"]
-    assert [item["ticker"] for item in outcome["severe_drawdown_violations"]] == [
-        "BTC-USD",
-        "ETH-USD",
-        "TSLA",
-        "GOOG",
-    ]
-    assert outcome["passed"] is False

@@ -359,7 +359,7 @@ class TestChartAPI:
         )
         assert resp.status_code == 200
         data = resp.get_json()
-        strategy = data["strategies"]["supertrend"]
+        strategy = data["strategies"]["ribbon"]
 
         assert strategy["backtest_window_policy"] == "visible_range_only"
         assert strategy["window_started_mid_trend"] is True
@@ -454,12 +454,8 @@ class TestChartAPI:
             "ribbon",
             "corpus_trend",
             "corpus_trend_layered",
-            "weekly_core_overlay_v1",
-            "cb50", "cb150", "sma_10_100", "sma_10_200",
-            "ema_trend", "yearly_ma",
-            "supertrend", "ema_crossover", "macd",
-            "donchian", "bb_breakout",
-            "keltner", "parabolic_sar", "cci_trend", "cci_hysteresis", "polymarket",
+            "cci_hysteresis",
+            "polymarket",
         ]
         for key in expected_keys:
             assert key in strategies, f"Missing strategy: {key}"
@@ -469,7 +465,6 @@ class TestChartAPI:
 
         assert "buy_hold_equity_curve" in strategies["corpus_trend"]
         assert "buy_hold_equity_curve" in strategies["corpus_trend_layered"]
-        assert "buy_hold_equity_curve" in strategies["weekly_core_overlay_v1"]
         assert "buy_hold_equity_curve" in strategies["cci_hysteresis"]
 
     @patch("lib.cache.yf.download")
@@ -495,15 +490,20 @@ class TestChartAPI:
         assert resp.status_code == 200
         data = resp.get_json()
 
-        cb150 = data["strategies"]["cb150"]
+        ribbon = data["strategies"]["ribbon"]
+        corpus = data["strategies"]["corpus_trend"]
         layered = data["strategies"]["corpus_trend_layered"]
+        cci_hysteresis = data["strategies"]["cci_hysteresis"]
         polymarket = data["strategies"]["polymarket"]
 
-        assert cb150["confirmation_mode"] == "layered_30_70"
-        assert cb150["confirmation_supported"] is True
-        assert cb150["confirmation_starter_fraction"] == pytest.approx(0.30)
-        assert cb150["confirmation_confirmed_fraction"] == pytest.approx(0.70)
+        assert ribbon["confirmation_mode"] == "layered_30_70"
+        assert ribbon["confirmation_supported"] is True
+        assert ribbon["confirmation_starter_fraction"] == pytest.approx(0.30)
+        assert ribbon["confirmation_confirmed_fraction"] == pytest.approx(0.70)
+        assert corpus["confirmation_mode"] == "layered_30_70"
+        assert corpus["confirmation_supported"] is True
         assert layered["confirmation_supported"] is False
+        assert cci_hysteresis["confirmation_supported"] is False
         assert polymarket["confirmation_supported"] is False
 
     @patch("lib.cache.yf.download")
@@ -529,121 +529,14 @@ class TestChartAPI:
         assert resp.status_code == 200
         data = resp.get_json()
 
-        cb150 = data["strategies"]["cb150"]
-        assert cb150["confirmation_mode"] == "escalation_50_50"
-        assert cb150["confirmation_supported"] is True
-        assert cb150["confirmation_starter_fraction"] == pytest.approx(0.50)
-        assert cb150["confirmation_confirmed_fraction"] == pytest.approx(0.50)
-        assert "base 50%" in cb150["confirmation_hint"].lower()
-
-    @patch("lib.cache.yf.download")
-    def test_chart_family_scoped_confirmation_limits_supported_strategies(self, mock_download, client):
-        n = 220
-        dates = pd.bdate_range("2023-01-01", periods=n)
-        close = np.linspace(100, 160, n)
-        df = pd.DataFrame(
-            {
-                "Open": close,
-                "High": close + 2,
-                "Low": close - 2,
-                "Close": close,
-                "Volume": np.full(n, 5_000_000),
-            },
-            index=dates,
-        )
-        mock_download.return_value = df
-
-        resp = client.get(
-            "/api/chart?ticker=TSLA&start=2023-01-01&confirm_mode=family_escalation_70_30"
-        )
-        assert resp.status_code == 200
-        data = resp.get_json()
-
-        cb150 = data["strategies"]["cb150"]
-        ema_crossover = data["strategies"]["ema_crossover"]
-        supertrend = data["strategies"]["supertrend"]
-
-        assert cb150["confirmation_mode"] == "family_escalation_70_30"
-        assert cb150["confirmation_supported"] is True
-        assert cb150["confirmation_starter_fraction"] == pytest.approx(0.70)
-        assert cb150["confirmation_confirmed_fraction"] == pytest.approx(0.30)
-        assert "2 weekly non-bull bars" in cb150["confirmation_hint"].lower()
-        assert ema_crossover["confirmation_supported"] is True
-        assert supertrend["confirmation_supported"] is False
-
-    @patch("lib.cache.yf.download")
-    def test_weekly_core_overlay_uses_ticker_specific_profiles(self, mock_download, client):
-        n = 1200
-        dates = pd.bdate_range("2020-01-01", periods=n)
-        close = np.linspace(100, 220, n)
-        df = pd.DataFrame(
-            {
-                "Open": close,
-                "High": close + 2,
-                "Low": close - 2,
-                "Close": close,
-                "Volume": np.full(n, 5_000_000),
-            },
-            index=dates,
-        )
-        mock_download.return_value = df
-
-        btc_resp = client.get("/api/chart?ticker=BTC-USD&start=2023-01-01")
-        coin_resp = client.get("/api/chart?ticker=COIN&start=2023-01-01")
-        tsla_resp = client.get("/api/chart?ticker=TSLA&start=2023-01-01")
-
-        btc_strategy = btc_resp.get_json()["strategies"]["weekly_core_overlay_v1"]
-        coin_strategy = coin_resp.get_json()["strategies"]["weekly_core_overlay_v1"]
-        tsla_strategy = tsla_resp.get_json()["strategies"]["weekly_core_overlay_v1"]
-
-        assert btc_strategy["architecture_core_strategy"] == "donchian_weekly"
-        assert btc_strategy["architecture_overlay_strategy"] == "donchian_daily"
-        assert coin_strategy["architecture_core_strategy"] == "macd_weekly"
-        assert coin_strategy["architecture_overlay_strategy"] == "keltner_daily"
-        assert tsla_strategy["architecture_core_strategy"] == "cb150_weekly"
-        assert tsla_strategy["architecture_overlay_strategy"] == "donchian_daily"
-        assert btc_strategy["architecture_core_fraction"] == pytest.approx(0.70)
-        assert btc_strategy["architecture_overlay_fraction"] == pytest.approx(0.30)
-
-    @patch("lib.cache.yf.download")
-    def test_weekly_core_overlay_supports_profile_level_sleeve_weights(
-        self, mock_download, client, monkeypatch
-    ):
-        n = 1200
-        dates = pd.bdate_range("2020-01-01", periods=n)
-        close = np.linspace(100, 220, n)
-        df = pd.DataFrame(
-            {
-                "Open": close,
-                "High": close + 2,
-                "Low": close - 2,
-                "Close": close,
-                "Volume": np.full(n, 5_000_000),
-            },
-            index=dates,
-        )
-        mock_download.return_value = df
-
-        monkeypatch.setattr(
-            chart_module,
-            "CORE_OVERLAY_STRATEGY_PROFILES",
-            {
-                "BTC-USD": {
-                    "core": "donchian",
-                    "overlay": "donchian",
-                    "core_fraction": 0.80,
-                    "overlay_fraction": 0.20,
-                }
-            },
-        )
-
-        resp = client.get("/api/chart?ticker=BTC-USD&start=2023-01-01")
-        strategy = resp.get_json()["strategies"]["weekly_core_overlay_v1"]
-
-        assert strategy["architecture_core_fraction"] == pytest.approx(0.80)
-        assert strategy["architecture_overlay_fraction"] == pytest.approx(0.20)
-        assert "80%" in strategy["architecture_hint"]
-        assert "20%" in strategy["architecture_hint"]
+        ribbon = data["strategies"]["ribbon"]
+        corpus = data["strategies"]["corpus_trend"]
+        assert ribbon["confirmation_mode"] == "escalation_50_50"
+        assert ribbon["confirmation_supported"] is True
+        assert ribbon["confirmation_starter_fraction"] == pytest.approx(0.50)
+        assert ribbon["confirmation_confirmed_fraction"] == pytest.approx(0.50)
+        assert "base 50%" in ribbon["confirmation_hint"].lower()
+        assert corpus["confirmation_supported"] is True
 
     @patch("lib.cache.yf.Ticker")
     @patch("lib.cache.yf.download")

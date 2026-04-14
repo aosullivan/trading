@@ -10,7 +10,7 @@ It pins:
 
 - the current backtest defaults, including `default_strategy: "ribbon"`
 - the exact strategy selector order and labels exposed in `/backtest`
-- the additive exposure of `corpus_trend_layered` and `weekly_core_overlay_v1` as comparison-only strategies
+- the additive exposure of `corpus_trend_layered` as the remaining comparison-only strategy
 - the current money-management defaults and option lists
 - the backend `/api/chart` strategy inventory and required payload fields
 - the frozen deterministic fixture paths `tests/fixtures/btc_usd_1d_benchmark.csv` and `tests/fixtures/polymarket_probability_history_benchmark.json`
