@@ -27,6 +27,13 @@ VALID_SCHEDULE_CADENCES = {
 
 _WEEKDAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 _WEEKDAY_INDEX = {name: idx for idx, name in enumerate(_WEEKDAY_ORDER)}
+_DEFAULT_COMPARISON_SORT = "best_gap_vs_buy_hold"
+_COMPARISON_SORT_FIELDS = {
+    "best_return": ("strategy_return_pct", True),
+    "best_gap_vs_buy_hold": ("gap_vs_buy_hold_pct", True),
+    "best_return_over_drawdown": ("return_over_drawdown", True),
+    "lowest_drawdown": ("max_drawdown_pct", False),
+}
 
 _LOCK = threading.Lock()
 _ACTIVE_CAMPAIGNS: set[str] = set()
@@ -107,6 +114,7 @@ def _normalize_money_management(mm) -> dict:
         "stop_pct",
         "vol_to_equity_limit",
         "compounding",
+        "initial_capital",
     }
     payload = {}
     for key, value in dict(mm).items():
@@ -240,6 +248,106 @@ def _normalize_run_spec(raw_run: dict, now: str) -> dict:
         "created_at": raw_run.get("created_at") or now,
         "updated_at": now,
     }
+
+
+def _safe_float(value) -> float | None:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _comparison_sort_details(sort_by: str | None) -> tuple[str, str, bool]:
+    normalized = str(sort_by or _DEFAULT_COMPARISON_SORT).strip().lower() or _DEFAULT_COMPARISON_SORT
+    field, descending = _COMPARISON_SORT_FIELDS.get(normalized, _COMPARISON_SORT_FIELDS[_DEFAULT_COMPARISON_SORT])
+    return normalized if normalized in _COMPARISON_SORT_FIELDS else _DEFAULT_COMPARISON_SORT, field, descending
+
+
+def _comparison_row(campaign: dict, run: dict) -> dict:
+    result = dict(run.get("last_result") or {})
+    initial_capital = _safe_float(run.get("money_management", {}).get("initial_capital")) or 10000.0
+    strategy_ending_equity = _safe_float(result.get("strategy_ending_equity"))
+    buy_hold_ending_equity = _safe_float(result.get("buy_hold_ending_equity"))
+    strategy_return_pct = (
+        round(((strategy_ending_equity / initial_capital) - 1) * 100, 2)
+        if strategy_ending_equity is not None and initial_capital
+        else None
+    )
+    buy_hold_return_pct = (
+        round(((buy_hold_ending_equity / initial_capital) - 1) * 100, 2)
+        if buy_hold_ending_equity is not None and initial_capital
+        else None
+    )
+    gap_vs_buy_hold_pct = _safe_float(result.get("return_gap_pct"))
+    max_drawdown_pct = _safe_float(result.get("max_drawdown_pct"))
+    return_over_drawdown = (
+        round(strategy_return_pct / max_drawdown_pct, 4)
+        if strategy_return_pct is not None and max_drawdown_pct not in (None, 0)
+        else None
+    )
+
+    tickers = run.get("tickers") or []
+    if run.get("basket_source") == "preset" and run.get("preset"):
+        basket_definition = run["preset"]
+    elif tickers:
+        basket_definition = ", ".join(tickers)
+    else:
+        basket_definition = "watchlist"
+
+    return {
+        "campaign_id": campaign["campaign_id"],
+        "campaign_name": campaign.get("name") or "Untitled campaign",
+        "campaign_tags": campaign.get("tags", []),
+        "run_id": run["run_id"],
+        "run_name": run.get("name") or run["run_id"],
+        "strategy": run.get("strategy") or "ribbon",
+        "basket_source": run.get("basket_source") or "watchlist",
+        "basket_definition": basket_definition,
+        "preset": run.get("preset"),
+        "tickers": tickers,
+        "status": run.get("status", "planned"),
+        "completed_at": result.get("completed_at"),
+        "last_run_at": run.get("last_run_at"),
+        "winner": result.get("winner"),
+        "initial_capital": initial_capital,
+        "strategy_ending_equity": strategy_ending_equity,
+        "buy_hold_ending_equity": buy_hold_ending_equity,
+        "strategy_return_pct": strategy_return_pct,
+        "buy_hold_return_pct": buy_hold_return_pct,
+        "gap_vs_buy_hold_pct": gap_vs_buy_hold_pct,
+        "equity_gap": _safe_float(result.get("equity_gap")),
+        "max_drawdown_pct": max_drawdown_pct,
+        "return_over_drawdown": return_over_drawdown,
+        "traded_tickers": result.get("traded_tickers"),
+        "order_count": result.get("order_count"),
+    }
+
+
+def _comparison_matches_filters(row: dict, *, campaign_id=None, strategy=None, basket_source=None, status=None) -> bool:
+    if campaign_id and row["campaign_id"] != campaign_id:
+        return False
+    if strategy and row["strategy"] != strategy:
+        return False
+    if basket_source and row["basket_source"] != basket_source:
+        return False
+    if status and row["status"] != status:
+        return False
+    return True
+
+
+def _comparison_sort_key(field: str, descending: bool):
+    def key(row: dict):
+        value = row.get(field)
+        missing = value is None
+        if isinstance(value, (int, float)):
+            normalized = -value if descending else value
+        else:
+            normalized = value
+        return (missing, normalized, row.get("campaign_name", ""), row.get("run_name", ""))
+
+    return key
 
 
 def _campaign_progress(campaign: dict) -> dict:
@@ -459,6 +567,77 @@ def claim_due_campaigns(now: datetime | None = None) -> list[dict]:
         if changed:
             _save_index(_load_all_campaigns())
     return due_campaigns
+
+
+def list_comparison_runs(
+    *,
+    campaign_id: str | None = None,
+    strategy: str | None = None,
+    basket_source: str | None = None,
+    status: str | None = "completed",
+    sort_by: str | None = None,
+) -> dict:
+    normalized_sort, field, descending = _comparison_sort_details(sort_by)
+    with _LOCK:
+        campaigns = _load_all_campaigns()
+
+    rows = []
+    for campaign in campaigns:
+        for run in campaign.get("runs", []):
+            row = _comparison_row(campaign, run)
+            if _comparison_matches_filters(
+                row,
+                campaign_id=campaign_id,
+                strategy=strategy,
+                basket_source=basket_source,
+                status=status,
+            ):
+                rows.append(row)
+    rows.sort(key=_comparison_sort_key(field, descending))
+    return {
+        "items": rows,
+        "sort_by": normalized_sort,
+        "filters": {
+            "campaign_id": campaign_id,
+            "strategy": strategy,
+            "basket_source": basket_source,
+            "status": status,
+        },
+    }
+
+
+def compare_run_ids(run_ids: list[str]) -> dict:
+    requested = [str(run_id).strip() for run_id in run_ids if str(run_id).strip()]
+    with _LOCK:
+        campaigns = _load_all_campaigns()
+
+    row_map = {}
+    for campaign in campaigns:
+        for run in campaign.get("runs", []):
+            row = _comparison_row(campaign, run)
+            row_map[row["run_id"]] = row
+
+    items = [row_map[run_id] for run_id in requested if run_id in row_map]
+    metric_winners = {}
+    metrics = {
+        "best_return": ("strategy_return_pct", True),
+        "best_gap_vs_buy_hold": ("gap_vs_buy_hold_pct", True),
+        "best_return_over_drawdown": ("return_over_drawdown", True),
+        "lowest_drawdown": ("max_drawdown_pct", False),
+    }
+    for label, (field, descending) in metrics.items():
+        available = [item for item in items if item.get(field) is not None]
+        if not available:
+            metric_winners[label] = None
+            continue
+        best = sorted(available, key=_comparison_sort_key(field, descending))[0]
+        metric_winners[label] = {
+            "run_id": best["run_id"],
+            "run_name": best["run_name"],
+            "campaign_id": best["campaign_id"],
+            "value": best[field],
+        }
+    return {"items": items, "metric_winners": metric_winners}
 
 
 def update_run_state(

@@ -50,6 +50,11 @@ class TestIndexRoute:
         assert b"Save Current Run As Campaign" in resp.data
         assert b"Saved Campaigns" in resp.data
         assert b"Selected Campaign" in resp.data
+        assert b"Run Comparison" in resp.data
+        assert b"Refresh Rankings" in resp.data
+        assert b"Top Completed Runs" in resp.data
+        assert b"Side-By-Side Comparison" in resp.data
+        assert b"Gap Vs Buy &amp; Hold" in resp.data
 
 
 class TestChartHelpers:
@@ -397,6 +402,53 @@ class TestPortfolioCampaignAPI:
             ],
         }
 
+    @staticmethod
+    def _seed_completed_campaign(
+        *,
+        name,
+        strategy,
+        basket_source,
+        last_result,
+        tickers=None,
+        preset=None,
+        tags=None,
+    ):
+        from lib import portfolio_campaigns
+
+        payload = {
+            "name": name,
+            "goal": "Seed completed campaign for comparison tests",
+            "tags": tags or [],
+            "runs": [
+                {
+                    "name": f"{strategy} run",
+                    "strategy": strategy,
+                    "basket_source": basket_source,
+                    "tickers": tickers or [],
+                    "preset": preset,
+                    "start": "2024-01-02",
+                    "heat_limit": 0.2,
+                    "money_management": {
+                        "sizing_method": "fixed_fraction",
+                        "stop_type": "atr",
+                        "stop_atr_period": 20,
+                        "stop_atr_multiple": 3.0,
+                        "initial_capital": 10000,
+                    },
+                }
+            ],
+        }
+        campaign = portfolio_campaigns.create_campaign(payload)
+        run_id = campaign["runs"][0]["run_id"]
+        portfolio_campaigns.update_run_state(
+            campaign["campaign_id"],
+            run_id,
+            status="completed",
+            last_result=last_result,
+            last_error=None,
+        )
+        return campaign["campaign_id"], run_id
+
     @patch("routes.portfolio._start_campaign_worker")
     def test_create_and_list_portfolio_campaigns(self, mock_start_worker, client):
         resp = client.post("/api/portfolio/campaigns", json=self._campaign_payload())
@@ -561,6 +613,155 @@ class TestPortfolioCampaignAPI:
         assert campaign["runs"][0]["status"] == "completed"
         assert campaign["schedule"]["last_queued_at"]
         assert campaign["schedule"]["next_run_at"]
+
+    def test_completed_run_rankings_return_sorted_saved_results(self, client):
+        self._seed_completed_campaign(
+            name="Higher Gap",
+            strategy="corpus_trend",
+            basket_source="manual",
+            tickers=["MSFT", "NVDA"],
+            last_result={
+                "completed_at": "2026-04-14T12:00:00+00:00",
+                "winner": "strategy",
+                "strategy_ending_equity": 12800,
+                "buy_hold_ending_equity": 11200,
+                "return_gap_pct": 16.0,
+                "equity_gap": 1600,
+                "max_drawdown_pct": 8.0,
+                "traded_tickers": 2,
+                "order_count": 6,
+            },
+        )
+        self._seed_completed_campaign(
+            name="Lower Gap",
+            strategy="cci_hysteresis",
+            basket_source="preset",
+            preset="focus",
+            last_result={
+                "completed_at": "2026-04-14T13:00:00+00:00",
+                "winner": "strategy",
+                "strategy_ending_equity": 11900,
+                "buy_hold_ending_equity": 11300,
+                "return_gap_pct": 6.0,
+                "equity_gap": 600,
+                "max_drawdown_pct": 5.0,
+                "traded_tickers": 4,
+                "order_count": 8,
+            },
+        )
+
+        resp = client.get(
+            "/api/portfolio/campaigns/completed-runs",
+            query_string={"sort_by": "best_gap_vs_buy_hold"},
+        )
+
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert payload["sort_by"] == "best_gap_vs_buy_hold"
+        assert [item["campaign_name"] for item in payload["items"]] == ["Higher Gap", "Lower Gap"]
+        assert payload["items"][0]["gap_vs_buy_hold_pct"] == 16.0
+        assert payload["items"][0]["return_over_drawdown"] == 3.5
+
+    def test_completed_run_rankings_support_filters(self, client):
+        self._seed_completed_campaign(
+            name="Corpus Manual",
+            strategy="corpus_trend",
+            basket_source="manual",
+            tickers=["MSFT", "NVDA"],
+            last_result={
+                "completed_at": "2026-04-14T12:00:00+00:00",
+                "winner": "strategy",
+                "strategy_ending_equity": 12100,
+                "buy_hold_ending_equity": 11500,
+                "return_gap_pct": 6.0,
+                "equity_gap": 600,
+                "max_drawdown_pct": 7.0,
+                "traded_tickers": 2,
+                "order_count": 4,
+            },
+        )
+        self._seed_completed_campaign(
+            name="CCI Preset",
+            strategy="cci_hysteresis",
+            basket_source="preset",
+            preset="focus",
+            last_result={
+                "completed_at": "2026-04-14T13:00:00+00:00",
+                "winner": "buy_hold",
+                "strategy_ending_equity": 10800,
+                "buy_hold_ending_equity": 11200,
+                "return_gap_pct": -4.0,
+                "equity_gap": -400,
+                "max_drawdown_pct": 4.0,
+                "traded_tickers": 4,
+                "order_count": 3,
+            },
+        )
+
+        resp = client.get(
+            "/api/portfolio/campaigns/completed-runs",
+            query_string={"strategy": "corpus_trend", "basket_source": "manual"},
+        )
+
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert len(payload["items"]) == 1
+        assert payload["items"][0]["campaign_name"] == "Corpus Manual"
+        assert payload["items"][0]["strategy"] == "corpus_trend"
+        assert payload["items"][0]["basket_source"] == "manual"
+
+    def test_compare_portfolio_runs_returns_side_by_side_rows_and_metric_winners(self, client):
+        _campaign_a, run_a = self._seed_completed_campaign(
+            name="Gap Leader",
+            strategy="corpus_trend",
+            basket_source="manual",
+            tickers=["MSFT", "NVDA"],
+            last_result={
+                "completed_at": "2026-04-14T12:00:00+00:00",
+                "winner": "strategy",
+                "strategy_ending_equity": 13000,
+                "buy_hold_ending_equity": 11500,
+                "return_gap_pct": 15.0,
+                "equity_gap": 1500,
+                "max_drawdown_pct": 10.0,
+                "traded_tickers": 2,
+                "order_count": 7,
+            },
+        )
+        _campaign_b, run_b = self._seed_completed_campaign(
+            name="Drawdown Leader",
+            strategy="cci_hysteresis",
+            basket_source="preset",
+            preset="focus",
+            last_result={
+                "completed_at": "2026-04-14T13:00:00+00:00",
+                "winner": "strategy",
+                "strategy_ending_equity": 11800,
+                "buy_hold_ending_equity": 11000,
+                "return_gap_pct": 8.0,
+                "equity_gap": 800,
+                "max_drawdown_pct": 4.0,
+                "traded_tickers": 4,
+                "order_count": 5,
+            },
+        )
+
+        resp = client.get(
+            "/api/portfolio/campaigns/compare",
+            query_string={"run_ids": f"{run_a},{run_b}"},
+        )
+
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert [item["run_id"] for item in payload["items"]] == [run_a, run_b]
+        assert payload["metric_winners"]["best_gap_vs_buy_hold"]["run_id"] == run_a
+        assert payload["metric_winners"]["lowest_drawdown"]["run_id"] == run_b
+
+    def test_compare_portfolio_runs_requires_run_ids(self, client):
+        resp = client.get("/api/portfolio/campaigns/compare")
+
+        assert resp.status_code == 400
+        assert resp.get_json()["error"] == "Provide one or more run_ids"
 
     def test_watchlist_trends_returns_disk_snapshots_on_cold_memory_cache(self, client):
         import routes.watchlist as watchlist_module

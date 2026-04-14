@@ -52,6 +52,8 @@ When a scheduled campaign becomes due, the app requeues all non-running runs, ex
 
 - `GET /api/portfolio/campaigns`
 - `POST /api/portfolio/campaigns`
+- `GET /api/portfolio/campaigns/completed-runs`
+- `GET /api/portfolio/campaigns/compare`
 - `GET /api/portfolio/campaigns/<campaign_id>`
 - `POST /api/portfolio/campaigns/<campaign_id>/queue`
 - `POST /api/portfolio/campaigns/<campaign_id>/rerun`
@@ -67,6 +69,32 @@ The `/portfolio` page now includes a campaign dashboard that lets the user:
 - view per-run status and latest summary tags
 - save a local schedule for the selected campaign
 - rerun a completed campaign from the same screen
+
+The same page also includes a completed-run comparison surface that lets the user:
+
+- rank saved completed runs by gap versus buy-and-hold, return, return-over-drawdown, or lowest drawdown
+- filter saved runs by strategy, basket source, and status without rerunning backtests
+- select up to three runs and inspect them side by side using the same saved metrics
+- see metric leaders quickly so winners are obvious before opening a full campaign
+
+## Comparison Model
+
+Run comparison stays read-only and uses saved campaign results only. The ranking surface does not fetch fresh market data or rerun portfolio backtests.
+
+Each comparison row combines:
+
+- campaign metadata
+- saved run definition
+- latest saved completed-run summary
+
+The first saved decision metrics are:
+
+- strategy return
+- buy-and-hold return
+- gap versus buy-and-hold
+- max drawdown
+- return over drawdown
+- traded tickers and order count for quick context
 
 ## Persistence
 

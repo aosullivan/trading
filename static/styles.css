@@ -417,6 +417,7 @@ body.pf-page{display:block;overflow-y:auto}
 .pf-equity-card{background:linear-gradient(180deg,#161927,#10131d);border:1px solid var(--border);border-radius:10px;overflow:hidden}
 .pf-stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1px;background:var(--border);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
 .pf-stats-grid .sc{min-height:80px}
+.pf-stats-grid .sc-net-profit{grid-column:span 3}
 .pf-config-bar{display:flex;gap:8px;flex-wrap:wrap;padding:10px 0}
 .pf-cfg-tag{display:inline-flex;padding:4px 10px;border-radius:999px;background:var(--bg-3);border:1px solid var(--border);font-size:10px;font-weight:600;color:var(--text-3);letter-spacing:.2px}
 .pf-progress{display:flex;align-items:center;gap:10px;margin-bottom:16px}
@@ -441,6 +442,24 @@ body.pf-page{display:block;overflow-y:auto}
 .pf-campaign-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
 .pf-campaign-detail{min-height:180px}
 .pf-campaign-summary{margin-bottom:12px}
+.pf-compare-ranking{display:flex;flex-direction:column;gap:10px}
+.pf-compare-card{background:linear-gradient(180deg,#171a28,#10131d);border:1px solid var(--border);border-radius:10px;padding:12px;transition:all .15s}
+.pf-compare-card.active{border-color:var(--accent);box-shadow:0 0 0 1px rgba(91,127,255,.18)}
+.pf-compare-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.pf-compare-main{display:flex;align-items:flex-start;gap:12px;min-width:0}
+.pf-compare-rank{display:inline-flex;align-items:center;justify-content:center;min-width:34px;height:24px;padding:0 8px;border-radius:999px;background:rgba(91,127,255,.10);color:var(--accent);font-size:11px;font-weight:800;letter-spacing:.3px}
+.pf-compare-name{font-size:13px;font-weight:700;color:var(--text-1);display:flex;align-items:center;gap:6px;line-height:1.3}
+.pf-compare-sub{font-size:11px;color:var(--text-3);margin-top:4px;line-height:1.4}
+.pf-compare-metrics{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.pf-compare-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:12px}
+.pf-compare-toggle.active{border-color:var(--accent);background:rgba(91,127,255,.10);color:var(--accent)}
+.pf-compare-detail{display:flex;flex-direction:column;gap:12px}
+.pf-compare-winners{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.pf-compare-winner-card{background:linear-gradient(180deg,#171a28,#10131d);border:1px solid var(--border);border-radius:10px;padding:12px}
+.pf-compare-winner-label{font-size:10px;font-weight:800;color:var(--text-4);text-transform:uppercase;letter-spacing:.7px}
+.pf-compare-winner-run{font-size:13px;font-weight:700;color:var(--text-1);display:flex;align-items:center;gap:6px;margin-top:8px;line-height:1.35}
+.pf-compare-table .ttbl th:first-child,
+.pf-compare-table .ttbl td:first-child{white-space:nowrap}
 .pf-status{display:inline-flex;align-items:center;justify-content:center;padding:4px 9px;border-radius:999px;border:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;background:var(--bg-3);color:var(--text-2)}
 .pf-status-planned{color:var(--text-2)}
 .pf-status-queued{color:var(--yellow);border-color:rgba(255,214,68,.25);background:rgba(255,214,68,.08)}
@@ -452,4 +471,9 @@ body.pf-page{display:block;overflow-y:auto}
 .pf-inline-tags{display:flex;gap:6px;flex-wrap:wrap}
 @media (max-width: 900px){
   .pf-campaign-layout{grid-template-columns:1fr}
+  .pf-stats-grid .sc-net-profit{grid-column:span 1}
+}
+@media (max-width: 700px){
+  .pf-compare-card-head,
+  .pf-compare-actions{align-items:flex-start;flex-direction:column}
 }

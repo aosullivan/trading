@@ -6,12 +6,21 @@ let pfData=null;
 let pfCampaigns=[];
 let pfSelectedCampaignId=null;
 let pfCampaignPollTimer=null;
+let pfComparisonRows=[];
+let pfComparisonSelectedRunIds=[];
 
 const PF_TICKER_COLORS=[
   '#5b7fff','#00e68a','#ff5274','#ffa040','#b050ff',
   '#00d4ff','#ffd644','#ff7eb3','#76ff7a','#ff6b6b',
   '#4ecdc4','#ffe66d','#a8e6cf','#ff8b94','#95e1d3',
 ];
+
+const PF_COMPARISON_METRIC_META={
+  best_gap_vs_buy_hold:{label:'Gap Vs Buy & Hold',field:'gap_vs_buy_hold_pct',type:'pct'},
+  best_return_over_drawdown:{label:'Return / Drawdown',field:'return_over_drawdown',type:'ratio'},
+  best_return:{label:'Return',field:'strategy_return_pct',type:'pct'},
+  lowest_drawdown:{label:'Lowest Drawdown',field:'max_drawdown_pct',type:'drawdown'},
+};
 
 function _fmtCurrency(v){
   const n=Number(v||0);
@@ -23,6 +32,10 @@ function _fmtPlain(v){
 function _fmtPct(v){
   const n=Number(v||0);
   return `${n>=0?'+':''}${n.toFixed(2)}%`;
+}
+
+function _winnerMedal(show,title){
+  return show?`<span class="sc-medal" title="${_escapeHtml(title)}">&#129351;</span>`:'';
 }
 
 function _escapeHtml(value){
@@ -70,16 +83,57 @@ function _initHeatChart(){
   return pfHeatChart;
 }
 
-function _renderPfStats(s){
+function _renderPfStats(s,c){
   const pf=s.profit_factor==null?'N/A':s.profit_factor;
+  const profitableLabel=s.total_trades?`${s.winners}/${s.total_trades}`:'0/0';
+  const initialCapital=Number(s.initial_capital||0);
+  const openTrades=Number(s.open_trades||0);
   const totalPnl=Number(s.total_pnl||0);
   const realizedPnl=Number(s.realized_pnl||0);
   const openPnl=Number(s.open_pnl||0);
+  const holdEndingEquity=Number(c?.buy_hold_ending_equity||initialCapital);
+  const holdTotalPnl=holdEndingEquity-initialCapital;
+  const strategyWins=c ? totalPnl>=holdTotalPnl : false;
+  const holdWins=c ? holdTotalPnl>=totalPnl : false;
   document.getElementById('pf-stats').innerHTML=`
-    <div class="sc">
+    <div class="sc sc-net-profit">
       <div class="sc-l">Net Profit</div>
-      <div class="sc-v ${totalPnl>=0?'vg':'vr'}">${_fmtCurrency(totalPnl)}</div>
-      <div class="sc-sub">${_fmtPct(s.net_profit_pct)} · ${_fmtCurrency(realizedPnl)} realized / ${_fmtCurrency(openPnl)} open</div>
+      <div class="sc-compare">
+        <div class="sc-compare-row">
+          <div class="sc-compare-meta">
+            <span class="sc-compare-label">Strategy${_winnerMedal(strategyWins,'Portfolio strategy winner')}</span>
+            <span class="sc-compare-note">Ending equity ${_fmtPlain(s.ending_equity)}</span>
+          </div>
+          <div class="sc-compare-values">
+            <span class="sc-compare-value ${totalPnl>=0?'vg':'vr'}">${_fmtCurrency(totalPnl)}</span>
+            <span class="sc-compare-pct ${Number(s.net_profit_pct||0)>=0?'vg':'vr'}">${_fmtPct(s.net_profit_pct)}</span>
+          </div>
+        </div>
+        <div class="sc-compare-row">
+          <div class="sc-compare-meta">
+            <span class="sc-compare-label">Buy &amp; Hold${_winnerMedal(holdWins,'Portfolio buy and hold winner')}</span>
+            <span class="sc-compare-note">Ending equity ${_fmtPlain(holdEndingEquity)}</span>
+          </div>
+          <div class="sc-compare-values">
+            <span class="sc-compare-value ${holdTotalPnl>=0?'vg':'vr'}">${_fmtCurrency(holdTotalPnl)}</span>
+            <span class="sc-compare-pct ${Number(c?.buy_hold_return_pct||0)>=0?'vg':'vr'}">${c?_fmtPct(c.buy_hold_return_pct):'N/A'}</span>
+          </div>
+        </div>
+      </div>
+      <div class="sc-net-profit-foot">
+        <div class="sc-sub sc-sub-strong">Overall net increase: ${_fmtPct(s.net_profit_pct)} strategy${c?` · ${_fmtPct(c.buy_hold_return_pct)} buy &amp; hold`:''}</div>
+        <div class="sc-sub">${_fmtCurrency(realizedPnl)} realized / ${_fmtCurrency(openPnl)} open</div>
+      </div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Ending Equity</div>
+      <div class="sc-v">${_fmtPlain(s.ending_equity)}</div>
+      <div class="sc-sub">From ${_fmtPlain(s.initial_capital)}</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Return / Max DD</div>
+      <div class="sc-v ${(s.return_over_max_dd||0)>=1?'vg':(s.return_over_max_dd||0)>=0?'':'vr'}">${s.return_over_max_dd==null?'N/A':s.return_over_max_dd.toFixed(2)}</div>
+      <div class="sc-sub">Net profit % ÷ max drawdown %</div>
     </div>
     <div class="sc">
       <div class="sc-l">Max Drawdown</div>
@@ -87,39 +141,39 @@ function _renderPfStats(s){
       <div class="sc-sub">${_fmtPlain(s.max_drawdown)}</div>
     </div>
     <div class="sc">
-      <div class="sc-l">Win Rate</div>
-      <div class="sc-v">${(s.win_rate||0).toFixed(1)}%</div>
-      <div class="sc-sub">${s.winners||0}/${s.total_trades||0} closed</div>
-    </div>
-    <div class="sc">
       <div class="sc-l">Profit Factor</div>
       <div class="sc-v">${pf}</div>
       <div class="sc-sub">${_fmtPlain(s.gross_profit)} / ${_fmtPlain(s.gross_loss)}</div>
     </div>
     <div class="sc">
-      <div class="sc-l">Total Trades</div>
-      <div class="sc-v">${s.total_trades||0}</div>
-      <div class="sc-sub">${s.open_trades||0} open · avg P&L ${_fmtCurrency(s.avg_pnl)}</div>
+      <div class="sc-l">Profitable Trades</div>
+      <div class="sc-v">${(s.win_rate||0).toFixed(1)}%</div>
+      <div class="sc-sub">${profitableLabel} closed trades</div>
     </div>
     <div class="sc">
-      <div class="sc-l">Ending Equity</div>
-      <div class="sc-v">${_fmtPlain(s.ending_equity)}</div>
-      <div class="sc-sub">Initial ${_fmtPlain(s.initial_capital)}</div>
+      <div class="sc-l">Closed Trades</div>
+      <div class="sc-v">${s.total_trades||0}</div>
+      <div class="sc-sub">${openTrades} open positions</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Open P&amp;L</div>
+      <div class="sc-v ${openPnl>=0?'vg':'vr'}">${_fmtCurrency(openPnl)}</div>
+      <div class="sc-sub">Marked to last close</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Avg Trade</div>
+      <div class="sc-v ${Number(s.avg_pnl||0)>=0?'vg':'vr'}">${_fmtCurrency(s.avg_pnl)}</div>
+      <div class="sc-sub">Per closed position</div>
     </div>
     <div class="sc">
       <div class="sc-l">Sharpe</div>
       <div class="sc-v ${(s.sharpe_ratio||0)>=1?'vg':(s.sharpe_ratio||0)>=0?'':'vr'}">${s.sharpe_ratio==null?'N/A':s.sharpe_ratio.toFixed(2)}</div>
-      <div class="sc-sub">Annualized</div>
+      <div class="sc-sub">Annualized from bar spacing</div>
     </div>
     <div class="sc">
       <div class="sc-l">Sortino</div>
       <div class="sc-v ${(s.sortino_ratio||0)>=1?'vg':(s.sortino_ratio||0)>=0?'':'vr'}">${s.sortino_ratio==null?'N/A':s.sortino_ratio.toFixed(2)}</div>
       <div class="sc-sub">Downside risk</div>
-    </div>
-    <div class="sc">
-      <div class="sc-l">Ret / DD</div>
-      <div class="sc-v ${(s.return_over_max_dd||0)>=1?'vg':(s.return_over_max_dd||0)>=0?'':'vr'}">${s.return_over_max_dd==null?'N/A':s.return_over_max_dd.toFixed(2)}</div>
-      <div class="sc-sub">Net % ÷ max DD %</div>
     </div>
   `;
 }
@@ -156,21 +210,33 @@ function _renderComparison(c){
   }
   const equityGap=Number(c.equity_gap||0);
   const returnGap=Number(c.return_gap_pct||0);
+  const strategyWins=c.winner==='strategy' || c.winner==='tie';
+  const holdWins=c.winner==='buy_hold' || c.winner==='tie';
   document.getElementById('pf-comparison').innerHTML=`
     <div class="sc">
       <div class="sc-l">Winner</div>
-      <div class="sc-v ${c.winner==='strategy'?'vg':c.winner==='buy_hold'?'vr':''}">${c.winner==='buy_hold'?'Buy & Hold':c.winner==='strategy'?'Strategy':'Tie'}</div>
-      <div class="sc-sub">Same basket, same date range</div>
+      <div class="sc-v ${c.winner==='strategy'?'vg':c.winner==='buy_hold'?'vr':''}">${c.winner==='buy_hold'?'Buy & Hold':'Strategy'}${c.winner==='tie'?' / Buy & Hold':''}</div>
+      <div class="sc-sub">Same basket, same date range${_winnerMedal(strategyWins,'Strategy benchmark winner')}${_winnerMedal(holdWins,'Buy and hold benchmark winner')}</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Strategy Return</div>
+      <div class="sc-v ${Number(c.strategy_return_pct||0)>=0?'vg':'vr'}">${_fmtPct(c.strategy_return_pct)}</div>
+      <div class="sc-sub">Ending equity ${_fmtPlain(c.strategy_ending_equity)}</div>
+    </div>
+    <div class="sc">
+      <div class="sc-l">Buy &amp; Hold Return</div>
+      <div class="sc-v ${Number(c.buy_hold_return_pct||0)>=0?'vg':'vr'}">${_fmtPct(c.buy_hold_return_pct)}</div>
+      <div class="sc-sub">Ending equity ${_fmtPlain(c.buy_hold_ending_equity)}</div>
     </div>
     <div class="sc">
       <div class="sc-l">Equity Gap</div>
       <div class="sc-v ${equityGap>=0?'vg':'vr'}">${_fmtCurrency(equityGap)}</div>
-      <div class="sc-sub">${_fmtPlain(c.strategy_ending_equity)} vs ${_fmtPlain(c.buy_hold_ending_equity)}</div>
+      <div class="sc-sub">Strategy minus buy &amp; hold</div>
     </div>
     <div class="sc">
       <div class="sc-l">Return Gap</div>
       <div class="sc-v ${returnGap>=0?'vg':'vr'}">${_fmtPct(returnGap)}</div>
-      <div class="sc-sub">${_fmtPct(c.strategy_return_pct)} vs ${_fmtPct(c.buy_hold_return_pct)}</div>
+      <div class="sc-sub">Strategy minus buy &amp; hold</div>
     </div>
   `;
 }
@@ -258,6 +324,51 @@ function _formatScheduleSummary(schedule){
   const hour=String(Number(safe.hour||0)).padStart(2,'0');
   const minute=String(Number(safe.minute||0)).padStart(2,'0');
   return `${weekdays} @ ${hour}:${minute}`;
+}
+
+function _formatTimestamp(value){
+  if(!value)return 'N/A';
+  const dt=new Date(value);
+  if(Number.isNaN(dt.getTime()))return value;
+  return dt.toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});
+}
+
+function _formatComparisonMetric(type,value){
+  if(value==null)return 'N/A';
+  if(type==='pct' || type==='drawdown'){
+    return `${Number(value).toFixed(2)}%`;
+  }
+  if(type==='ratio'){
+    return Number(value).toFixed(2);
+  }
+  if(type==='currency'){
+    return _fmtPlain(value);
+  }
+  return String(value);
+}
+
+function _comparisonWinnerLabel(row){
+  if(row.winner==='strategy')return 'Beat buy & hold';
+  if(row.winner==='buy_hold')return 'Buy & hold won';
+  return 'Tied benchmark';
+}
+
+function _comparisonStatusTone(row){
+  if(row.winner==='strategy')return 'vg';
+  if(row.winner==='buy_hold')return 'vr';
+  return '';
+}
+
+function _comparisonSortLabel(sortBy){
+  return PF_COMPARISON_METRIC_META[sortBy]?.label || PF_COMPARISON_METRIC_META.best_gap_vs_buy_hold.label;
+}
+
+function _comparisonBasketLabel(row){
+  return row.basket_definition || row.preset || row.basket_source || 'watchlist';
+}
+
+function _comparisonSelectionLimit(){
+  return 3;
 }
 
 function _applyCampaignScheduleForm(campaign){
@@ -554,6 +665,181 @@ async function rerunSelectedCampaign(){
   }
 }
 
+function _renderComparisonRanking(items,sortBy){
+  const el=document.getElementById('pf-comparison-ranking');
+  if(!items.length){
+    el.innerHTML='<div class="pf-empty">No saved runs match the current filters yet.</div>';
+    return;
+  }
+  el.innerHTML=items.map((row,index)=>{
+    const selected=pfComparisonSelectedRunIds.includes(row.run_id);
+    const tone=_comparisonStatusTone(row);
+    const compareLabel=selected ? 'Selected' : 'Compare';
+    return `<div class="pf-compare-card ${selected?'active':''}">
+      <div class="pf-compare-card-head">
+        <div class="pf-compare-main">
+          <div class="pf-compare-rank">#${index+1}</div>
+          <div>
+            <div class="pf-compare-name">${_escapeHtml(row.run_name)}${row.winner==='strategy'?_winnerMedal(true,'This run beat buy and hold'):''}</div>
+            <div class="pf-compare-sub">${_escapeHtml(row.campaign_name)} · ${_escapeHtml(row.strategy)} · ${_escapeHtml(_comparisonBasketLabel(row))}</div>
+          </div>
+        </div>
+        <span class="pf-status pf-status-${_escapeHtml(row.status||'planned')}">${_escapeHtml(row.status||'planned')}</span>
+      </div>
+      <div class="pf-compare-metrics">
+        <span class="pf-cfg-tag ${tone}">${_escapeHtml(_comparisonWinnerLabel(row))}</span>
+        <span class="pf-cfg-tag">Return ${row.strategy_return_pct==null?'N/A':_fmtPct(row.strategy_return_pct)}</span>
+        <span class="pf-cfg-tag ${Number(row.gap_vs_buy_hold_pct||0)>=0?'vg':'vr'}">Gap ${row.gap_vs_buy_hold_pct==null?'N/A':_fmtPct(row.gap_vs_buy_hold_pct)}</span>
+        <span class="pf-cfg-tag">Max DD ${row.max_drawdown_pct==null?'N/A':`${Number(row.max_drawdown_pct).toFixed(2)}%`}</span>
+        <span class="pf-cfg-tag">Orders ${row.order_count ?? 'N/A'}</span>
+      </div>
+      <div class="pf-compare-actions">
+        <button class="tk-action pf-compare-toggle ${selected?'active':''}" type="button" data-compare-run-id="${row.run_id}">${compareLabel}</button>
+        <span class="pf-section-sub">Completed ${_escapeHtml(_formatTimestamp(row.completed_at || row.last_run_at))}</span>
+      </div>
+    </div>`;
+  }).join('');
+  const detail=document.getElementById('pf-comparison-detail');
+  if(detail && !detail.innerHTML){
+    detail.innerHTML=`<div class="pf-empty">Compare runs ranked by ${_escapeHtml(_comparisonSortLabel(sortBy))}.</div>`;
+  }
+}
+
+function _renderComparisonDetail(payload){
+  const el=document.getElementById('pf-comparison-detail');
+  if(!payload || !(payload.items||[]).length){
+    el.innerHTML='<div class="pf-empty">Select up to three completed runs to inspect them side by side.</div>';
+    return;
+  }
+  const items=payload.items||[];
+  const metricWinners=payload.metric_winners||{};
+  const metricCards=Object.entries(PF_COMPARISON_METRIC_META).map(([metricKey,meta])=>{
+    const winner=metricWinners[metricKey];
+    if(!winner){
+      return `<div class="pf-compare-winner-card">
+        <div class="pf-compare-winner-label">${_escapeHtml(meta.label)}</div>
+        <div class="pf-compare-winner-run">No winner yet</div>
+        <div class="pf-section-sub">Missing saved metric on selected runs</div>
+      </div>`;
+    }
+    return `<div class="pf-compare-winner-card">
+      <div class="pf-compare-winner-label">${_escapeHtml(meta.label)}</div>
+      <div class="pf-compare-winner-run">${_escapeHtml(winner.run_name)}${_winnerMedal(true,`${meta.label} winner`)}</div>
+      <div class="pf-section-sub">${_escapeHtml(_formatComparisonMetric(meta.type,winner.value))}</div>
+    </div>`;
+  }).join('');
+
+  const rows=[
+    {label:'Campaign',render:item=>_escapeHtml(item.campaign_name)},
+    {label:'Strategy',render:item=>_escapeHtml(item.strategy)},
+    {label:'Basket',render:item=>_escapeHtml(_comparisonBasketLabel(item))},
+    {label:'Winner',render:item=>`<span class="${_comparisonStatusTone(item)}">${_escapeHtml(_comparisonWinnerLabel(item))}</span>`},
+    {label:'Strategy Return',render:item=>item.strategy_return_pct==null?'N/A':_fmtPct(item.strategy_return_pct)},
+    {label:'Buy & Hold Return',render:item=>item.buy_hold_return_pct==null?'N/A':_fmtPct(item.buy_hold_return_pct)},
+    {label:'Gap Vs Buy & Hold',render:item=>item.gap_vs_buy_hold_pct==null?'N/A':`<span class="${Number(item.gap_vs_buy_hold_pct||0)>=0?'vg':'vr'}">${_fmtPct(item.gap_vs_buy_hold_pct)}</span>`},
+    {label:'Max Drawdown',render:item=>item.max_drawdown_pct==null?'N/A':`${Number(item.max_drawdown_pct).toFixed(2)}%`},
+    {label:'Return / Drawdown',render:item=>item.return_over_drawdown==null?'N/A':Number(item.return_over_drawdown).toFixed(2)},
+    {label:'Ending Equity',render:item=>item.strategy_ending_equity==null?'N/A':_fmtPlain(item.strategy_ending_equity)},
+    {label:'Orders',render:item=>item.order_count ?? 'N/A'},
+    {label:'Traded Tickers',render:item=>item.traded_tickers ?? 'N/A'},
+    {label:'Completed',render:item=>_escapeHtml(_formatTimestamp(item.completed_at || item.last_run_at))},
+  ];
+
+  const headerCells=items.map(item=>`<th>${_escapeHtml(item.run_name)}</th>`).join('');
+  const bodyRows=rows.map(row=>`<tr><th>${_escapeHtml(row.label)}</th>${items.map(item=>`<td>${row.render(item)}</td>`).join('')}</tr>`).join('');
+
+  el.innerHTML=`
+    <div class="pf-compare-detail">
+      <div class="pf-compare-winners">${metricCards}</div>
+      <div class="t-scroll pf-compare-table">
+        <table class="ttbl">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              ${headerCells}
+            </tr>
+          </thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function _syncComparisonSelection(items,options={}){
+  const availableIds=new Set(items.map(item=>item.run_id));
+  pfComparisonSelectedRunIds=pfComparisonSelectedRunIds.filter(runId=>availableIds.has(runId));
+  if(options.reset){
+    pfComparisonSelectedRunIds=[];
+  }
+  const preferred=items.slice(0,_comparisonSelectionLimit()).map(item=>item.run_id);
+  for(const runId of preferred){
+    if(pfComparisonSelectedRunIds.length >= Math.min(_comparisonSelectionLimit(), items.length))break;
+    if(!pfComparisonSelectedRunIds.includes(runId)){
+      pfComparisonSelectedRunIds.push(runId);
+    }
+  }
+}
+
+async function refreshComparisonDetail(){
+  if(!pfComparisonSelectedRunIds.length){
+    _renderComparisonDetail(null);
+    return;
+  }
+  const params=new URLSearchParams({run_ids:pfComparisonSelectedRunIds.join(',')});
+  const payload=await _jsonRequest(`/api/portfolio/campaigns/compare?${params.toString()}`);
+  _renderComparisonDetail(payload);
+}
+
+async function refreshComparisonRanking(options={}){
+  const feedback=document.getElementById('pf-comparison-feedback');
+  const params=new URLSearchParams();
+  const sortBy=(document.getElementById('pf-compare-sort')||{}).value || 'best_gap_vs_buy_hold';
+  const strategy=(document.getElementById('pf-compare-strategy-filter')||{}).value || '';
+  const basketSource=(document.getElementById('pf-compare-basket-filter')||{}).value || '';
+  const status=(document.getElementById('pf-compare-status-filter')||{}).value || '';
+  params.set('sort_by',sortBy);
+  if(strategy)params.set('strategy',strategy);
+  if(basketSource)params.set('basket_source',basketSource);
+  if(status)params.set('status',status);
+
+  try{
+    const payload=await _jsonRequest(`/api/portfolio/campaigns/completed-runs?${params.toString()}`);
+    pfComparisonRows=payload.items||[];
+    _syncComparisonSelection(pfComparisonRows,options);
+    _renderComparisonRanking(pfComparisonRows,payload.sort_by||sortBy);
+    await refreshComparisonDetail();
+    if(!pfComparisonRows.length){
+      feedback.textContent='No saved runs match the current filters yet.';
+    }else{
+      feedback.textContent=`Showing ${pfComparisonRows.length} run${pfComparisonRows.length===1?'':'s'} ranked by ${_comparisonSortLabel(payload.sort_by||sortBy)}.`;
+    }
+  }catch(err){
+    pfComparisonRows=[];
+    _renderComparisonRanking([],sortBy);
+    _renderComparisonDetail(null);
+    feedback.textContent=err.message||'Could not load comparison runs.';
+  }
+}
+
+function toggleComparisonRun(runId){
+  if(!runId)return;
+  const idx=pfComparisonSelectedRunIds.indexOf(runId);
+  if(idx>=0){
+    pfComparisonSelectedRunIds.splice(idx,1);
+  }else{
+    while(pfComparisonSelectedRunIds.length >= _comparisonSelectionLimit()){
+      pfComparisonSelectedRunIds.shift();
+    }
+    pfComparisonSelectedRunIds.push(runId);
+  }
+  _renderComparisonRanking(pfComparisonRows,(document.getElementById('pf-compare-sort')||{}).value || 'best_gap_vs_buy_hold');
+  refreshComparisonDetail().catch(err=>{
+    const feedback=document.getElementById('pf-comparison-feedback');
+    if(feedback)feedback.textContent=err.message||'Could not compare selected runs.';
+  });
+}
+
 function _setProgress(msg,pct){
   const bar=document.getElementById('pf-progress-bar');
   const txt=document.getElementById('pf-progress-text');
@@ -579,7 +865,7 @@ function _applyResult(data){
   pfHeatSeries.setData(data.heat_series||[]);
   pfHeatChart.timeScale().fitContent();
 
-  _renderPfStats(data.portfolio_summary||{});
+  _renderPfStats(data.portfolio_summary||{},data.comparison);
   _renderComparison(data.comparison);
   _renderBasketDiagnostics(data.basket_diagnostics);
   _renderOrders(data.orders);
@@ -680,11 +966,26 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(rerunCampaignBtn){
     rerunCampaignBtn.addEventListener('click',()=>{ rerunSelectedCampaign().catch(()=>{}); });
   }
+  const refreshComparisonBtn=document.getElementById('pf-refresh-comparison');
+  if(refreshComparisonBtn){
+    refreshComparisonBtn.addEventListener('click',()=>{ refreshComparisonRanking({reset:true}).catch(()=>{}); });
+  }
+  ['pf-compare-sort','pf-compare-strategy-filter','pf-compare-basket-filter','pf-compare-status-filter'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){
+      el.addEventListener('change',()=>{ refreshComparisonRanking({reset:true}).catch(()=>{}); });
+    }
+  });
   const cadenceSelect=document.getElementById('pf-schedule-cadence');
   if(cadenceSelect){
     cadenceSelect.addEventListener('change',_syncScheduleControls);
   }
   document.addEventListener('click',function(e){
+    const compareBtn=e.target.closest('[data-compare-run-id]');
+    if(compareBtn){
+      toggleComparisonRun(compareBtn.getAttribute('data-compare-run-id'));
+      return;
+    }
     const btn=e.target.closest('[data-campaign-action]');
     if(!btn)return;
     const action=btn.getAttribute('data-campaign-action');
@@ -698,4 +999,5 @@ document.addEventListener('DOMContentLoaded',()=>{
   });
   _applyCampaignScheduleForm(null);
   refreshCampaigns({force:true}).catch(()=>{});
+  refreshComparisonRanking({reset:true}).catch(()=>{});
 });

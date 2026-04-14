@@ -146,6 +146,72 @@
     </div>
   </div>
 
+  <!-- Comparison dashboard -->
+  <div class="pf-section">
+    <h3 class="pf-section-title">Run Comparison <span class="pf-section-sub">Rank completed runs and compare winners without opening each campaign</span></h3>
+    <div class="pf-campaign-builder">
+      <div class="pf-campaign-builder-grid">
+        <div class="pf-ctrl-group">
+          <label class="tb-lbl">Rank By</label>
+          <select id="pf-compare-sort" class="inp">
+            <option value="best_gap_vs_buy_hold" selected>Gap Vs Buy &amp; Hold</option>
+            <option value="best_return_over_drawdown">Return / Drawdown</option>
+            <option value="best_return">Return</option>
+            <option value="lowest_drawdown">Lowest Drawdown</option>
+          </select>
+        </div>
+        <div class="pf-ctrl-group">
+          <label class="tb-lbl">Strategy</label>
+          <select id="pf-compare-strategy-filter" class="inp">
+            <option value="">All strategies</option>
+            <option value="ribbon">Ribbon</option>
+            <option value="corpus_trend">Corpus Trend</option>
+            <option value="cci_hysteresis">CCI Hysteresis</option>
+          </select>
+        </div>
+        <div class="pf-ctrl-group">
+          <label class="tb-lbl">Basket</label>
+          <select id="pf-compare-basket-filter" class="inp">
+            <option value="">All baskets</option>
+            <option value="watchlist">Watchlist</option>
+            <option value="manual">Manual</option>
+            <option value="preset">Preset</option>
+          </select>
+        </div>
+        <div class="pf-ctrl-group">
+          <label class="tb-lbl">Status</label>
+          <select id="pf-compare-status-filter" class="inp">
+            <option value="completed" selected>Completed</option>
+            <option value="failed">Failed</option>
+            <option value="planned">Planned</option>
+            <option value="queued">Queued</option>
+            <option value="running">Running</option>
+            <option value="skipped">Skipped</option>
+            <option value="">All</option>
+          </select>
+        </div>
+      </div>
+      <div class="pf-campaign-builder-actions">
+        <button class="tk-action" id="pf-refresh-comparison" type="button">Refresh Rankings</button>
+        <span class="pf-section-sub" id="pf-comparison-feedback"></span>
+      </div>
+    </div>
+    <div class="pf-campaign-layout">
+      <div class="pf-campaign-panel">
+        <div class="pf-campaign-panel-head">
+          <span class="pf-panel-title">Top Completed Runs</span>
+        </div>
+        <div id="pf-comparison-ranking" class="pf-compare-ranking"></div>
+      </div>
+      <div class="pf-campaign-panel">
+        <div class="pf-campaign-panel-head">
+          <span class="pf-panel-title">Side-By-Side Comparison</span>
+        </div>
+        <div id="pf-comparison-detail" class="pf-campaign-detail"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Equity chart -->
   <div class="pf-section">
     <h3 class="pf-section-title">Portfolio Equity</h3>

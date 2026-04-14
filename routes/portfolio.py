@@ -718,6 +718,28 @@ def create_portfolio_campaign():
     return jsonify(campaign), 201
 
 
+@bp.route("/api/portfolio/campaigns/completed-runs", methods=["GET"])
+def list_completed_portfolio_runs():
+    _ensure_scheduler_started()
+    payload = portfolio_campaigns.list_comparison_runs(
+        campaign_id=request.args.get("campaign_id") or None,
+        strategy=request.args.get("strategy") or None,
+        basket_source=request.args.get("basket_source") or None,
+        status=request.args.get("status", "completed") or None,
+        sort_by=request.args.get("sort_by") or None,
+    )
+    return jsonify(payload)
+
+
+@bp.route("/api/portfolio/campaigns/compare", methods=["GET"])
+def compare_portfolio_runs():
+    _ensure_scheduler_started()
+    run_ids = [item.strip() for item in (request.args.get("run_ids") or "").split(",") if item.strip()]
+    if not run_ids:
+        return jsonify({"error": "Provide one or more run_ids"}), 400
+    return jsonify(portfolio_campaigns.compare_run_ids(run_ids))
+
+
 @bp.route("/api/portfolio/campaigns/<campaign_id>", methods=["GET"])
 def get_portfolio_campaign(campaign_id: str):
     _ensure_scheduler_started()
