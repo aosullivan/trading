@@ -123,6 +123,24 @@ def _normalize_money_management(mm) -> dict:
     return payload
 
 
+def _normalize_research_context(raw) -> dict:
+    if not raw:
+        return {}
+    context = dict(raw)
+    payload = {}
+    for key in (
+        "matrix_version",
+        "basket_key",
+        "basket_label",
+        "window_key",
+        "window_label",
+    ):
+        value = context.get(key)
+        if value not in (None, ""):
+            payload[key] = str(value)
+    return payload
+
+
 def _parse_iso_datetime(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -242,6 +260,7 @@ def _normalize_run_spec(raw_run: dict, now: str) -> dict:
         "heat_limit": float(raw_run.get("heat_limit", 0.20)),
         "tags": _normalize_tags(raw_run.get("tags")),
         "notes": raw_run.get("notes") or "",
+        "research_context": _normalize_research_context(raw_run.get("research_context")),
         "status": status,
         "last_result": raw_run.get("last_result"),
         "last_run_at": raw_run.get("last_run_at"),
@@ -310,6 +329,8 @@ def _comparison_row(campaign: dict, run: dict) -> dict:
         "preset": run.get("preset"),
         "tickers": tickers,
         "status": run.get("status", "planned"),
+        "start": run.get("start"),
+        "end": run.get("end"),
         "completed_at": result.get("completed_at"),
         "last_run_at": run.get("last_run_at"),
         "winner": result.get("winner"),
@@ -321,9 +342,20 @@ def _comparison_row(campaign: dict, run: dict) -> dict:
         "gap_vs_buy_hold_pct": gap_vs_buy_hold_pct,
         "equity_gap": _safe_float(result.get("equity_gap")),
         "max_drawdown_pct": max_drawdown_pct,
+        "buy_hold_max_drawdown_pct": _safe_float(result.get("buy_hold_max_drawdown_pct")),
+        "drawdown_gap_pct": _safe_float(result.get("drawdown_gap_pct")),
+        "upside_capture_pct": _safe_float(result.get("upside_capture_pct")),
         "return_over_drawdown": return_over_drawdown,
+        "avg_invested_pct": _safe_float(result.get("avg_invested_pct")),
+        "avg_active_positions": _safe_float(result.get("avg_active_positions")),
+        "avg_redeployment_lag_bars": _safe_float(result.get("avg_redeployment_lag_bars")),
+        "turnover_pct": _safe_float(result.get("turnover_pct")),
+        "max_single_name_weight_pct": _safe_float(result.get("max_single_name_weight_pct")),
         "traded_tickers": result.get("traded_tickers"),
         "order_count": result.get("order_count"),
+        "research_context": dict(run.get("research_context") or {}),
+        "research_basket_key": (run.get("research_context") or {}).get("basket_key"),
+        "research_window_key": (run.get("research_context") or {}).get("window_key"),
     }
 
 

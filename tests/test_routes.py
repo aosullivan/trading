@@ -20,6 +20,9 @@ PORTFOLIO_CONTRACT_RATCHET_PATH = (
 PORTFOLIO_CAMPAIGN_CONTRACT_RATCHET_PATH = (
     Path(__file__).resolve().parent / "fixtures" / "portfolio_campaign_contract_ratchet.json"
 )
+PORTFOLIO_RESEARCH_MATRIX_CONTRACT_RATCHET_PATH = (
+    Path(__file__).resolve().parent / "fixtures" / "portfolio_research_matrix_contract_ratchet.json"
+)
 
 
 class TestIndexRoute:
@@ -43,11 +46,15 @@ class TestIndexRoute:
         assert b'option value="watchlist"' in resp.data
         assert b'option value="manual"' in resp.data
         assert b'option value="preset"' in resp.data
+        assert b'option value="focus_7"' in resp.data
+        assert b'option value="growth_5"' in resp.data
+        assert b'option value="diversified_10"' in resp.data
         assert b"Strategy Vs Buy &amp; Hold" in resp.data
         assert b"Order Activity" in resp.data
         assert b"Basket Diagnostics" in resp.data
         assert b"Campaign Dashboard" in resp.data
         assert b"Save Current Run As Campaign" in resp.data
+        assert b"Create Canonical Research Matrix" in resp.data
         assert b"Saved Campaigns" in resp.data
         assert b"Selected Campaign" in resp.data
         assert b"Run Comparison" in resp.data
@@ -581,6 +588,10 @@ class TestPortfolioCampaignAPI:
         assert run["status"] == "completed"
         assert run["last_result"]["winner"] in {"strategy", "buy_hold", "tie"}
         assert run["last_result"]["order_count"] >= 1
+        assert "drawdown_gap_pct" in run["last_result"]
+        assert "upside_capture_pct" in run["last_result"]
+        assert "avg_active_positions" in run["last_result"]
+        assert "turnover_pct" in run["last_result"]
 
         fetched = client.get(f"/api/portfolio/campaigns/{campaign_id}")
         assert fetched.status_code == 200
@@ -656,6 +667,53 @@ class TestPortfolioCampaignAPI:
         assert campaign["runs"][0]["status"] == "completed"
         assert campaign["schedule"]["last_queued_at"]
         assert campaign["schedule"]["next_run_at"]
+
+    def test_portfolio_research_matrix_catalog_returns_defaults(self, client):
+        resp = client.get("/api/portfolio/research-matrix")
+
+        assert resp.status_code == 200
+        payload = resp.get_json()
+        assert payload["version"] == "portfolio_rotation_matrix_v1"
+        assert payload["strategies"] == ["ribbon", "corpus_trend", "cci_hysteresis"]
+        assert payload["allocator_policies"] == [
+            "signal_flip_v1",
+            "signal_equal_weight_redeploy_v1",
+            "signal_top_n_strength_v1",
+            "core_plus_rotation_v1",
+        ]
+        assert [item["key"] for item in payload["baskets"]] == ["focus_7", "growth_5", "diversified_10"]
+        assert [item["key"] for item in payload["windows"]] == [
+            "crash_recovery_2020_2021",
+            "drawdown_chop_2022",
+            "bull_recovery_2023_2025",
+        ]
+        assert payload["run_count"] == 108
+
+    def test_portfolio_research_matrix_contract_ratchet(self, client):
+        fixture = json.loads(PORTFOLIO_RESEARCH_MATRIX_CONTRACT_RATCHET_PATH.read_text())
+
+        create = client.post("/api/portfolio/campaigns/research-matrix", json=fixture["request"])
+
+        assert create.status_code == 201
+        payload = create.get_json()
+        assert payload["matrix"] == fixture["expected_matrix"]
+
+        campaign = payload["campaign"]
+        assert campaign["name"] == fixture["request"]["name"]
+        assert campaign["goal"] == fixture["request"]["goal"]
+        assert len(campaign["runs"]) == fixture["expected_matrix"]["run_count"]
+        first_run = campaign["runs"][0]
+        for key, value in fixture["expected_first_run"].items():
+            assert first_run[key] == value
+
+    def test_portfolio_research_matrix_rejects_unknown_filters(self, client):
+        resp = client.post(
+            "/api/portfolio/campaigns/research-matrix",
+            json={"allocator_policies": ["not_real_v1"]},
+        )
+
+        assert resp.status_code == 400
+        assert "Unsupported allocator policies" in resp.get_json()["error"]
 
     def test_completed_run_rankings_return_sorted_saved_results(self, client):
         self._seed_completed_campaign(

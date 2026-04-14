@@ -24,6 +24,13 @@ from lib.portfolio_backtesting import (
     SUPPORTED_ALLOCATOR_POLICIES,
     backtest_portfolio,
 )
+from lib.portfolio_research import (
+    DEFAULT_RESEARCH_ALLOCATOR_POLICIES,
+    DEFAULT_RESEARCH_STRATEGIES,
+    PORTFOLIO_PRESET_BASKETS,
+    build_research_campaign_payload,
+    research_matrix_catalog,
+)
 from lib.technical_indicators import compute_corpus_trend_signal, compute_cci_hysteresis
 from lib.ribbon_signals import compute_confirmed_ribbon_direction
 from lib.settings import DAILY_WARMUP_DAYS
@@ -55,10 +62,7 @@ _SUPPORTED_PORTFOLIO_STRATEGIES = {
     "corpus_trend",
     "cci_hysteresis",
 }
-
-_PORTFOLIO_PRESET_BASKETS = {
-    "focus": ["BTC-USD", "ETH-USD", "COIN", "TSLA", "AAPL", "NVDA", "GOOG"],
-}
+_PORTFOLIO_PRESET_BASKETS = PORTFOLIO_PRESET_BASKETS
 
 
 def _is_tradable_raw(raw_ticker: str) -> bool:
@@ -348,15 +352,40 @@ def _build_comparison_summary(result, initial_capital: float) -> dict:
     elif equity_gap < 0:
         winner = "buy_hold"
 
+    buy_hold_max_drawdown_pct = _curve_max_drawdown_pct(buy_hold_curve)
+    strategy_max_drawdown_pct = float(result.portfolio_summary.get("max_drawdown_pct", 0) or 0)
+    drawdown_gap_pct = round(buy_hold_max_drawdown_pct - strategy_max_drawdown_pct, 2)
+    upside_capture_pct = None
+    if buy_hold_return_pct > 0:
+        upside_capture_pct = round((strategy_return_pct / buy_hold_return_pct) * 100, 2)
+
     return {
         "strategy_ending_equity": round(strategy_end, 2),
         "buy_hold_ending_equity": round(buy_hold_end, 2),
         "strategy_return_pct": round(strategy_return_pct, 2),
         "buy_hold_return_pct": round(buy_hold_return_pct, 2),
+        "buy_hold_max_drawdown_pct": buy_hold_max_drawdown_pct,
+        "drawdown_gap_pct": drawdown_gap_pct,
+        "upside_capture_pct": upside_capture_pct,
         "equity_gap": equity_gap,
         "return_gap_pct": return_gap_pct,
         "winner": winner,
     }
+
+
+def _curve_max_drawdown_pct(curve: list[dict]) -> float:
+    peak = None
+    max_drawdown = 0.0
+    for point in curve or []:
+        value = float(point.get("value", 0) or 0)
+        if peak is None or value > peak:
+            peak = value
+        if not peak:
+            continue
+        drawdown = ((peak - value) / peak) * 100.0
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+    return round(max_drawdown, 2)
 
 
 def _build_order_ledger(per_ticker: dict[str, dict]) -> list[dict]:
@@ -457,11 +486,20 @@ def _summarize_campaign_result(payload: dict) -> dict:
         "winner": comparison.get("winner"),
         "strategy_ending_equity": comparison.get("strategy_ending_equity"),
         "buy_hold_ending_equity": comparison.get("buy_hold_ending_equity"),
+        "strategy_return_pct": comparison.get("strategy_return_pct"),
+        "buy_hold_return_pct": comparison.get("buy_hold_return_pct"),
         "return_gap_pct": comparison.get("return_gap_pct"),
         "equity_gap": comparison.get("equity_gap"),
         "max_drawdown_pct": summary.get("max_drawdown_pct"),
+        "buy_hold_max_drawdown_pct": comparison.get("buy_hold_max_drawdown_pct"),
+        "drawdown_gap_pct": comparison.get("drawdown_gap_pct"),
+        "upside_capture_pct": comparison.get("upside_capture_pct"),
         "avg_invested_pct": diagnostics.get("avg_invested_pct"),
+        "avg_active_positions": diagnostics.get("avg_active_positions"),
         "redeployment_events": diagnostics.get("redeployment_events"),
+        "avg_redeployment_lag_bars": diagnostics.get("avg_redeployment_lag_bars"),
+        "turnover_pct": diagnostics.get("turnover_pct"),
+        "max_single_name_weight_pct": diagnostics.get("max_single_name_weight_pct"),
         "traded_tickers": basket_diagnostics.get("traded_tickers"),
         "order_count": len(payload.get("orders", [])),
     }
@@ -752,6 +790,35 @@ def create_portfolio_campaign():
     payload = request.get_json(silent=True) or {}
     campaign = portfolio_campaigns.create_campaign(payload)
     return jsonify(campaign), 201
+
+
+@bp.route("/api/portfolio/research-matrix", methods=["GET"])
+def get_portfolio_research_matrix():
+    _ensure_scheduler_started()
+    return jsonify(
+        research_matrix_catalog(
+            strategies=[item for item in DEFAULT_RESEARCH_STRATEGIES if item in _SUPPORTED_PORTFOLIO_STRATEGIES],
+            allocator_policies=[
+                item for item in DEFAULT_RESEARCH_ALLOCATOR_POLICIES if item in SUPPORTED_ALLOCATOR_POLICIES
+            ],
+        )
+    )
+
+
+@bp.route("/api/portfolio/campaigns/research-matrix", methods=["POST"])
+def create_portfolio_research_matrix_campaign():
+    _ensure_scheduler_started()
+    payload = request.get_json(silent=True) or {}
+    try:
+        campaign_payload = build_research_campaign_payload(
+            payload,
+            supported_strategies=sorted(_SUPPORTED_PORTFOLIO_STRATEGIES),
+            supported_allocator_policies=sorted(SUPPORTED_ALLOCATOR_POLICIES),
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    campaign = portfolio_campaigns.create_campaign(campaign_payload)
+    return jsonify({"campaign": campaign, "matrix": campaign_payload["matrix"]}), 201
 
 
 @bp.route("/api/portfolio/campaigns/completed-runs", methods=["GET"])

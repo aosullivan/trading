@@ -1,0 +1,46 @@
+{
+  "request": {
+    "name": "Rotation Matrix Slice",
+    "goal": "Probe the canonical matrix on one basket-window slice",
+    "tags": ["matrix-slice"],
+    "strategies": ["ribbon", "cci_hysteresis"],
+    "allocator_policies": ["signal_flip_v1", "signal_top_n_strength_v1"],
+    "baskets": ["focus_7"],
+    "windows": ["drawdown_chop_2022"]
+  },
+  "expected_matrix": {
+    "version": "portfolio_rotation_matrix_v1",
+    "strategies": ["ribbon", "cci_hysteresis"],
+    "allocator_policies": ["signal_flip_v1", "signal_top_n_strength_v1"],
+    "baskets": ["focus_7"],
+    "windows": ["drawdown_chop_2022"],
+    "run_count": 4
+  },
+  "expected_first_run": {
+    "name": "Focus 7 · Drawdown Chop (2022) · ribbon · signal_flip_v1",
+    "strategy": "ribbon",
+    "allocator_policy": "signal_flip_v1",
+    "basket_source": "preset",
+    "preset": "focus_7",
+    "start": "2022-01-01",
+    "end": "2022-12-31",
+    "heat_limit": 0.2,
+    "tags": [
+      "research",
+      "v1.18",
+      "portfolio-rotation",
+      "matrix-slice",
+      "focus_7",
+      "drawdown_chop_2022",
+      "ribbon",
+      "signal_flip_v1"
+    ],
+    "research_context": {
+      "matrix_version": "portfolio_rotation_matrix_v1",
+      "basket_key": "focus_7",
+      "basket_label": "Focus 7",
+      "window_key": "drawdown_chop_2022",
+      "window_label": "Drawdown Chop (2022)"
+    }
+  }
+}

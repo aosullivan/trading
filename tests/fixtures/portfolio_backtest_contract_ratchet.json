@@ -25,6 +25,34 @@
       "AAPL",
       "NVDA",
       "GOOG"
+    ],
+    "focus_7": [
+      "BTC-USD",
+      "ETH-USD",
+      "COIN",
+      "TSLA",
+      "AAPL",
+      "NVDA",
+      "GOOG"
+    ],
+    "growth_5": [
+      "AAPL",
+      "MSFT",
+      "NVDA",
+      "AMZN",
+      "META"
+    ],
+    "diversified_10": [
+      "AAPL",
+      "MSFT",
+      "GOOG",
+      "AMZN",
+      "META",
+      "NVDA",
+      "JPM",
+      "XOM",
+      "COST",
+      "UNH"
     ]
   },
   "request": {
@@ -69,6 +97,9 @@
       "buy_hold_ending_equity": 10600.0,
       "strategy_return_pct": 2.91,
       "buy_hold_return_pct": 6.0,
+      "buy_hold_max_drawdown_pct": 0.0,
+      "drawdown_gap_pct": -0.97,
+      "upside_capture_pct": 48.5,
       "equity_gap": -308.74,
       "return_gap_pct": -3.09,
       "winner": "buy_hold"

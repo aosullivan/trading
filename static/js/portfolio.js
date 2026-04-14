@@ -596,6 +596,26 @@ async function createCampaignFromCurrentForm(){
   }
 }
 
+async function createResearchMatrixCampaign(){
+  const feedback=document.getElementById('pf-campaign-feedback');
+  const name=document.getElementById('pf-campaign-name').value.trim();
+  const goal=document.getElementById('pf-campaign-goal').value.trim();
+  const tags=_parseTagList(document.getElementById('pf-campaign-tags').value);
+  try{
+    const payload=await _jsonRequest('/api/portfolio/campaigns/research-matrix',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,goal,tags})
+    });
+    pfSelectedCampaignId=payload.campaign.campaign_id;
+    const runCount=Number(payload.matrix?.run_count||payload.campaign?.runs?.length||0);
+    feedback.textContent=`Research matrix saved with ${runCount} run${runCount===1?'':'s'}.`;
+    await refreshCampaigns({force:true});
+  }catch(err){
+    feedback.textContent=err.message||'Could not create research matrix.';
+  }
+}
+
 async function queueCampaign(campaignId){
   const feedback=document.getElementById('pf-campaign-feedback');
   try{
@@ -954,6 +974,10 @@ document.addEventListener('DOMContentLoaded',()=>{
   const saveCampaignBtn=document.getElementById('pf-save-campaign');
   if(saveCampaignBtn){
     saveCampaignBtn.addEventListener('click',()=>{ createCampaignFromCurrentForm().catch(()=>{}); });
+  }
+  const researchMatrixBtn=document.getElementById('pf-create-research-matrix');
+  if(researchMatrixBtn){
+    researchMatrixBtn.addEventListener('click',()=>{ createResearchMatrixCampaign().catch(()=>{}); });
   }
   const refreshCampaignsBtn=document.getElementById('pf-refresh-campaigns');
   if(refreshCampaignsBtn){

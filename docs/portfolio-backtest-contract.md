@@ -55,15 +55,17 @@ The current portfolio route and page support three basket modes:
 - `preset`
   Uses a deterministic built-in basket.
 
-The first built-in preset is `focus`, which reuses the existing focus basket:
+The built-in preset baskets are:
 
-- `BTC-USD`
-- `ETH-USD`
-- `COIN`
-- `TSLA`
-- `AAPL`
-- `NVDA`
-- `GOOG`
+- `focus` / `focus_7`
+  Reuses the mixed crypto and growth focus basket:
+  `BTC-USD`, `ETH-USD`, `COIN`, `TSLA`, `AAPL`, `NVDA`, `GOOG`
+- `growth_5`
+  Concentrated large-cap growth basket:
+  `AAPL`, `MSFT`, `NVDA`, `AMZN`, `META`
+- `diversified_10`
+  Broader equity basket for lower concentration:
+  `AAPL`, `MSFT`, `GOOG`, `AMZN`, `META`, `NVDA`, `JPM`, `XOM`, `COST`, `UNH`
 
 ## Benchmark Model
 
@@ -108,6 +110,9 @@ The `comparison` object is the portfolio-level answer to strategy vs buy-and-hol
 - buy-and-hold ending equity
 - strategy return percent
 - buy-and-hold return percent
+- buy-and-hold max drawdown percent
+- drawdown gap percent
+- upside capture percent on positive benchmark windows
 - equity gap
 - return gap percent
 - winner (`strategy`, `buy_hold`, or `tie`)
@@ -162,7 +167,7 @@ The existing portfolio page at `/portfolio` now exposes:
 - retained strategy selector
 - basket mode selector
 - manual ticker input
-- focus-basket preset
+- named research presets (`focus_7`, `growth_5`, `diversified_10`)
 - strategy vs buy-and-hold comparison section
 - basket diagnostics section
 - order activity table
