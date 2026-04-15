@@ -17,8 +17,10 @@ from lib.backtesting import (
     _compute_position_size,
     _compute_stop_distance,
     _apply_risk_caps,
+    _compute_risk_metrics,
     compute_summary,
 )
+from lib.macro_regime import MacroRegimeConfig, build_macro_regime_frame
 from lib.settings import INITIAL_CAPITAL
 
 DEFAULT_ALLOCATOR_POLICY = "signal_flip_v1"
@@ -267,6 +269,118 @@ def _compute_per_ticker_summary(trades: list[dict]) -> dict:
         "profit_factor": round(gross_profit / gross_loss, 3) if gross_loss > 0 else None,
         "max_drawdown_pct": round(max_dd_pnl / INITIAL_CAPITAL * 100, 2) if INITIAL_CAPITAL else 0,
     }
+
+
+def _curve_to_series(curve: list[dict]) -> pd.Series:
+    if not curve:
+        return pd.Series(dtype=float)
+    return pd.Series(
+        [float(point["value"]) for point in curve],
+        index=pd.to_datetime([point["time"] for point in curve], unit="s"),
+        dtype=float,
+    )
+
+
+def _series_to_curve(series: pd.Series) -> list[dict]:
+    if series is None or series.empty:
+        return []
+    return [
+        {
+            "time": int(pd.Timestamp(ts).timestamp()),
+            "value": round(float(value), 2),
+        }
+        for ts, value in series.items()
+    ]
+
+
+def _summary_from_equity_curve(
+    base_summary: dict,
+    equity_curve: list[dict],
+    *,
+    initial_capital: float,
+) -> dict:
+    summary = dict(base_summary or {})
+    if not equity_curve:
+        return {
+            **summary,
+            "ending_equity": round(initial_capital, 2),
+            "initial_capital": round(initial_capital, 2),
+            "total_pnl": 0.0,
+            "realized_pnl": 0.0,
+            "open_pnl": 0.0,
+            "net_profit_pct": 0.0,
+            "max_drawdown": 0.0,
+            "max_drawdown_pct": 0.0,
+            "sharpe_ratio": None,
+            "sortino_ratio": None,
+            "return_over_max_dd": None,
+        }
+
+    peak = float(initial_capital)
+    max_drawdown = 0.0
+    max_drawdown_pct = 0.0
+    ending_equity = float(initial_capital)
+    for point in equity_curve:
+        value = float(point["value"])
+        peak = max(peak, value)
+        ending_equity = value
+        drawdown = peak - value
+        drawdown_pct = (drawdown / peak) * 100 if peak else 0.0
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+            max_drawdown_pct = drawdown_pct
+
+    sharpe, sortino, return_over_dd = _compute_risk_metrics(
+        equity_curve,
+        initial_capital,
+    )
+    total_pnl = ending_equity - float(initial_capital)
+    return {
+        **summary,
+        "ending_equity": round(ending_equity, 2),
+        "initial_capital": round(initial_capital, 2),
+        "total_pnl": round(total_pnl, 2),
+        "realized_pnl": round(total_pnl, 2),
+        "open_pnl": 0.0,
+        "net_profit_pct": round(((ending_equity / initial_capital) - 1.0) * 100.0, 2)
+        if initial_capital
+        else 0.0,
+        "max_drawdown": round(max_drawdown, 2),
+        "max_drawdown_pct": round(max_drawdown_pct, 2),
+        "sharpe_ratio": sharpe,
+        "sortino_ratio": sortino,
+        "return_over_max_dd": return_over_dd,
+    }
+
+
+def _blend_equity_curves(
+    tactical_curve: list[dict],
+    buy_hold_curve: list[dict],
+    core_target_pct: pd.Series,
+    *,
+    initial_capital: float,
+) -> tuple[list[dict], list[dict]]:
+    tactical_series = _curve_to_series(tactical_curve)
+    buy_hold_series = _curve_to_series(buy_hold_curve)
+    if tactical_series.empty and buy_hold_series.empty:
+        return [], []
+
+    aligned_index = tactical_series.index.union(buy_hold_series.index).sort_values()
+    tactical_series = tactical_series.reindex(aligned_index).ffill().fillna(float(initial_capital))
+    buy_hold_series = buy_hold_series.reindex(aligned_index).ffill().fillna(float(initial_capital))
+    core_target_pct = (
+        core_target_pct.reindex(aligned_index)
+        .ffill()
+        .fillna(float(core_target_pct.iloc[0]) if not core_target_pct.empty else 0.0)
+        .clip(lower=0.0, upper=1.0)
+    )
+    lagged_core = core_target_pct.shift(1).fillna(core_target_pct.iloc[0] if not core_target_pct.empty else 0.0)
+    tactical_returns = tactical_series.pct_change().fillna(0.0)
+    buy_hold_returns = buy_hold_series.pct_change().fillna(0.0)
+    blended_returns = lagged_core * buy_hold_returns + (1.0 - lagged_core) * tactical_returns
+    blended_series = (1.0 + blended_returns).cumprod() * float(initial_capital)
+    scaled_heat = (1.0 - lagged_core) * 100.0
+    return _series_to_curve(blended_series), _series_to_curve(scaled_heat)
 
 
 def backtest_portfolio(
@@ -665,4 +779,75 @@ def backtest_portfolio(
         per_ticker=per_ticker_result,
         heat_series=heat_series,
         tickers=tickers,
+    )
+
+
+def backtest_portfolio_macro_overlay(
+    ticker_data: dict[str, pd.DataFrame],
+    ticker_directions: dict[str, pd.Series],
+    *,
+    config: Optional[MoneyManagementConfig] = None,
+    heat_limit: float = 0.20,
+    allocator_policy: str = DEFAULT_ALLOCATOR_POLICY,
+    macro_config: MacroRegimeConfig | None = None,
+    treasury_history: pd.DataFrame | None = None,
+) -> PortfolioResult:
+    """Blend the tactical portfolio with buy-and-hold using a macro-aware core target."""
+
+    macro_config = macro_config or MacroRegimeConfig()
+    tactical = backtest_portfolio(
+        ticker_data,
+        ticker_directions,
+        config=config,
+        heat_limit=heat_limit,
+        allocator_policy=allocator_policy,
+    )
+    if not tactical.portfolio_equity_curve:
+        return tactical
+
+    regime_index = pd.to_datetime(
+        [point["time"] for point in tactical.portfolio_equity_curve],
+        unit="s",
+    )
+    regime_frame = build_macro_regime_frame(
+        regime_index,
+        ticker_directions,
+        treasury_history=treasury_history,
+        config=macro_config,
+    )
+    blended_curve, scaled_heat_series = _blend_equity_curves(
+        tactical.portfolio_equity_curve,
+        tactical.portfolio_buy_hold_curve,
+        regime_frame["passive_core_target_pct"],
+        initial_capital=float(tactical.portfolio_summary.get("initial_capital", INITIAL_CAPITAL)),
+    )
+    overlay_summary = _summary_from_equity_curve(
+        tactical.portfolio_summary,
+        blended_curve,
+        initial_capital=float(tactical.portfolio_summary.get("initial_capital", INITIAL_CAPITAL)),
+    )
+    band_counts = regime_frame["regime_band"].value_counts().to_dict()
+    overlay_diagnostics = {
+        **tactical.portfolio_diagnostics,
+        "overlay_policy": "macro_core_overlay_v1",
+        "avg_passive_core_pct": round(float(regime_frame["passive_core_target_pct"].mean() * 100.0), 2),
+        "min_passive_core_pct": round(float(regime_frame["passive_core_target_pct"].min() * 100.0), 2),
+        "max_passive_core_pct": round(float(regime_frame["passive_core_target_pct"].max() * 100.0), 2),
+        "avg_tactical_overlay_pct": round(float((1.0 - regime_frame["passive_core_target_pct"]).mean() * 100.0), 2),
+        "avg_macro_score": round(float(regime_frame["macro_score"].mean()), 3),
+        "risk_on_bars": int(band_counts.get("risk_on", 0)),
+        "neutral_bars": int(band_counts.get("neutral", 0)),
+        "risk_off_bars": int(band_counts.get("risk_off", 0)),
+        "tactical_only_return_pct": tactical.portfolio_summary.get("net_profit_pct"),
+        "tactical_only_max_drawdown_pct": tactical.portfolio_summary.get("max_drawdown_pct"),
+        "macro_regime_config": macro_config.to_dict(),
+    }
+    return PortfolioResult(
+        portfolio_equity_curve=blended_curve,
+        portfolio_buy_hold_curve=tactical.portfolio_buy_hold_curve,
+        portfolio_summary=overlay_summary,
+        portfolio_diagnostics=overlay_diagnostics,
+        per_ticker=tactical.per_ticker,
+        heat_series=scaled_heat_series,
+        tickers=tactical.tickers,
     )

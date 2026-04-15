@@ -98,3 +98,30 @@ def test_cached_download_refetches_when_fresh_cache_misses_requested_window(tmp_
     assert calls[0]["start"] == "2020-01-07"
     assert list(result.index.strftime("%Y-%m-%d")) == ["2022-01-03", "2022-01-04", "2022-01-05"]
     assert result["Close"].tolist() == [103.0, 104.0, 105.0]
+
+
+def test_cached_download_reuses_stale_cache_when_it_already_extends_past_requested_end(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+    ticker = "AAPL"
+    interval = "1d"
+    cached_df = pd.DataFrame(
+        {"Close": [100.0, 101.0, 102.0, 103.0]},
+        index=pd.to_datetime(["2025-12-29", "2025-12-30", "2025-12-31", "2026-01-02"]),
+    )
+    cached_df.to_csv(data_fetching._disk_cache_path(ticker, interval))
+    with open(data_fetching._meta_path(ticker, interval), "w") as handle:
+        json.dump({"last_fetch": 0}, handle)
+
+    def unexpected_download(*args, **kwargs):
+        raise AssertionError("covered stale cache should not attempt a fetch beyond requested end")
+
+    monkeypatch.setattr(data_fetching, "_yf_rate_limited_download", unexpected_download)
+
+    result = data_fetching.cached_download(
+        ticker,
+        start="2025-01-01",
+        end="2025-12-31",
+        interval=interval,
+    )
+
+    assert list(result.index.strftime("%Y-%m-%d")) == ["2025-12-29", "2025-12-30", "2025-12-31"]

@@ -97,3 +97,36 @@ python3 scripts/optimize_trend_ribbon.py run \
   --workers 1 \
   --batch-size 64
 ```
+
+## Macro Regime Research
+
+Use the macro CLI to test whether falling short-end yields and election-cycle phases
+actually line up with better forward portfolio conditions on the retained research baskets.
+
+```bash
+source venv/bin/activate
+TRIEDINGVIEW_USER_DATA_DIR=/tmp/tv_user_macro python3 scripts/analyze_macro_regime_hypotheses.py \
+  --start 2012-01-01 \
+  --forward-days 126
+```
+
+Default local outputs:
+
+```text
+.planning/phases/62-build-empirical-macro-regime-research-harness/macro-regime-hypotheses.json
+.planning/phases/62-build-empirical-macro-regime-research-harness/macro-regime-hypotheses.md
+```
+
+Run the canonical macro-overlay parameter sweep after the feature layer is in place:
+
+```bash
+source venv/bin/activate
+TRIEDINGVIEW_USER_DATA_DIR=/tmp/tv_user_macro_overlay python3 scripts/run_macro_overlay_matrix.py
+```
+
+Default local outputs:
+
+```text
+.planning/phases/64-run-macro-aware-overlay-matrix/macro-overlay-matrix-results.json
+.planning/phases/64-run-macro-aware-overlay-matrix/macro-overlay-matrix-results.md
+```

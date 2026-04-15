@@ -153,6 +153,10 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
             fetch_start = last_cached.strftime("%Y-%m-%d")
         else:
             fetch_start = (last_cached + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+        requested_end = _clamped_requested_end(end)
+        if requested_end is not None and pd.Timestamp(fetch_start) > requested_end:
+            _write_meta(meta_p, now)
+            return _slice_df(cached_df, start, end)
         if pd.Timestamp(fetch_start) > pd.Timestamp.now():
             _write_meta(meta_p, now)
             return _slice_df(cached_df, start, end)

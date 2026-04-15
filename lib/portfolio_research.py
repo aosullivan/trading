@@ -65,6 +65,172 @@ RESEARCH_WINDOWS = {
     },
 }
 
+MACRO_OVERLAY_MATRIX_VERSION = "macro_regime_overlay_matrix_v1"
+DEFAULT_MACRO_OVERLAY_TAGS = ["research", "v1.19", "macro-overlay"]
+DEFAULT_MACRO_OVERLAY_STRATEGIES = list(DEFAULT_RESEARCH_STRATEGIES)
+DEFAULT_MACRO_OVERLAY_ALLOCATOR_POLICIES = [
+    "signal_top_n_strength_v1",
+    "core_plus_rotation_v1",
+]
+V18_BEST_PAIR = {
+    "strategy": "cci_hysteresis",
+    "allocator_policy": "signal_top_n_strength_v1",
+}
+DEFAULT_MACRO_OVERLAY_CONFIGS = [
+    {
+        "id": "macro63_balanced",
+        "label": "63d Balanced",
+        "macro_config": {
+            "yield_lookback_bars": 63,
+            "yield_good_bps": -20.0,
+            "yield_bad_bps": 25.0,
+            "yield_weight": 0.55,
+            "election_weight": 0.25,
+            "breadth_weight": 0.85,
+            "breadth_good_pct": 0.67,
+            "breadth_bad_pct": 0.34,
+            "risk_on_threshold": 0.75,
+            "risk_off_threshold": -0.35,
+            "risk_on_core_pct": 0.90,
+            "neutral_core_pct": 0.60,
+            "risk_off_core_pct": 0.30,
+        },
+    },
+    {
+        "id": "macro63_cut_sensitive",
+        "label": "63d Cut Sensitive",
+        "macro_config": {
+            "yield_lookback_bars": 63,
+            "yield_good_bps": -10.0,
+            "yield_bad_bps": 20.0,
+            "yield_weight": 0.70,
+            "election_weight": 0.15,
+            "breadth_weight": 0.80,
+            "breadth_good_pct": 0.65,
+            "breadth_bad_pct": 0.35,
+            "risk_on_threshold": 0.70,
+            "risk_off_threshold": -0.30,
+            "risk_on_core_pct": 0.92,
+            "neutral_core_pct": 0.58,
+            "risk_off_core_pct": 0.25,
+        },
+    },
+    {
+        "id": "macro63_breadth_guarded",
+        "label": "63d Breadth Guarded",
+        "macro_config": {
+            "yield_lookback_bars": 63,
+            "yield_good_bps": -20.0,
+            "yield_bad_bps": 25.0,
+            "yield_weight": 0.45,
+            "election_weight": 0.20,
+            "breadth_weight": 1.10,
+            "breadth_good_pct": 0.70,
+            "breadth_bad_pct": 0.40,
+            "risk_on_threshold": 0.85,
+            "risk_off_threshold": -0.20,
+            "risk_on_core_pct": 0.88,
+            "neutral_core_pct": 0.55,
+            "risk_off_core_pct": 0.35,
+        },
+    },
+    {
+        "id": "macro21_fast_macro",
+        "label": "21d Fast Macro",
+        "macro_config": {
+            "yield_lookback_bars": 21,
+            "yield_good_bps": -10.0,
+            "yield_bad_bps": 15.0,
+            "yield_weight": 0.65,
+            "election_weight": 0.20,
+            "breadth_weight": 0.85,
+            "breadth_good_pct": 0.67,
+            "breadth_bad_pct": 0.34,
+            "risk_on_threshold": 0.75,
+            "risk_off_threshold": -0.30,
+            "risk_on_core_pct": 0.90,
+            "neutral_core_pct": 0.58,
+            "risk_off_core_pct": 0.28,
+        },
+    },
+    {
+        "id": "macro126_slow_macro",
+        "label": "126d Slow Macro",
+        "macro_config": {
+            "yield_lookback_bars": 126,
+            "yield_good_bps": -30.0,
+            "yield_bad_bps": 30.0,
+            "yield_weight": 0.45,
+            "election_weight": 0.30,
+            "breadth_weight": 0.90,
+            "breadth_good_pct": 0.67,
+            "breadth_bad_pct": 0.34,
+            "risk_on_threshold": 0.70,
+            "risk_off_threshold": -0.35,
+            "risk_on_core_pct": 0.88,
+            "neutral_core_pct": 0.62,
+            "risk_off_core_pct": 0.32,
+        },
+    },
+    {
+        "id": "macro63_high_core",
+        "label": "63d High Core",
+        "macro_config": {
+            "yield_lookback_bars": 63,
+            "yield_good_bps": -20.0,
+            "yield_bad_bps": 25.0,
+            "yield_weight": 0.55,
+            "election_weight": 0.25,
+            "breadth_weight": 0.85,
+            "breadth_good_pct": 0.67,
+            "breadth_bad_pct": 0.34,
+            "risk_on_threshold": 0.65,
+            "risk_off_threshold": -0.45,
+            "risk_on_core_pct": 0.98,
+            "neutral_core_pct": 0.78,
+            "risk_off_core_pct": 0.45,
+        },
+    },
+    {
+        "id": "macro21_high_core",
+        "label": "21d High Core",
+        "macro_config": {
+            "yield_lookback_bars": 21,
+            "yield_good_bps": -10.0,
+            "yield_bad_bps": 15.0,
+            "yield_weight": 0.65,
+            "election_weight": 0.20,
+            "breadth_weight": 0.85,
+            "breadth_good_pct": 0.67,
+            "breadth_bad_pct": 0.34,
+            "risk_on_threshold": 0.65,
+            "risk_off_threshold": -0.45,
+            "risk_on_core_pct": 0.98,
+            "neutral_core_pct": 0.76,
+            "risk_off_core_pct": 0.42,
+        },
+    },
+    {
+        "id": "macro63_very_high_core",
+        "label": "63d Very High Core",
+        "macro_config": {
+            "yield_lookback_bars": 63,
+            "yield_good_bps": -20.0,
+            "yield_bad_bps": 25.0,
+            "yield_weight": 0.55,
+            "election_weight": 0.25,
+            "breadth_weight": 0.85,
+            "breadth_good_pct": 0.67,
+            "breadth_bad_pct": 0.34,
+            "risk_on_threshold": 0.65,
+            "risk_off_threshold": -0.50,
+            "risk_on_core_pct": 1.00,
+            "neutral_core_pct": 0.88,
+            "risk_off_core_pct": 0.60,
+        },
+    },
+]
+
 PORTFOLIO_PRESET_BASKETS = {
     "focus": RESEARCH_BASKETS["focus_7"]["tickers"],
     **{key: value["tickers"] for key, value in RESEARCH_BASKETS.items()},
@@ -141,6 +307,63 @@ def research_matrix_catalog(*, strategies=None, allocator_policies=None) -> dict
         "baskets": baskets,
         "windows": windows,
         "run_count": len(strategy_order) * len(allocator_order) * len(baskets) * len(windows),
+    }
+
+
+def macro_overlay_matrix_catalog(
+    *,
+    strategies=None,
+    allocator_policies=None,
+    config_ids=None,
+) -> dict:
+    strategy_order = _select_keys(
+        strategies,
+        list(DEFAULT_MACRO_OVERLAY_STRATEGIES),
+        label="macro overlay strategies",
+    )
+    allocator_order = _select_keys(
+        allocator_policies,
+        list(DEFAULT_MACRO_OVERLAY_ALLOCATOR_POLICIES),
+        label="macro overlay allocator policies",
+    )
+    config_order = _select_keys(
+        config_ids,
+        [item["id"] for item in DEFAULT_MACRO_OVERLAY_CONFIGS],
+        label="macro overlay configs",
+    )
+    baskets = [
+        {
+            "key": key,
+            "label": value["label"],
+            "tickers": list(value["tickers"]),
+            "purpose": value["purpose"],
+        }
+        for key, value in RESEARCH_BASKETS.items()
+    ]
+    windows = [
+        {
+            "key": key,
+            "label": value["label"],
+            "start": value["start"],
+            "end": value["end"],
+            "purpose": value["purpose"],
+        }
+        for key, value in RESEARCH_WINDOWS.items()
+    ]
+    configs = [
+        item
+        for item in DEFAULT_MACRO_OVERLAY_CONFIGS
+        if item["id"] in config_order
+    ]
+    return {
+        "version": MACRO_OVERLAY_MATRIX_VERSION,
+        "strategies": strategy_order,
+        "allocator_policies": allocator_order,
+        "configs": configs,
+        "baskets": baskets,
+        "windows": windows,
+        "run_count": len(strategy_order) * len(allocator_order) * len(configs) * len(baskets) * len(windows),
+        "baseline": V18_BEST_PAIR,
     }
 
 
