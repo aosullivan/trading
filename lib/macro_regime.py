@@ -23,6 +23,10 @@ class MacroRegimeConfig:
     breadth_weight: float = 0.85
     breadth_good_pct: float = 0.67
     breadth_bad_pct: float = 0.34
+    benchmark_weight: float = 0.0
+    benchmark_lookback_bars: int = 63
+    benchmark_good_pct: float = 8.0
+    benchmark_bad_pct: float = -8.0
     risk_on_threshold: float = 0.75
     risk_off_threshold: float = -0.35
     risk_on_core_pct: float = 0.90
@@ -117,6 +121,36 @@ def build_portfolio_breadth_frame(
     )
 
 
+def build_benchmark_trend_frame(
+    index: Iterable,
+    ticker_data: dict[str, pd.DataFrame] | None,
+    *,
+    lookbacks: Iterable[int] = (63,),
+) -> pd.DataFrame:
+    """Build equal-weight basket trend features for regime scoring."""
+
+    aligned_index = pd.DatetimeIndex(index).sort_values().unique()
+    columns = {"benchmark_index": pd.Series(100.0, index=aligned_index, dtype=float)}
+    for lookback in sorted({int(value) for value in lookbacks if int(value) > 0}):
+        columns[f"benchmark_trend_pct_{lookback}"] = pd.Series(0.0, index=aligned_index, dtype=float)
+    if not ticker_data:
+        return pd.DataFrame(columns, index=aligned_index)
+
+    close_frame = build_close_frame(ticker_data).reindex(aligned_index).ffill()
+    if close_frame.empty:
+        return pd.DataFrame(columns, index=aligned_index)
+
+    anchors = close_frame.ffill().bfill().iloc[0].replace(0, pd.NA)
+    normalized = close_frame.divide(anchors, axis=1)
+    basket_index = normalized.mean(axis=1, skipna=True).fillna(1.0) * 100.0
+    frame = pd.DataFrame({"benchmark_index": basket_index.astype(float)}, index=aligned_index)
+    for lookback in sorted({int(value) for value in lookbacks if int(value) > 0}):
+        frame[f"benchmark_trend_pct_{lookback}"] = (
+            (basket_index / basket_index.shift(lookback)) - 1.0
+        ).fillna(0.0) * 100.0
+    return frame
+
+
 def classify_rate_environment(
     change_bps: float | None,
     *,
@@ -154,6 +188,7 @@ def build_macro_regime_frame(
     index: Iterable,
     ticker_directions: dict[str, pd.Series],
     *,
+    ticker_data: dict[str, pd.DataFrame] | None = None,
     treasury_history: pd.DataFrame | None = None,
     config: MacroRegimeConfig | None = None,
 ) -> pd.DataFrame:
@@ -168,8 +203,14 @@ def build_macro_regime_frame(
         lookbacks=(config.yield_lookback_bars,),
     )
     breadth_frame = build_portfolio_breadth_frame(aligned_index, ticker_directions)
+    benchmark_frame = build_benchmark_trend_frame(
+        aligned_index,
+        ticker_data,
+        lookbacks=(config.benchmark_lookback_bars,),
+    )
     yield_change_col = f"{config.treasury_ticker.lower()}_change_bps_{config.yield_lookback_bars}"
-    frame = pd.concat([rate_frame, breadth_frame], axis=1)
+    benchmark_change_col = f"benchmark_trend_pct_{config.benchmark_lookback_bars}"
+    frame = pd.concat([rate_frame, breadth_frame, benchmark_frame], axis=1)
     frame["election_cycle_phase"] = [election_cycle_phase(ts) for ts in aligned_index]
     frame["election_score"] = frame["election_cycle_phase"].isin(config.positive_election_phases).astype(float)
     frame["yield_score"] = frame[yield_change_col].apply(
@@ -182,11 +223,17 @@ def build_macro_regime_frame(
         good_anchor=config.breadth_good_pct,
         bad_anchor=config.breadth_bad_pct,
     )
+    frame["benchmark_score"] = frame[benchmark_change_col].apply(
+        _linear_score,
+        good_anchor=config.benchmark_good_pct,
+        bad_anchor=config.benchmark_bad_pct,
+    )
     frame["rate_bucket"] = frame[yield_change_col].apply(classify_rate_environment)
     frame["macro_score"] = (
         frame["yield_score"] * config.yield_weight
         + frame["election_score"] * config.election_weight
         + frame["breadth_score"] * config.breadth_weight
+        + frame["benchmark_score"] * config.benchmark_weight
     )
 
     def _band(score: float) -> str:

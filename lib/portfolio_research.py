@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from lib.synthetic_stress import DEFAULT_SYNTHETIC_STRESS_SCENARIOS
+
 RESEARCH_MATRIX_VERSION = "portfolio_rotation_matrix_v1"
 DEFAULT_RESEARCH_HEAT_LIMIT = 0.20
 DEFAULT_RESEARCH_TAGS = ["research", "v1.18", "portfolio-rotation"]
@@ -66,6 +68,7 @@ RESEARCH_WINDOWS = {
 }
 
 MACRO_OVERLAY_MATRIX_VERSION = "macro_regime_overlay_matrix_v1"
+SYNTHETIC_STRESS_MATRIX_VERSION = "synthetic_stress_matrix_v1"
 DEFAULT_MACRO_OVERLAY_TAGS = ["research", "v1.19", "macro-overlay"]
 DEFAULT_MACRO_OVERLAY_STRATEGIES = list(DEFAULT_RESEARCH_STRATEGIES)
 DEFAULT_MACRO_OVERLAY_ALLOCATOR_POLICIES = [
@@ -75,6 +78,11 @@ DEFAULT_MACRO_OVERLAY_ALLOCATOR_POLICIES = [
 V18_BEST_PAIR = {
     "strategy": "cci_hysteresis",
     "allocator_policy": "signal_top_n_strength_v1",
+}
+V19_BEST_NEAR_MISS = {
+    "strategy": "ribbon",
+    "allocator_policy": "signal_top_n_strength_v1",
+    "config_id": "macro63_high_core",
 }
 DEFAULT_MACRO_OVERLAY_CONFIGS = [
     {
@@ -229,6 +237,64 @@ DEFAULT_MACRO_OVERLAY_CONFIGS = [
             "risk_off_core_pct": 0.60,
         },
     },
+    {
+        "id": "macro63_crash_guard_balanced",
+        "label": "63d Crash Guard Balanced",
+        "macro_config": {
+            "yield_lookback_bars": 63,
+            "yield_good_bps": -20.0,
+            "yield_bad_bps": 25.0,
+            "yield_weight": 0.35,
+            "election_weight": 0.10,
+            "breadth_weight": 0.70,
+            "breadth_good_pct": 0.67,
+            "breadth_bad_pct": 0.34,
+            "benchmark_weight": 1.10,
+            "benchmark_lookback_bars": 63,
+            "benchmark_good_pct": 6.0,
+            "benchmark_bad_pct": -6.0,
+            "risk_on_threshold": 0.60,
+            "risk_off_threshold": -0.10,
+            "risk_on_core_pct": 0.96,
+            "neutral_core_pct": 0.68,
+            "risk_off_core_pct": 0.22,
+        },
+    },
+    {
+        "id": "macro63_crash_guard_hard",
+        "label": "63d Crash Guard Hard",
+        "macro_config": {
+            "yield_lookback_bars": 63,
+            "yield_good_bps": -20.0,
+            "yield_bad_bps": 25.0,
+            "yield_weight": 0.25,
+            "election_weight": 0.10,
+            "breadth_weight": 0.80,
+            "breadth_good_pct": 0.67,
+            "breadth_bad_pct": 0.34,
+            "benchmark_weight": 1.25,
+            "benchmark_lookback_bars": 42,
+            "benchmark_good_pct": 5.0,
+            "benchmark_bad_pct": -5.0,
+            "risk_on_threshold": 0.55,
+            "risk_off_threshold": -0.05,
+            "risk_on_core_pct": 0.94,
+            "neutral_core_pct": 0.60,
+            "risk_off_core_pct": 0.10,
+        },
+    },
+]
+DEFAULT_SYNTHETIC_STRESS_STRATEGIES = ["ribbon"]
+DEFAULT_SYNTHETIC_STRESS_ALLOCATOR_POLICIES = ["signal_top_n_strength_v1"]
+DEFAULT_SYNTHETIC_STRESS_CONFIG_IDS = [
+    "macro63_high_core",
+    "macro63_very_high_core",
+    "macro63_crash_guard_balanced",
+    "macro63_crash_guard_hard",
+]
+DEFAULT_SYNTHETIC_STRESS_UPSIDE_WINDOWS = [
+    "crash_recovery_2020_2021",
+    "bull_recovery_2023_2025",
 ]
 
 PORTFOLIO_PRESET_BASKETS = {
@@ -364,6 +430,82 @@ def macro_overlay_matrix_catalog(
         "windows": windows,
         "run_count": len(strategy_order) * len(allocator_order) * len(configs) * len(baskets) * len(windows),
         "baseline": V18_BEST_PAIR,
+    }
+
+
+def synthetic_stress_matrix_catalog(
+    *,
+    strategies=None,
+    allocator_policies=None,
+    config_ids=None,
+    scenario_ids=None,
+    upside_windows=None,
+) -> dict:
+    strategy_order = _select_keys(
+        strategies,
+        list(DEFAULT_SYNTHETIC_STRESS_STRATEGIES),
+        label="synthetic stress strategies",
+    )
+    allocator_order = _select_keys(
+        allocator_policies,
+        list(DEFAULT_SYNTHETIC_STRESS_ALLOCATOR_POLICIES),
+        label="synthetic stress allocator policies",
+    )
+    config_order = _select_keys(
+        config_ids,
+        list(DEFAULT_SYNTHETIC_STRESS_CONFIG_IDS),
+        label="synthetic stress configs",
+    )
+    scenario_order = _select_keys(
+        scenario_ids,
+        [item.id for item in DEFAULT_SYNTHETIC_STRESS_SCENARIOS],
+        label="synthetic stress scenarios",
+    )
+    upside_window_order = _select_keys(
+        upside_windows,
+        list(DEFAULT_SYNTHETIC_STRESS_UPSIDE_WINDOWS),
+        label="synthetic stress upside windows",
+    )
+    baskets = [
+        {
+            "key": key,
+            "label": value["label"],
+            "tickers": list(value["tickers"]),
+            "purpose": value["purpose"],
+        }
+        for key, value in RESEARCH_BASKETS.items()
+    ]
+    configs = [
+        item
+        for item in DEFAULT_MACRO_OVERLAY_CONFIGS
+        if item["id"] in config_order
+    ]
+    scenarios = [
+        item.to_dict()
+        for item in DEFAULT_SYNTHETIC_STRESS_SCENARIOS
+        if item.id in scenario_order
+    ]
+    windows = [
+        {
+            "key": key,
+            "label": RESEARCH_WINDOWS[key]["label"],
+            "start": RESEARCH_WINDOWS[key]["start"],
+            "end": RESEARCH_WINDOWS[key]["end"],
+            "purpose": RESEARCH_WINDOWS[key]["purpose"],
+        }
+        for key in upside_window_order
+    ]
+    return {
+        "version": SYNTHETIC_STRESS_MATRIX_VERSION,
+        "strategies": strategy_order,
+        "allocator_policies": allocator_order,
+        "configs": configs,
+        "scenarios": scenarios,
+        "baskets": baskets,
+        "upside_windows": windows,
+        "run_count": len(strategy_order) * len(allocator_order) * len(configs) * len(scenarios) * len(baskets),
+        "upside_run_count": len(strategy_order) * len(allocator_order) * len(configs) * len(windows) * len(baskets),
+        "baseline": V19_BEST_NEAR_MISS,
     }
 
 

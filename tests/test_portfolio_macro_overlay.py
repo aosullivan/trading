@@ -101,3 +101,52 @@ def test_macro_overlay_reports_regime_band_diagnostics():
     assert diagnostics["risk_off_bars"] >= 1
     assert diagnostics["avg_passive_core_pct"] > diagnostics["min_passive_core_pct"]
     assert diagnostics["max_passive_core_pct"] == 85.0
+
+
+def test_macro_overlay_can_reduce_core_when_benchmark_trend_breaks():
+    dates = [
+        "2024-01-02",
+        "2024-01-03",
+        "2024-01-04",
+        "2024-01-05",
+        "2024-01-08",
+    ]
+    ticker_data = {
+        "AAPL": _frame([100.0, 95.0, 88.0, 82.0, 78.0], dates),
+        "MSFT": _frame([100.0, 94.0, 87.0, 81.0, 77.0], dates),
+        "NVDA": _frame([100.0, 93.0, 85.0, 79.0, 74.0], dates),
+    }
+    directions = {
+        ticker: pd.Series([1, 1, 0, 0, 0], index=pd.to_datetime(dates))
+        for ticker in ticker_data
+    }
+    treasury = pd.DataFrame({"Close": [4.0, 4.0, 4.0, 4.0, 4.0]}, index=pd.to_datetime(dates))
+    config = MacroRegimeConfig(
+        yield_lookback_bars=1,
+        yield_weight=0.0,
+        election_weight=0.0,
+        breadth_weight=0.3,
+        breadth_good_pct=0.75,
+        breadth_bad_pct=0.25,
+        benchmark_weight=1.0,
+        benchmark_lookback_bars=1,
+        benchmark_good_pct=2.0,
+        benchmark_bad_pct=-2.0,
+        risk_on_threshold=0.7,
+        risk_off_threshold=-0.2,
+        risk_on_core_pct=0.9,
+        neutral_core_pct=0.6,
+        risk_off_core_pct=0.1,
+    )
+
+    result = backtest_portfolio_macro_overlay(
+        ticker_data,
+        directions,
+        macro_config=config,
+        treasury_history=treasury,
+    )
+
+    diagnostics = result.portfolio_diagnostics
+
+    assert diagnostics["risk_off_bars"] >= 1
+    assert diagnostics["min_passive_core_pct"] == 10.0

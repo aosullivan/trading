@@ -812,6 +812,7 @@ def backtest_portfolio_macro_overlay(
     regime_frame = build_macro_regime_frame(
         regime_index,
         ticker_directions,
+        ticker_data=ticker_data,
         treasury_history=treasury_history,
         config=macro_config,
     )

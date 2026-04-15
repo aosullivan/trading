@@ -130,3 +130,21 @@ Default local outputs:
 .planning/phases/64-run-macro-aware-overlay-matrix/macro-overlay-matrix-results.json
 .planning/phases/64-run-macro-aware-overlay-matrix/macro-overlay-matrix-results.md
 ```
+
+## Synthetic Stress Research
+
+Use the synthetic-stress CLI to model deterministic severe downside scenarios and compare downside protection against upside retention for the retained portfolio candidates.
+
+```bash
+source venv/bin/activate
+TRIEDINGVIEW_USER_DATA_DIR=/tmp/tv_user_synthetic_matrix python3 scripts/run_synthetic_stress_matrix.py
+```
+
+Default local outputs:
+
+```text
+.planning/phases/69-run-synthetic-stress-and-upside-matrix/synthetic-stress-matrix-results.json
+.planning/phases/69-run-synthetic-stress-and-upside-matrix/synthetic-stress-matrix-results.md
+.planning/phases/69-run-synthetic-stress-and-upside-matrix/upside-retention-results.json
+.planning/phases/69-run-synthetic-stress-and-upside-matrix/upside-retention-results.md
+```

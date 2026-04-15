@@ -2,6 +2,7 @@ import pandas as pd
 
 from lib.macro_regime import (
     MacroRegimeConfig,
+    build_benchmark_trend_frame,
     build_close_frame,
     build_macro_regime_frame,
     build_rate_feature_frame,
@@ -99,6 +100,51 @@ def test_build_macro_regime_frame_penalizes_rising_yields_and_weak_breadth():
     assert row["bullish_pct"] == 0.0
     assert row["regime_band"] == "risk_off"
     assert row["passive_core_target_pct"] == config.risk_off_core_pct
+
+
+def test_build_benchmark_trend_frame_and_macro_score_can_penalize_broken_basket_trend():
+    index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
+    ticker_data = {
+        "AAPL": pd.DataFrame({"Close": [100.0, 92.0, 84.0]}, index=index),
+        "MSFT": pd.DataFrame({"Close": [100.0, 91.0, 82.0]}, index=index),
+        "NVDA": pd.DataFrame({"Close": [100.0, 90.0, 80.0]}, index=index),
+    }
+    directions = {
+        "AAPL": pd.Series([1, 0, 0], index=index),
+        "MSFT": pd.Series([1, 0, 0], index=index),
+        "NVDA": pd.Series([1, 0, 0], index=index),
+    }
+    benchmark = build_benchmark_trend_frame(index, ticker_data, lookbacks=(1,))
+    config = MacroRegimeConfig(
+        yield_lookback_bars=1,
+        yield_good_bps=-10.0,
+        yield_bad_bps=10.0,
+        yield_weight=0.0,
+        election_weight=0.0,
+        breadth_weight=0.4,
+        breadth_good_pct=0.60,
+        breadth_bad_pct=0.30,
+        benchmark_weight=1.0,
+        benchmark_lookback_bars=1,
+        benchmark_good_pct=3.0,
+        benchmark_bad_pct=-3.0,
+        risk_on_threshold=0.7,
+        risk_off_threshold=-0.2,
+    )
+    history = pd.DataFrame({"Close": [4.0, 4.0, 4.0]}, index=index)
+
+    frame = build_macro_regime_frame(
+        index,
+        directions,
+        ticker_data=ticker_data,
+        treasury_history=history,
+        config=config,
+    )
+    row = frame.iloc[-1]
+
+    assert round(float(benchmark.iloc[-1]["benchmark_trend_pct_1"]), 2) < -3.0
+    assert row["benchmark_score"] < 0
+    assert row["regime_band"] == "risk_off"
 
 
 def test_build_close_frame_and_forward_path_metrics():
