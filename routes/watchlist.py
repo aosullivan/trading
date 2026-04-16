@@ -4,7 +4,7 @@ import time as _time
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, current_app
 import pandas as pd
 
 from lib.cache import (
@@ -43,13 +43,23 @@ _TRENDS_CACHE_DIR = get_user_data_path("data_cache", "watchlist_trends")
 _TRENDS_START_DATE = "2015-01-01"
 _TRENDS_PERIOD = SUPERTREND_PERIOD
 _TRENDS_MULTIPLIER = SUPERTREND_MULTIPLIER
-_TRENDS_CACHE_VERSION = 5
+_TRENDS_CACHE_VERSION = 6
 _TRENDS_REFRESH_BATCH_SIZE = 6
 _TRENDS_REFRESH_BATCH_PAUSE = 0.25
+_WATCHLIST_PREWARM_INTERVALS = ("1d", "1wk")
+_WATCHLIST_PREFETCH_STATE_FILE = get_user_data_path("watchlist_prefetch_state.json")
+_watchlist_history_prewarm_lock = threading.Lock()
+_watchlist_history_prewarming: set[str] = set()
+_watchlist_daily_prefetch_lock = threading.Lock()
+_watchlist_daily_prefetch_running = False
 
 
 def _empty_trend_row(ticker: str) -> dict:
     return {"ticker": ticker, "daily": {}, "weekly": {}, "trade_setup": {}}
+
+
+def _empty_quote_row(ticker: str) -> dict:
+    return {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
 
 
 def _normalize_trend_row(ticker: str, row: dict | None) -> dict:
@@ -85,7 +95,8 @@ def save_watchlist(tickers):
 
 @bp.route("/api/watchlist")
 def get_watchlist():
-    return jsonify(load_watchlist())
+    tickers = load_watchlist()
+    return jsonify(tickers)
 
 
 @bp.route("/api/watchlist", methods=["POST"])
@@ -97,6 +108,7 @@ def add_to_watchlist():
     if ticker not in wl:
         wl.append(ticker)
         save_watchlist(wl)
+        _schedule_watchlist_history_prewarm([ticker])
     return jsonify(load_watchlist())
 
 
@@ -109,9 +121,137 @@ def remove_from_watchlist():
     return jsonify(load_watchlist())
 
 
+def _watchlist_history_prewarm_key(ticker: str, interval: str) -> str:
+    return f"{ticker}:{interval}"
+
+
+def _prewarm_watchlist_ticker_history(ticker: str):
+    data_ticker = normalize_ticker(resolve_treasury_price_proxy_ticker(ticker))
+    try:
+        for interval in _WATCHLIST_PREWARM_INTERVALS:
+            cached_download(
+                data_ticker,
+                start=_TRENDS_START_DATE,
+                interval=interval,
+                progress=False,
+                threads=False,
+            )
+    finally:
+        with _watchlist_history_prewarm_lock:
+            for interval in _WATCHLIST_PREWARM_INTERVALS:
+                _watchlist_history_prewarming.discard(
+                    _watchlist_history_prewarm_key(ticker, interval)
+                )
+
+
+def _schedule_watchlist_history_prewarm(tickers: list[str]):
+    if current_app.config.get("TESTING"):
+        return
+    pending: list[str] = []
+    with _watchlist_history_prewarm_lock:
+        for ticker in tickers:
+            normalized = ticker.upper().strip()
+            if not normalized:
+                continue
+            needs_work = False
+            for interval in _WATCHLIST_PREWARM_INTERVALS:
+                key = _watchlist_history_prewarm_key(normalized, interval)
+                if key in _watchlist_history_prewarming:
+                    continue
+                _watchlist_history_prewarming.add(key)
+                needs_work = True
+            if needs_work:
+                pending.append(normalized)
+
+    for ticker in pending:
+        threading.Thread(
+            target=_prewarm_watchlist_ticker_history,
+            args=(ticker,),
+            daemon=True,
+        ).start()
+
+
+def _watchlist_prefetch_signature(tickers: list[str]) -> list[str]:
+    return sorted({ticker.upper().strip() for ticker in tickers if ticker and ticker.strip()})
+
+
+def _read_watchlist_prefetch_state() -> dict:
+    if not os.path.exists(_WATCHLIST_PREFETCH_STATE_FILE):
+        return {}
+    try:
+        with open(_WATCHLIST_PREFETCH_STATE_FILE) as f:
+            payload = json.load(f)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_watchlist_prefetch_state(tickers: list[str]):
+    try:
+        os.makedirs(os.path.dirname(_WATCHLIST_PREFETCH_STATE_FILE), exist_ok=True)
+        with open(_WATCHLIST_PREFETCH_STATE_FILE, "w") as f:
+            json.dump(
+                {
+                    "date": pd.Timestamp.now().strftime("%Y-%m-%d"),
+                    "tickers": _watchlist_prefetch_signature(tickers),
+                },
+                f,
+            )
+    except Exception:
+        pass
+
+
+def _watchlist_daily_prefetch_needed(tickers: list[str]) -> bool:
+    state = _read_watchlist_prefetch_state()
+    today = pd.Timestamp.now().strftime("%Y-%m-%d")
+    return (
+        state.get("date") != today
+        or state.get("tickers") != _watchlist_prefetch_signature(tickers)
+    )
+
+
+def _run_daily_watchlist_prefetch(tickers: list[str]):
+    global _watchlist_daily_prefetch_running
+    try:
+        for ticker in tickers:
+            data_ticker = normalize_ticker(resolve_treasury_price_proxy_ticker(ticker))
+            for interval in _WATCHLIST_PREWARM_INTERVALS:
+                cached_download(
+                    data_ticker,
+                    start=_TRENDS_START_DATE,
+                    interval=interval,
+                    progress=False,
+                    threads=False,
+                    allow_stale_latest=False,
+                )
+        _write_watchlist_prefetch_state(tickers)
+    finally:
+        with _watchlist_daily_prefetch_lock:
+            _watchlist_daily_prefetch_running = False
+
+
+def schedule_daily_watchlist_prefetch():
+    global _watchlist_daily_prefetch_running
+    if current_app.config.get("TESTING"):
+        return
+    tickers = load_watchlist()
+    if not tickers or not _watchlist_daily_prefetch_needed(tickers):
+        return
+    with _watchlist_daily_prefetch_lock:
+        if _watchlist_daily_prefetch_running:
+            return
+        _watchlist_daily_prefetch_running = True
+    threading.Thread(
+        target=_run_daily_watchlist_prefetch,
+        args=(_watchlist_prefetch_signature(tickers),),
+        daemon=True,
+    ).start()
+
+
 def _build_watchlist_quotes(tickers: list[str]) -> list[dict]:
     market_tickers = list(tickers)
     results_by_ticker = {}
+    needs_retry: list[tuple[str, str]] = []
 
     if market_tickers:
         market_pairs = [
@@ -137,34 +277,34 @@ def _build_watchlist_quotes(tickers: list[str]) -> list[dict]:
                         tdf = df[yf_ticker]
                     if isinstance(tdf.columns, pd.MultiIndex):
                         tdf.columns = tdf.columns.get_level_values(0)
-                    results_by_ticker[display_ticker] = _quote_from_frame(display_ticker, tdf)
+                    quote = _quote_from_frame(display_ticker, tdf)
+                    if quote["last"] is None:
+                        needs_retry.append((display_ticker, yf_ticker))
+                    else:
+                        _cache_set(f"quote:{display_ticker}", quote)
+                    results_by_ticker[display_ticker] = quote
                 except Exception:
-                    results_by_ticker[display_ticker] = {
-                        "ticker": display_ticker,
-                        "last": None,
-                        "chg": None,
-                        "chg_pct": None,
-                    }
+                    needs_retry.append((display_ticker, yf_ticker))
             bulk_loaded = True
         except Exception:
             bulk_loaded = False
 
         if not bulk_loaded:
-            for display_ticker, yf_ticker in market_pairs:
-                try:
-                    results_by_ticker[display_ticker] = _fetch_market_quote(display_ticker, yf_ticker)
-                except Exception:
-                    results_by_ticker[display_ticker] = {
-                        "ticker": display_ticker,
-                        "last": None,
-                        "chg": None,
-                        "chg_pct": None,
-                    }
+            needs_retry = market_pairs
+
+        for display_ticker, yf_ticker in needs_retry:
+            try:
+                quote = _fetch_market_quote(display_ticker, yf_ticker)
+                if quote["last"] is not None:
+                    _cache_set(f"quote:{display_ticker}", quote)
+                results_by_ticker[display_ticker] = quote
+            except Exception:
+                results_by_ticker[display_ticker] = _empty_quote_row(display_ticker)
 
     return [
         results_by_ticker.get(
             ticker,
-            {"ticker": ticker, "last": None, "chg": None, "chg_pct": None},
+            _empty_quote_row(ticker),
         )
         for ticker in tickers
     ]
@@ -173,7 +313,7 @@ def _build_watchlist_quotes(tickers: list[str]) -> list[dict]:
 def _refresh_watchlist_quotes_cache(cache_key: str, tickers: list[str]):
     try:
         quotes = _build_watchlist_quotes(tickers)
-        if quotes and all(q["last"] is not None for q in quotes):
+        if quotes and any(q["last"] is not None for q in quotes):
             _set_watchlist_quotes_cache(cache_key, quotes)
     finally:
         with _watchlist_quotes_lock:
@@ -190,6 +330,14 @@ def _schedule_watchlist_quotes_refresh(cache_key: str, tickers: list[str]):
         args=(cache_key, list(tickers)),
         daemon=True,
     ).start()
+
+
+def _load_watchlist_quote_snapshot_rows(tickers: list[str]) -> list[dict]:
+    rows: list[dict] = []
+    for ticker in tickers:
+        cached = _cache_get(f"quote:{ticker}")
+        rows.append(cached if isinstance(cached, dict) else _empty_quote_row(ticker))
+    return rows
 
 
 def _normalize_trends_frame(df: pd.DataFrame) -> pd.DataFrame:
@@ -395,6 +543,12 @@ def watchlist_quotes():
     if not tickers:
         return jsonify([])
 
+    if current_app.config.get("TESTING"):
+        results = _build_watchlist_quotes(tickers)
+        if results and any(r["last"] is not None for r in results):
+            _set_watchlist_quotes_cache(f"quotes:{'|'.join(tickers)}", results)
+        return jsonify(results)
+
     cache_key = f"quotes:{'|'.join(tickers)}"
     cached = _get_watchlist_quotes_cache(cache_key)
     if cached is not None:
@@ -403,11 +557,9 @@ def watchlist_quotes():
             _schedule_watchlist_quotes_refresh(cache_key, tickers)
         return jsonify(quotes)
 
-    results = _build_watchlist_quotes(tickers)
-
-    if all(r["last"] is not None for r in results):
-        _set_watchlist_quotes_cache(cache_key, results)
-    return jsonify(results)
+    snapshot_rows = _load_watchlist_quote_snapshot_rows(tickers)
+    _schedule_watchlist_quotes_refresh(cache_key, tickers)
+    return jsonify(snapshot_rows)
 
 
 @bp.route("/api/watchlist/trends")

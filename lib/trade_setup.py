@@ -210,6 +210,10 @@ def _preferred_strategy_bias(frame_flips: dict, strategy_key: str | None) -> int
     return 0
 
 
+def _has_strategy_signal(frame_flips: dict, strategy_key: str | None) -> bool:
+    return _strategy_direction(frame_flips, strategy_key) in {"bullish", "bearish"}
+
+
 def _level_payload(current_price: float, atr_value: float | None, level: dict | None) -> dict | None:
     if level is None:
         return None
@@ -572,9 +576,23 @@ def compute_trade_setup(
     preferred_meta = preferred_strategy_for_ticker(ticker) if ticker else None
     if preferred_meta:
         structure["preferred_strategy"] = preferred_meta
-        daily_bias = _preferred_strategy_bias(daily_flips, preferred_meta["strategy_key"])
-        weekly_bias = _preferred_strategy_bias(weekly_flips, preferred_meta["strategy_key"])
-        trend_source_label = f"Preferred strategy bias ({preferred_meta['strategy_label']})"
+        strategy_key = preferred_meta["strategy_key"]
+        daily_has_preferred = _has_strategy_signal(daily_flips, strategy_key)
+        weekly_has_preferred = _has_strategy_signal(weekly_flips, strategy_key)
+        daily_bias = (
+            _preferred_strategy_bias(daily_flips, strategy_key)
+            if daily_has_preferred
+            else _trend_bias(daily_flips)
+        )
+        weekly_bias = (
+            _preferred_strategy_bias(weekly_flips, strategy_key)
+            if weekly_has_preferred
+            else _trend_bias(weekly_flips)
+        )
+        if daily_has_preferred and weekly_has_preferred:
+            trend_source_label = f"Preferred strategy bias ({preferred_meta['strategy_label']})"
+        else:
+            trend_source_label = f"Weighted strategy bias ({preferred_meta['strategy_label']} fallback)"
     else:
         daily_bias = _trend_bias(daily_flips)
         weekly_bias = _trend_bias(weekly_flips)

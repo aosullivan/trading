@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import threading
 import time as _time
 import urllib.request
 
@@ -21,7 +22,11 @@ from lib.cache import (
 _DATA_CACHE_DIR = _PROJECT_CACHE_ROOT
 os.makedirs(_DATA_CACHE_DIR, exist_ok=True)
 
-_DISK_CACHE_FRESHNESS = 300  # 5 minutes
+_DEFAULT_DISK_CACHE_FRESHNESS = 300  # 5 minutes
+_LATEST_INTERVAL_CACHE_FRESHNESS = 3600  # 1 hour
+_LAZY_REFRESH_INTERVALS = {"1d", "1wk", "1mo"}
+_lazy_refresh_lock = threading.Lock()
+_lazy_refreshing: set[str] = set()
 
 
 def _disk_cache_path(ticker: str, interval: str) -> str:
@@ -89,6 +94,24 @@ def _clamped_requested_end(end) -> pd.Timestamp | None:
     return min(requested_end, now)
 
 
+def _disk_cache_freshness(interval: str, end) -> int:
+    """Keep latest-bar cache fresh enough for lazy background refreshes.
+
+    The chart only works with daily-or-higher bars, so re-fetching the same
+    ticker every few minutes creates visible lag without meaningfully fresher
+    data for the user. Historical windows still remain deterministic because
+    covered ranges are sliced directly from disk.
+    """
+    if interval not in _LAZY_REFRESH_INTERVALS:
+        return _DEFAULT_DISK_CACHE_FRESHNESS
+
+    requested_end = _clamped_requested_end(end)
+    today = pd.Timestamp.now().tz_localize(None).normalize()
+    if requested_end is None or requested_end.normalize() >= today:
+        return _LATEST_INTERVAL_CACHE_FRESHNESS
+    return _DEFAULT_DISK_CACHE_FRESHNESS
+
+
 def _cached_range_covers_request(cached_df: pd.DataFrame | None, start, end) -> bool:
     if cached_df is None or cached_df.empty:
         return False
@@ -102,7 +125,39 @@ def _cached_range_covers_request(cached_df: pd.DataFrame | None, start, end) -> 
     return True
 
 
-def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
+def _is_latest_interval_request(interval: str, end) -> bool:
+    if interval not in _LAZY_REFRESH_INTERVALS:
+        return False
+    requested_end = _clamped_requested_end(end)
+    today = pd.Timestamp.now().tz_localize(None).normalize()
+    return requested_end is None or requested_end.normalize() >= today
+
+
+def _lazy_refresh_key(ticker: str, kwargs: dict) -> str:
+    return f"{ticker}:{json.dumps(kwargs, sort_keys=True, default=str)}"
+
+
+def _schedule_lazy_cache_refresh(ticker: str, kwargs: dict):
+    refresh_kwargs = dict(kwargs)
+    refresh_key = _lazy_refresh_key(ticker, refresh_kwargs)
+    with _lazy_refresh_lock:
+        if refresh_key in _lazy_refreshing:
+            return
+        _lazy_refreshing.add(refresh_key)
+
+    def _refresh():
+        try:
+            cached_download(ticker, allow_stale_latest=False, **refresh_kwargs)
+        except Exception:
+            pass
+        finally:
+            with _lazy_refresh_lock:
+                _lazy_refreshing.discard(refresh_key)
+
+    threading.Thread(target=_refresh, daemon=True).start()
+
+
+def cached_download(ticker: str, *, allow_stale_latest: bool = True, **kwargs) -> pd.DataFrame:
     """Download OHLCV data with persistent local file cache."""
     interval = kwargs.get("interval", "1d")
     start = kwargs.get("start")
@@ -136,10 +191,18 @@ def cached_download(ticker: str, **kwargs) -> pd.DataFrame:
         try:
             with open(meta_p) as f:
                 meta = json.load(f)
+            last_fetch = float(meta.get("last_fetch", 0))
+            cache_age = now - last_fetch
+            freshness = _disk_cache_freshness(interval, end)
+            cache_covers_request = _cached_range_covers_request(cached_df, start, end)
+            if cache_covers_request and cache_age < freshness:
+                return _slice_df(cached_df, start, end)
             if (
-                (now - meta.get("last_fetch", 0)) < _DISK_CACHE_FRESHNESS
-                and _cached_range_covers_request(cached_df, start, end)
+                cache_covers_request
+                and allow_stale_latest
+                and _is_latest_interval_request(interval, end)
             ):
+                _schedule_lazy_cache_refresh(ticker, kwargs)
                 return _slice_df(cached_df, start, end)
         except Exception:
             pass

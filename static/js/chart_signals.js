@@ -286,13 +286,41 @@ function tradeSetupSharedHtml(tradeSetup){
     </div>
   </div>`;
 }
+function fallbackFlipKey(frameFlips){
+  const found=new Set(Object.keys(frameFlips||{}));
+  return flipOrder.find(key=>found.has(key))||[...found].sort()[0]||null;
+}
 function preferredFlipForFrame(frameFlips,preferred){
-  if(!preferred?.strategyKey)return{};
-  return frameFlips?.[preferred.strategyKey]||{};
+  const preferredKey=preferred?.strategyKey||null;
+  const preferredFlip=preferredKey?(frameFlips?.[preferredKey]||null):null;
+  const preferredDir=preferredFlip?.dir||preferredFlip?.current_dir||null;
+  if(preferredDir){
+    return{
+      flip:preferredFlip,
+      strategyKey:preferredKey,
+      strategyLabel:preferred.strategyLabel,
+      usingFallback:false,
+    };
+  }
+  const fallbackKey=fallbackFlipKey(frameFlips);
+  if(!fallbackKey){
+    return{
+      flip:{},
+      strategyKey:preferredKey,
+      strategyLabel:preferred?.strategyLabel||'Preferred strategy',
+      usingFallback:false,
+    };
+  }
+  return{
+    flip:frameFlips?.[fallbackKey]||{},
+    strategyKey:fallbackKey,
+    strategyLabel:flipNames[fallbackKey]||flipLabels[fallbackKey]||fallbackKey,
+    usingFallback:true,
+  };
 }
 function preferredPulseTone(dailyFlip,weeklyFlip){
-  const dailyDir=dailyFlip?.dir||dailyFlip?.current_dir||null;
-  const weeklyDir=weeklyFlip?.dir||weeklyFlip?.current_dir||null;
+  const dailyDir=dailyFlip?.flip?.dir||dailyFlip?.flip?.current_dir||null;
+  const weeklyDir=weeklyFlip?.flip?.dir||weeklyFlip?.flip?.current_dir||null;
   const bullish=(dailyDir==='bullish'?1:0)+(weeklyDir==='bullish'?1:0);
   const bearish=(dailyDir==='bearish'?1:0)+(weeklyDir==='bearish'?1:0);
   if(!bullish&&!bearish)return{label:'No data',tone:'mixed'};
@@ -303,12 +331,15 @@ function preferredPulseTone(dailyFlip,weeklyFlip){
   return{label:'Split',tone:'mixed'};
 }
 function preferredStrategyCardHtml(title,flip,setup,preferred){
-  const dir=flip?.dir||flip?.current_dir||null;
+  const resolvedFlip=flip?.flip||{};
+  const dir=resolvedFlip?.dir||resolvedFlip?.current_dir||null;
   const tone=dir==='bullish'?'bullish':dir==='bearish'?'bearish':'mixed';
   const pillCls=tone==='bullish'?'tf-pill-bull':tone==='bearish'?'tf-pill-bear':'tf-pill-mixed';
   const score=setup?.score==null?'--':`${setup.score>0?'+':''}${setup.score}`;
-  const age=daysSinceNumber(flip);
-  const startDate=flipDateLabel(flip)||'--';
+  const age=daysSinceNumber(resolvedFlip);
+  const startDate=flipDateLabel(resolvedFlip)||'--';
+  const sourceLabel=flip?.strategyLabel||preferred.strategyLabel;
+  const sourcePrefix=flip?.usingFallback?`${sourceLabel} fallback`:`${sourceLabel}`;
   const source=setup?.trend_source_label||`Preferred strategy bias (${preferred.strategyLabel})`;
   return `<div class="tf-agg-card">
     <div class="tf-agg-card-top">
@@ -317,7 +348,7 @@ function preferredStrategyCardHtml(title,flip,setup,preferred){
     </div>
     <div class="tf-agg-card-score ${tone==='bullish'?'bull':tone==='bearish'?'bear':''}">${score}</div>
     <div class="tf-agg-stats">
-      <span><strong>${preferred.strategyLabel}</strong> source</span>
+      <span><strong>${sourcePrefix}</strong> source</span>
       <span><strong>${age==null?'--':age+'d'}</strong> regime age</span>
       <span><strong>${startDate}</strong> since</span>
       <span><strong>${setup?.trend_bias??'--'}</strong> bias</span>
@@ -345,7 +376,7 @@ function renderTrendFlipAggregate(){
   btn.style.display='inline-flex';
   btn.dataset.tone=overall.tone;
   state.textContent=`${preferred.strategyLabel} · ${overall.label}`;
-  btn.title=`${preferred.strategyLabel} • Daily ${dailyFlip?.dir||dailyFlip?.current_dir||'no data'} • Weekly ${weeklyFlip?.dir||weeklyFlip?.current_dir||'no data'}`;
+  btn.title=`${preferred.strategyLabel} • Daily ${dailyFlip?.flip?.dir||dailyFlip?.flip?.current_dir||'no data'} • Weekly ${weeklyFlip?.flip?.dir||weeklyFlip?.flip?.current_dir||'no data'}`;
   pop.innerHTML=`<div class="tf-agg-head">
     <div>
       <h4>Signal Pulse</h4>

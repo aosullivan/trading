@@ -8,7 +8,7 @@
   const indexSymbols=new Set(['IXIC','GSPC','DJI','RUT','VIX','NYA','XAX','FTSE','GDAXI','FCHI','N225','HSI','STOXX50E','BVSP','GSPTSE','AXJO','NZ50','KS11','TWII','SSEC','JKSE','KLSE','STI','NSEI','BSESN','TNX','TYX','FVX','IRX','SOX','SPX']);
   const treasurySymbols=new Set(['UST1Y','UST2Y','UST3Y','UST5Y','UST10Y','UST20Y','UST30Y']);
   const semiSymbols=new Set(['ALAB','AMD','ARM','ASML','AVGO','MRVL','MU','NVDA','SNDK','TSM']);
-  const softwareSymbols=new Set(['CRM','NOW','PLTR','SNOW']);
+  const softwareSymbols=new Set(['CRM','CRWD','NOW','PLTR','SNOW','ZS']);
   const techSymbols=new Set(['AAPL','AMZN','GOOG','HIMS','HOOD','META','MSFT','RKLB','TSLA']);
   const etfSymbols=new Set(['ARKK','CPER','IAU','IGV','MAGS','SMH','TLT','USO','VGT','XLE']);
   const cryptoAdjacentSymbols=new Set(['COIN','CRCL','GLXY','HUT','MSTR']);

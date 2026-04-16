@@ -1,7 +1,96 @@
 let tickerNameRefreshToken=0;
+let chartLoadRequestToken=0;
 
 function syncTickerNameLabel(tickerName){
   document.getElementById('tk-name').textContent=tickerName||'';
+}
+
+function buildChartRequestUrl(ticker,interval,start,end,period,mult,{candlesOnly=false,includeMM=true}={}){
+  let url=`/api/chart?ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}&start=${encodeURIComponent(start)}&period=${encodeURIComponent(period)}&multiplier=${encodeURIComponent(mult)}`;
+  if(end)url+=`&end=${encodeURIComponent(end)}`;
+  if(candlesOnly)url+='&candles_only=1';
+  if(includeMM){
+    const mmqs=typeof buildMMQueryString==='function'?buildMMQueryString():'';
+    if(mmqs)url+=`&${mmqs}`;
+  }
+  return url;
+}
+
+function syncChartHeader(ticker,interval,period,mult,tickerName=''){
+  document.getElementById('tk-sym').textContent=ticker;
+  syncTickerNameLabel(tickerName);
+  document.getElementById('chart-tag').textContent=`${ticker} \u00b7 ${intervalLabel(interval)} \u00b7 ST ${period}/${mult}`;
+}
+
+function updateChartPriceDisplay(ticker,candles){
+  const priceEl=document.getElementById('tk-price');
+  const changeEl=document.getElementById('tk-chg');
+  if(!candles?.length){
+    priceEl.textContent='--';
+    priceEl.style.color='';
+    changeEl.textContent='--';
+    changeEl.className='tk-chg';
+    return;
+  }
+  const last=candles[candles.length-1];
+  const prev=candles.length>1?candles[candles.length-2]:last;
+  const change=last.close-prev.close;
+  const changePct=prev.close?change/prev.close*100:0;
+  const up=change>=0;
+  priceEl.textContent=formatPriceDisplay(ticker,last.close);
+  priceEl.style.color=up?'var(--green)':'var(--red)';
+  changeEl.textContent=`${up?'+':''}${change.toFixed(2)} (${up?'+':''}${changePct.toFixed(2)}%)`;
+  changeEl.className='tk-chg '+(up?'up':'dn');
+}
+
+function applyDefaultVisibleRange(interval,candles){
+  if(candles?.length){
+    const visStart=defaultVisibleStart(interval);
+    const visStartTs=Math.floor(new Date(visStart).getTime()/1000);
+    const firstCandle=candles[0].time;
+    const from=Math.max(visStartTs,firstCandle);
+    const to=candles[candles.length-1].time;
+    chart.timeScale().setVisibleRange({from,to});
+    return;
+  }
+  chart.timeScale().fitContent();
+}
+
+function clearChartDerivedSeries(){
+  clearSupertrendSegments();
+  stUpFill.setData([]);stDownFill.setData([]);
+  stUpMid.setData([]);stDownMid.setData([]);
+  volumeSeries.setData([]);
+  sma50Series.setData([]);sma100Series.setData([]);
+  sma180Series.setData([]);sma200Series.setData([]);
+  sma50wSeries.setData([]);sma100wSeries.setData([]);sma200wSeries.setData([]);
+  ema9Series.setData([]);ema21Series.setData([]);
+  donchUpperSeries.setData([]);donchLowerSeries.setData([]);
+  bbUpperSeries.setData([]);bbMidSeries.setData([]);bbLowerSeries.setData([]);
+  keltUpperSeries.setData([]);keltMidSeries.setData([]);keltLowerSeries.setData([]);
+  psarBullSeries.setData([]);psarBearSeries.setData([]);
+  macdLineSeries.setData([]);macdSignalSeries.setData([]);macdHistSeries.setData([]);
+  adxLineSeries.setData([]);plusDiSeries.setData([]);minusDiSeries.setData([]);
+  cciLineSeries.setData([]);
+  orbUpperSeries.setData([]);orbLowerSeries.setData([]);orbMidSeries.setData([]);
+  ribbonUpperSeries.setData([]);ribbonLowerSeries.setData([]);ribbonCenterSeries.setData([]);
+  candleSeries.setMarkers([]);
+  renderVolProfile([]);
+  clearSRLines();
+  if(typeof updateOverlaysFromSignals==='function')updateOverlaysFromSignals();
+}
+
+function applyCandlesPayload(ticker,interval,period,mult,data){
+  const candles=data.candles||[];
+  candleSeries.setData(candles);
+  _lastCandles=candles;
+  lastData={ticker_name:data.ticker_name||'',candles};
+  syncChartHeader(ticker,interval,period,mult,data.ticker_name||'');
+  updateChartPriceDisplay(ticker,candles);
+  applyDefaultVisibleRange(interval,candles);
+  clearChartDerivedSeries();
+  updateLegendValues(null);
+  updateFlipInfo();
 }
 
 function queueTickerNameRefresh(ticker,url,token,attempt=1){
@@ -24,24 +113,39 @@ function queueTickerNameRefresh(ticker,url,token,attempt=1){
 
 async function loadChart(){
   const ld=document.getElementById('loading');
+  const loadingLabel=document.getElementById('loading-label');
   ld.classList.add('on');
+  if(loadingLabel)loadingLabel.textContent='Loading chart…';
   if(typeof setBacktestLoading==='function')setBacktestLoading(true);
   const ticker=document.getElementById('ticker').value.toUpperCase();
   const nameRefreshToken=++tickerNameRefreshToken;
+  const requestToken=++chartLoadRequestToken;
   const interval=document.getElementById('interval').value;
   const start=chartStart,end=chartEnd;
 	const period=document.getElementById('period').value,mult=document.getElementById('multiplier').value;
 	setBTRangeLabel();
+  const candlesUrl=buildChartRequestUrl(ticker,interval,start,end,period,mult,{candlesOnly:true,includeMM:false});
+  const fullUrl=buildChartRequestUrl(ticker,interval,start,end,period,mult,{candlesOnly:false,includeMM:true});
 	try{
-    let url=`/api/chart?ticker=${ticker}&interval=${interval}&start=${start}&period=${period}&multiplier=${mult}`;
-    if(end)url+=`&end=${end}`;
-    const mmqs=typeof buildMMQueryString==='function'?buildMMQueryString():'';
-    if(mmqs)url+=`&${mmqs}`;
-    const res=await fetch(url),data=await res.json();
+    syncChartHeader(ticker,interval,period,mult,'');
+    let candlesData=null;
+    try{
+      const candlesRes=await fetch(candlesUrl);
+      candlesData=await candlesRes.json();
+      if(requestToken!==chartLoadRequestToken)return;
+      if(!candlesData.error){
+        applyCandlesPayload(ticker,interval,period,mult,candlesData);
+        ld.classList.remove('on');
+        if(!candlesData.ticker_name){
+          queueTickerNameRefresh(ticker,candlesUrl,nameRefreshToken);
+        }
+      }
+    }catch(_e){}
+
+    const res=await fetch(fullUrl),data=await res.json();
+    if(requestToken!==chartLoadRequestToken)return;
     if(data.error){alert(data.error);return}
-    document.getElementById('tk-sym').textContent=ticker;
-    syncTickerNameLabel('');
-    document.getElementById('chart-tag').textContent=`${ticker} \u00b7 ${intervalLabel(interval)} \u00b7 ST ${period}/${mult}`;
+    syncChartHeader(ticker,interval,period,mult,data.ticker_name||candlesData?.ticker_name||'');
     candleSeries.setData(data.candles);
     _lastCandles=data.candles;
     const stUpData=(data.supertrend_up||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
@@ -88,40 +192,23 @@ async function loadChart(){
     clearSRLines();
     redrawActiveSRLines();
     updateLegendValues(null);
-    // Price display
-    if(data.candles.length){
-      const l=data.candles[data.candles.length-1],p=data.candles.length>1?data.candles[data.candles.length-2]:l;
-      const c=l.close-p.close,cp=c/p.close*100,up=c>=0;
-      document.getElementById('tk-price').textContent=formatPriceDisplay(ticker,l.close);
-      document.getElementById('tk-price').style.color=up?'var(--green)':'var(--red)';
-      const ce=document.getElementById('tk-chg');
-      ce.textContent=`${up?'+':''}${c.toFixed(2)} (${up?'+':''}${cp.toFixed(2)}%)`;
-      ce.className='tk-chg '+(up?'up':'dn');
-    }
+    updateChartPriceDisplay(ticker,data.candles);
     if(data.ticker_name){
       syncTickerNameLabel(data.ticker_name);
     }else{
-      queueTickerNameRefresh(ticker,url,nameRefreshToken);
+      queueTickerNameRefresh(ticker,candlesUrl,nameRefreshToken);
     }
-    // Show last 1yr (daily) or 2yr (weekly) by default; all history is loaded so user can scroll left freely
-    if(data.candles.length){
-      const visStart=defaultVisibleStart(interval);
-      const visStartTs=Math.floor(new Date(visStart).getTime()/1000);
-      const firstCandle=data.candles[0].time;
-      const from=Math.max(visStartTs,firstCandle);
-      const to=data.candles[data.candles.length-1].time;
-      chart.timeScale().setVisibleRange({from,to});
-    }else{
-      chart.timeScale().fitContent();
-    }
+    applyDefaultVisibleRange(interval,data.candles);
     switchStrategy(document.getElementById('strategy-select').value);
     updateMarkers();
   }catch(e){alert('Error: '+e.message)}
   finally{
-    if(typeof setBacktestLoading==='function')setBacktestLoading(false);
-    ld.classList.remove('on');
-    pushURLParams();
-    if(typeof queueWatchlistTrendPreload==='function')queueWatchlistTrendPreload();
+    if(requestToken===chartLoadRequestToken){
+      if(typeof setBacktestLoading==='function')setBacktestLoading(false);
+      ld.classList.remove('on');
+      pushURLParams();
+      if(typeof queueWatchlistTrendPreload==='function')queueWatchlistTrendPreload();
+    }
   }
 }
 

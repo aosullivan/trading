@@ -2,7 +2,7 @@
 const WL_DEFAULT_VIEW='watchlist';
 const WL_DEFAULT_TAB='all';
 const WL_DEFAULT_TREND_FRAME='daily';
-const WL_DEFAULT_TREND_SIDE='bullish';
+const WL_DEFAULT_TREND_SIDE='all';
 const WL_DEFAULT_TREND_SORT_KEY='score';
 const WL_SORT_KEYS=['sym','last','chg','chg_pct'];
 const WL_TREND_SORT_KEYS=['ticker','flip','strength','score'];
@@ -10,6 +10,7 @@ const WL_PANEL_DEFAULT_WIDTH=352;
 const WL_PANEL_MIN_WIDTH=320;
 const WL_PANEL_MAX_WIDTH=540;
 const WL_QUOTES_REFRESH_MS=300000;
+const WL_QUOTES_RETRY_MS=4000;
 const WL_TRENDS_REFRESH_MS=300000;
 const WL_TRENDS_POLL_MS=4000;
 const WL_IDLE_PAUSE_MS=300000;
@@ -26,7 +27,7 @@ let wlList=[];
 let wlSortKey=null; // 'sym','last','chg','chg_pct'
 let wlSortAsc=true;
 let wlTrendFrame='daily';
-let wlTrendSide='bullish';
+let wlTrendSide='all';
 let wlTrendSortKey='score'; // 'ticker','flip','score'
 let wlTrendSortAsc=false;
 let wlView='watchlist';
@@ -43,7 +44,7 @@ const WL_CATEGORY_LABELS={indexes:'Index',treasuries:'Rates',semis:'Semis',tech:
 function wlNormalizeView(view){return view==='trends'?'trends':WL_DEFAULT_VIEW}
 function wlNormalizeTab(tab){return WL_TAB_ORDER.includes(tab)?tab:WL_DEFAULT_TAB}
 function wlNormalizeTrendFrame(frame){return frame==='weekly'?'weekly':WL_DEFAULT_TREND_FRAME}
-function wlNormalizeTrendSide(side){return ['bullish','bearish','mixed'].includes(side)?side:WL_DEFAULT_TREND_SIDE}
+function wlNormalizeTrendSide(side){return ['all','bullish','bearish','mixed'].includes(side)?side:WL_DEFAULT_TREND_SIDE}
 function wlSortDefaultAsc(key){return key==='sym'}
 function wlTrendSortDefaultAsc(key){return key==='ticker'}
 function wlNormalizeWidth(width){
@@ -137,7 +138,7 @@ function restoreWatchlistURLState(){
 const _WL_INDEX_SYMS=new Set(['IXIC','GSPC','DJI','RUT','VIX','NYA','XAX','FTSE','GDAXI','FCHI','N225','HSI','STOXX50E','BVSP','GSPTSE','AXJO','NZ50','KS11','TWII','SSEC','JKSE','KLSE','STI','NSEI','BSESN','TNX','TYX','FVX','IRX','SOX','SPX']);
 const _WL_TREASURY_SYMS=new Set([...TREASURY_TICKERS]);
 const _WL_SEMI_SYMS=new Set(['ALAB','AMD','ARM','ASML','AVGO','MRVL','MU','NVDA','SNDK','TSM']);
-const _WL_SOFTWARE_SYMS=new Set(['CRM','NOW','PLTR','SNOW']);
+const _WL_SOFTWARE_SYMS=new Set(['CRM','CRWD','NOW','PLTR','SNOW','ZS']);
 const _WL_TECH_SYMS=new Set(['AAPL','AMZN','GOOG','HIMS','HOOD','META','MSFT','RKLB','TSLA']);
 const _WL_ETF_SYMS=new Set(['ARKK','CPER','IAU','IGV','MAGS','SMH','TLT','USO','VGT','XLE']);
 const _WL_CRYPTO_ADJ_SYMS=new Set(['COIN','CRCL','GLXY','HUT','MSTR']);
@@ -225,7 +226,7 @@ function ensureWLCurrentTickerTrendSide(){
   if(!row)return false;
   const metaRow=wlTrendRowMeta(row);
   const nextSide=wlNormalizeTrendSide(metaRow?.tradeSetup?.[wlTrendFrame]?.side||metaRow?.[wlTrendFrame]?.meta?.tone);
-  if(nextSide===wlTrendSide)return true;
+  if(wlTrendSide==='all'||nextSide===wlTrendSide)return true;
   wlTrendSide=nextSide;
   syncWLTrendSideButtons();
   syncWatchlistURLState();
@@ -332,6 +333,7 @@ function ensureVisibleWLTab(list){
 }
 
 let wlRefreshTimer=null;
+let wlQuoteRetryTimer=null;
 let wlTrendRefreshTimer=null;
 let wlTrendPollTimer=null;
 let wlTrendPreloadTimer=null;
@@ -340,6 +342,8 @@ let wlLastActivityAt=Date.now();
 let wlLastMouseMoveAt=0;
 let wlLifecycleBound=false;
 let wlRefreshState='live';
+let wlQuotesLoading=false;
+let wlQuotesReady=false;
 
 function wlRefreshAllowed(){
   return document.visibilityState!=='hidden'&&(Date.now()-wlLastActivityAt)<WL_IDLE_PAUSE_MS;
@@ -364,11 +368,26 @@ function setWLRefreshState(state){
 function syncWLRefreshStateBadge(){
   if(!wlRefreshAllowed()){
     setWLRefreshState('paused');
+  }else if(wlQuotesLoading||(wlView==='watchlist'&&wlList.length&&!wlQuotesReady)){
+    setWLRefreshState('syncing');
   }else if(wlView==='trends'&&(wlTrendsLoading||wlTrendsStale)){
     setWLRefreshState('syncing');
   }else{
     setWLRefreshState('live');
   }
+}
+
+function clearWLQuoteRetryTimer(){
+  if(wlQuoteRetryTimer)clearTimeout(wlQuoteRetryTimer);
+  wlQuoteRetryTimer=null;
+}
+
+function scheduleWLQuoteRetry(){
+  if(wlQuoteRetryTimer||!wlRefreshAllowed())return;
+  wlQuoteRetryTimer=setTimeout(()=>{
+    wlQuoteRetryTimer=null;
+    fetchQuotes();
+  },WL_QUOTES_RETRY_MS);
 }
 
 function stopWLTrendTimers(){
@@ -383,6 +402,7 @@ function stopWLTrendTimers(){
 function stopWLRefreshTimers(){
   if(wlRefreshTimer)clearInterval(wlRefreshTimer);
   wlRefreshTimer=null;
+  clearWLQuoteRetryTimer();
   stopWLTrendTimers();
   setWLRefreshState('paused');
 }
@@ -485,14 +505,39 @@ function fetchQuotes(){
     stopWLRefreshTimers();
     return;
   }
+  if(wlQuotesLoading)return;
+  wlQuotesLoading=true;
+  syncWLRefreshStateBadge();
   fetch('/api/watchlist/quotes')
-    .then(r=>r.json())
+    .then(r=>{
+      if(!r.ok)throw new Error(`Watchlist quotes request failed: ${r.status}`);
+      return r.json();
+    })
     .then(quotes=>{
+      if(!Array.isArray(quotes))throw new Error('Watchlist quotes payload was not an array');
+      clearWLQuoteRetryTimer();
+      let hasAnyQuote=false;
+      let hasMissingQuote=false;
       quotes.forEach(q=>{wlQuotes[q.ticker]=q});
+      quotes.forEach(q=>{
+        if(q?.last!=null)hasAnyQuote=true;
+        else hasMissingQuote=true;
+      });
+      wlQuotesReady=hasAnyQuote||!quotes.length;
       renderWL(wlList);
+      if((!quotes.length&&wlList.length)||hasMissingQuote||(!hasAnyQuote&&wlList.length)){
+        scheduleWLQuoteRetry();
+      }
       syncWLRefreshStateBadge();
     })
-    .catch(()=>syncWLRefreshStateBadge());
+    .catch(()=>{
+      scheduleWLQuoteRetry();
+      syncWLRefreshStateBadge();
+    })
+    .finally(()=>{
+      wlQuotesLoading=false;
+      syncWLRefreshStateBadge();
+    });
 }
 
 function fetchTrends(){
@@ -641,13 +686,14 @@ function renderTrends(){
     ?`<div class="wl-trend-msg">${wlTrendsLoading?'Refreshing trend pulse...':'Trend pulse is updating...'}</div>`
     :'';
   const visibleRows=rows.filter(row=>{
+    if(wlTrendSide==='all')return true;
     const setupSide=row?.tradeSetup?.[wlTrendFrame]?.side;
     const tone=row[wlTrendFrame]?.meta?.tone||'mixed';
     return (setupSide||tone)===wlTrendSide;
   });
   document.getElementById('wl-count').textContent=visibleRows.length;
   document.getElementById('wl-items').innerHTML=statusRow
-    +(visibleRows.length?visibleRows.map(row=>wlTrendRowHtml(row,cur)).join(''):`<div class="wl-trend-msg">No ${wlTrendSide} symbols in ${wlTrendFrame} trends.</div>`);
+    +(visibleRows.length?visibleRows.map(row=>wlTrendRowHtml(row,cur)).join(''):`<div class="wl-trend-msg">No ${wlTrendSide==='all'?'trend pulse':wlTrendSide} symbols in ${wlTrendFrame} trends.</div>`);
 }
 
 function wlTrendRowHtml(row,cur){

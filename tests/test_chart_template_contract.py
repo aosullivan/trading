@@ -76,6 +76,18 @@ def test_template_exposes_monthly_interval_option_and_label():
     assert "if(interval==='1mo')return'Monthly';" in core_source
 
 
+def test_toolbar_exposes_range_presets_and_default_reset():
+    toolbar_source = TOOLBAR_PARTIAL_PATH.read_text()
+    core_source = CHART_CORE_JS_PATH.read_text()
+
+    assert "chartRangePresetYears(1)" in toolbar_source
+    assert "chartRangePresetYears(3)" in toolbar_source
+    assert "chartRangePresetYears(5)" in toolbar_source
+    assert "chartRangePresetReset()" in toolbar_source
+    assert "function chartRangePresetYears(years){" in core_source
+    assert "function chartRangePresetReset(){" in core_source
+
+
 def test_template_exposes_trend_flip_pulse_controls():
     toolbar_source = TOOLBAR_PARTIAL_PATH.read_text()
     template_source = TEMPLATE_PATH.read_text()
@@ -88,6 +100,9 @@ def test_template_exposes_trend_flip_pulse_controls():
     assert "function renderTrendFlipAggregate(){" in signals_source
     assert "function toggleTrendFlipAggregate(e){" in signals_source
     assert "Signal Pulse" in signals_source
+    assert "function fallbackFlipKey(frameFlips){" in signals_source
+    assert "usingFallback:true" in signals_source
+    assert "fallback`:`${sourceLabel}`" in signals_source
 
 
 def test_template_updates_last_data_before_refreshing_trend_flip_ui():
@@ -160,6 +175,8 @@ def test_watchlist_trends_shows_strength_and_trade_score_columns():
     partial_source = WATCHLIST_PARTIAL_PATH.read_text()
     watchlist_source = WATCHLIST_JS_PATH.read_text()
 
+    assert 'data-side="all"' in partial_source
+    assert ">All</button>" in partial_source
     assert "Strength" in partial_source
     assert "Trade Score" in partial_source
     assert "WL_TREND_SORT_KEYS=['ticker','flip','strength','score']" in watchlist_source
@@ -174,6 +191,27 @@ def test_watchlist_trends_normalizes_preferred_strategy_payload_shape():
     assert "meta?.strategy_key" in watchlist_source
     assert "strategyKey:meta.strategy_key" in watchlist_source
     assert "const preferredStrategy=wlResolvePreferredStrategyMeta(row,flips);" in watchlist_source
+
+
+def test_watchlist_quotes_retry_and_show_syncing_until_prices_arrive():
+    watchlist_source = WATCHLIST_JS_PATH.read_text()
+
+    assert "const WL_QUOTES_RETRY_MS=4000;" in watchlist_source
+    assert "let wlQuotesLoading=false;" in watchlist_source
+    assert "let wlQuotesReady=false;" in watchlist_source
+    assert "function scheduleWLQuoteRetry(){" in watchlist_source
+    assert "wlQuotesLoading||(wlView==='watchlist'&&wlList.length&&!wlQuotesReady)" in watchlist_source
+    assert "if(!Array.isArray(quotes))throw new Error('Watchlist quotes payload was not an array');" in watchlist_source
+    assert "if((!quotes.length&&wlList.length)||hasMissingQuote||(!hasAnyQuote&&wlList.length)){" in watchlist_source
+
+
+def test_watchlist_trend_side_filter_supports_all_mode():
+    watchlist_source = WATCHLIST_JS_PATH.read_text()
+
+    assert "const WL_DEFAULT_TREND_SIDE='all';" in watchlist_source
+    assert "let wlTrendSide='all';" in watchlist_source
+    assert "['all','bullish','bearish','mixed']" in watchlist_source
+    assert "if(wlTrendSide==='all')return true;" in watchlist_source
 
 
 def test_index_includes_trade_score_modal_assets():

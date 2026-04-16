@@ -105,6 +105,42 @@ def test_compute_trade_setup_uses_preferred_strategy_bias_when_ticker_is_provide
 
 def test_strategy_preferences_route_known_classes_to_expected_strategies():
     assert ticker_category("BTC-USD") == "crypto"
+    assert ticker_category("CRWD") == "software"
+    assert ticker_category("ZS") == "software"
     assert preferred_strategy_for_ticker("BTC-USD")["strategy_key"] == "cci_trend"
+    assert preferred_strategy_for_ticker("CRWD")["strategy_key"] == "trend_sr_macro_v1"
+    assert preferred_strategy_for_ticker("ZS")["strategy_key"] == "trend_sr_macro_v1"
     assert preferred_strategy_for_ticker("NVDA")["strategy_key"] == "semis_persist_v1"
     assert preferred_strategy_for_ticker("SPX")["strategy_key"] == "ema_9_26"
+
+
+def test_compute_trade_setup_falls_back_to_weighted_bias_when_preferred_strategy_key_is_missing(sample_df):
+    weekly_df = sample_df.resample("W-FRI").agg(
+        {
+            "Open": "first",
+            "High": "max",
+            "Low": "min",
+            "Close": "last",
+            "Volume": "sum",
+        }
+    ).dropna(subset=["Open", "High", "Low", "Close"])
+
+    daily_flips = {
+        "ribbon": {"current_dir": "bearish"},
+        "ema_crossover": {"current_dir": "bearish"},
+        "cci_trend": {"current_dir": "bullish"},
+    }
+    weekly_flips = {
+        "ribbon": {"current_dir": "bearish"},
+        "ema_crossover": {"current_dir": "bearish"},
+        "cci_trend": {"current_dir": "bearish"},
+    }
+
+    payload = compute_trade_setup(sample_df, weekly_df, daily_flips, weekly_flips, ticker="CRWD")
+
+    assert payload["shared"]["preferred_strategy"]["strategy_key"] == "trend_sr_macro_v1"
+    assert payload["daily"]["trend_bias"] < 0
+    assert payload["weekly"]["trend_bias"] < 0
+    assert payload["daily"]["score"] < 0
+    assert payload["weekly"]["score"] < 0
+    assert "fallback" in payload["daily"]["trend_source_label"].lower()

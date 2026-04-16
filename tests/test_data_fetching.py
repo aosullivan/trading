@@ -125,3 +125,72 @@ def test_cached_download_reuses_stale_cache_when_it_already_extends_past_request
     )
 
     assert list(result.index.strftime("%Y-%m-%d")) == ["2025-12-29", "2025-12-30", "2025-12-31"]
+
+
+def test_cached_download_reuses_same_day_latest_interval_cache_without_refetch(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+    ticker = "AAPL"
+    interval = "1d"
+    dates = pd.bdate_range(end=pd.Timestamp.now().normalize(), periods=3)
+    cached_df = pd.DataFrame(
+        {"Close": [100.0, 101.0, 102.0]},
+        index=dates,
+    )
+    cached_df.to_csv(data_fetching._disk_cache_path(ticker, interval))
+    with open(data_fetching._meta_path(ticker, interval), "w") as handle:
+        json.dump({"last_fetch": time.time() - 3600}, handle)
+
+    def unexpected_download(*args, **kwargs):
+        raise AssertionError("same-day latest-bar cache should not refetch")
+
+    monkeypatch.setattr(data_fetching, "_yf_rate_limited_download", unexpected_download)
+
+    result = data_fetching.cached_download(
+        ticker,
+        start=dates[0].strftime("%Y-%m-%d"),
+        interval=interval,
+    )
+
+    assert list(result.index) == list(dates)
+
+
+def test_cached_download_returns_stale_latest_interval_cache_and_schedules_refresh(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+    ticker = "AAPL"
+    interval = "1d"
+    dates = pd.bdate_range(end=pd.Timestamp.now().normalize(), periods=3)
+    cached_df = pd.DataFrame(
+        {"Close": [100.0, 101.0, 102.0]},
+        index=dates,
+    )
+    cached_df.to_csv(data_fetching._disk_cache_path(ticker, interval))
+    with open(data_fetching._meta_path(ticker, interval), "w") as handle:
+        json.dump({"last_fetch": time.time() - 7200}, handle)
+
+    scheduled = []
+
+    def fake_schedule(refresh_ticker, refresh_kwargs):
+        scheduled.append((refresh_ticker, refresh_kwargs))
+
+    def unexpected_download(*args, **kwargs):
+        raise AssertionError("stale latest-bar cache should return immediately")
+
+    monkeypatch.setattr(data_fetching, "_schedule_lazy_cache_refresh", fake_schedule)
+    monkeypatch.setattr(data_fetching, "_yf_rate_limited_download", unexpected_download)
+
+    result = data_fetching.cached_download(
+        ticker,
+        start=dates[0].strftime("%Y-%m-%d"),
+        interval=interval,
+    )
+
+    assert list(result.index) == list(dates)
+    assert scheduled == [
+        (
+            ticker,
+            {
+                "start": dates[0].strftime("%Y-%m-%d"),
+                "interval": interval,
+            },
+        )
+    ]

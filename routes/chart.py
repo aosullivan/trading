@@ -1,3 +1,6 @@
+import hashlib
+import json
+import os
 import time
 from datetime import timedelta
 
@@ -91,8 +94,10 @@ from lib.trend_sr_macro_strategy import (
     trend_sr_macro_backtest_meta,
     trend_sr_macro_confirmation_config,
 )
+from lib.paths import get_user_data_path
 
 bp = Blueprint("chart", __name__)
+_CHART_PAYLOAD_CACHE_VERSION = 1
 
 CONFIRMATION_PRESETS = {
     "layered_30_70": {
@@ -162,6 +167,78 @@ WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
 
 def _elapsed_ms(started_at: float) -> int:
     return int(round((time.perf_counter() - started_at) * 1000))
+
+
+def _chart_payload_cache_dir() -> str:
+    path = get_user_data_path("data_cache", "chart_payloads")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _chart_payload_cache_scope(end: str) -> dict[str, str]:
+    today = pd.Timestamp.now().tz_localize(None).normalize().strftime("%Y-%m-%d")
+    if not end:
+        return {"mode": "live", "day": today}
+    try:
+        requested_end = _parse_end_date(end)
+    except Exception:
+        return {"mode": "live", "day": today}
+    if requested_end is None or requested_end >= pd.Timestamp.now().tz_localize(None).normalize():
+        return {"mode": "live", "day": today}
+    return {"mode": "historical", "day": ""}
+
+
+def _chart_payload_cache_path(kind: str, cache_key: str) -> str:
+    digest = hashlib.sha256(
+        f"{_CHART_PAYLOAD_CACHE_VERSION}:{kind}:{cache_key}".encode("utf-8")
+    ).hexdigest()
+    return os.path.join(_chart_payload_cache_dir(), f"{kind}_{digest}.json")
+
+
+def _read_chart_payload_cache(kind: str, cache_key: str, end: str) -> dict | None:
+    path = _chart_payload_cache_path(kind, cache_key)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as handle:
+            wrapper = json.load(handle)
+    except Exception:
+        return None
+
+    meta = wrapper.get("meta") or {}
+    scope = _chart_payload_cache_scope(end)
+    if meta.get("version") != _CHART_PAYLOAD_CACHE_VERSION:
+        return None
+    if meta.get("mode") != scope["mode"]:
+        return None
+    if scope["mode"] == "live" and meta.get("day") != scope["day"]:
+        return None
+
+    payload = wrapper.get("payload")
+    return payload if isinstance(payload, dict) else None
+
+
+def _write_chart_payload_cache(kind: str, cache_key: str, end: str, payload: dict):
+    path = _chart_payload_cache_path(kind, cache_key)
+    wrapper = {
+        "meta": {
+            "version": _CHART_PAYLOAD_CACHE_VERSION,
+            **_chart_payload_cache_scope(end),
+            "cached_at": int(time.time()),
+        },
+        "payload": payload,
+    }
+    tmp_path = f"{path}.tmp"
+    try:
+        with open(tmp_path, "w") as handle:
+            json.dump(wrapper, handle)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -942,6 +1019,22 @@ def chart_data():
                 _elapsed_ms(request_started_at),
             )
             return jsonify(cached_candles)
+        disk_cached_candles = _read_chart_payload_cache(
+            "candles",
+            candles_cache_key,
+            end,
+        )
+        if disk_cached_candles is not None:
+            _cache_set(candles_cache_key, disk_cached_candles, ttl=_CHART_CACHE_TTL)
+            current_app.logger.info(
+                "chart_data candles_only_disk_cache_hit ticker=%s interval=%s range=%s..%s total_ms=%s",
+                ticker,
+                interval,
+                start,
+                end or "latest",
+                _elapsed_ms(request_started_at),
+            )
+            return jsonify(disk_cached_candles)
     else:
         cached_chart = _cache_get(chart_cache_key)
         if cached_chart is not None:
@@ -959,6 +1052,27 @@ def chart_data():
                 _elapsed_ms(request_started_at),
             )
             return jsonify(cached_chart)
+        disk_cached_chart = _read_chart_payload_cache(
+            "chart",
+            chart_cache_key,
+            end,
+        )
+        if disk_cached_chart is not None:
+            if not disk_cached_chart.get("ticker_name"):
+                ticker_name = _resolve_cached_ticker_name(ticker)
+                if ticker_name:
+                    disk_cached_chart = {**disk_cached_chart, "ticker_name": ticker_name}
+                    _write_chart_payload_cache("chart", chart_cache_key, end, disk_cached_chart)
+            _cache_set(chart_cache_key, disk_cached_chart, ttl=_CHART_CACHE_TTL)
+            current_app.logger.info(
+                "chart_data disk_cache_hit ticker=%s interval=%s range=%s..%s total_ms=%s",
+                ticker,
+                interval,
+                start,
+                end or "latest",
+                _elapsed_ms(request_started_at),
+            )
+            return jsonify(disk_cached_chart)
 
     # Fetch full name for display
     ticker_name = _resolve_cached_ticker_name(ticker)
@@ -1031,6 +1145,7 @@ def chart_data():
         candles = _ohlcv_df_to_candles(df_view)
         payload = {"candles": candles, "ticker_name": ticker_name}
         _cache_set(candles_cache_key, payload, ttl=_CHART_CACHE_TTL)
+        _write_chart_payload_cache("candles", candles_cache_key, end, payload)
         current_app.logger.info(
             "chart_data candles_only ticker=%s interval=%s range=%s..%s bars=%s fetch_ms=%s total_ms=%s",
             ticker,
@@ -1901,6 +2016,7 @@ def chart_data():
     }
     mark_phase("payload_ms")
     _cache_set(chart_cache_key, payload, ttl=_CHART_CACHE_TTL)
+    _write_chart_payload_cache("chart", chart_cache_key, end, payload)
     current_app.logger.info(
         "chart_data timings ticker=%s interval=%s range=%s..%s rows=%s view_rows=%s indicator_bundle_hit=%s weekly_bundle_hit=%s metadata_ms=%s fetch_ms=%s frame_ms=%s indicators_ms=%s daily_flips_ms=%s weekly_ms=%s support_resistance_ms=%s payload_ms=%s total_ms=%s",
         ticker,

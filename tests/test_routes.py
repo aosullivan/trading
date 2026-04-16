@@ -9,9 +9,11 @@ import pandas as pd
 import numpy as np
 import pytest
 
+import lib.cache as cache_module
 from lib.backtesting import build_weekly_confirmed_ribbon_direction
 import routes.chart as chart_module
 import routes.portfolio as portfolio_module
+import routes.watchlist as watchlist_module
 from routes.chart import _align_weekly_direction_to_daily, _carry_neutral_direction
 
 PORTFOLIO_CONTRACT_RATCHET_PATH = (
@@ -88,6 +90,27 @@ class TestChartHelpers:
 
 
 class TestWatchlistAPI:
+    def test_schedule_daily_watchlist_prefetch_only_runs_once_per_day(self, client, tmp_path):
+        original_testing = client.application.config.get("TESTING")
+        original_state_file = watchlist_module._WATCHLIST_PREFETCH_STATE_FILE
+        client.application.config["TESTING"] = False
+        watchlist_module._WATCHLIST_PREFETCH_STATE_FILE = str(tmp_path / "prefetch_state.json")
+        watchlist_module._watchlist_daily_prefetch_running = False
+
+        with (
+            patch("routes.watchlist.load_watchlist", return_value=["AAPL", "TSLA"]),
+            patch("routes.watchlist.threading.Thread") as mock_thread,
+        ):
+            with client.application.app_context():
+                watchlist_module.schedule_daily_watchlist_prefetch()
+                watchlist_module.schedule_daily_watchlist_prefetch()
+
+        client.application.config["TESTING"] = original_testing
+        watchlist_module._WATCHLIST_PREFETCH_STATE_FILE = original_state_file
+        watchlist_module._watchlist_daily_prefetch_running = False
+
+        mock_thread.assert_called_once()
+
     def test_get_watchlist(self, client):
         resp = client.get("/api/watchlist")
         assert resp.status_code == 200
@@ -97,14 +120,17 @@ class TestWatchlistAPI:
         assert "TSLA" in data
 
     def test_add_ticker(self, client):
-        resp = client.post(
-            "/api/watchlist",
-            json={"ticker": "GOOG"},
-            content_type="application/json",
-        )
+        with patch("routes.watchlist._schedule_watchlist_history_prewarm") as mock_prewarm:
+            resp = client.post(
+                "/api/watchlist",
+                json={"ticker": "GOOG"},
+                content_type="application/json",
+            )
         assert resp.status_code == 200
         data = resp.get_json()
         assert "GOOG" in data
+        mock_prewarm.assert_called_once()
+        assert mock_prewarm.call_args.args[0] == ["GOOG"]
 
     def test_add_duplicate_ticker(self, client):
         client.post("/api/watchlist", json={"ticker": "AAPL"})
@@ -155,9 +181,14 @@ class TestWatchlistAPI:
             index=dates,
         )
 
-        resp = client.get("/api/watchlist/quotes")
-        assert resp.status_code == 200
-        data = resp.get_json()
+        data = []
+        for _ in range(30):
+            resp = client.get("/api/watchlist/quotes")
+            assert resp.status_code == 200
+            data = resp.get_json()
+            if data == [{"ticker": "UST10Y", "last": 92.8, "chg": 0.4, "chg_pct": 0.43}]:
+                break
+            time.sleep(0.01)
         mock_download.assert_called_once()
         assert mock_download.call_args.args[0] == ["IEF"]
         assert data == [{"ticker": "UST10Y", "last": 92.8, "chg": 0.4, "chg_pct": 0.43}]
@@ -197,12 +228,102 @@ class TestWatchlistAPI:
 
         mock_download.side_effect = side_effect
 
-        resp = client.get("/api/watchlist/quotes")
-        assert resp.status_code == 200
-        data = resp.get_json()
+        data = []
+        for _ in range(30):
+            resp = client.get("/api/watchlist/quotes")
+            assert resp.status_code == 200
+            data = resp.get_json()
+            if data == [
+                {"ticker": "AAPL", "last": 194.0, "chg": 1.0, "chg_pct": 0.52},
+                {"ticker": "TSLA", "last": 246.0, "chg": 2.0, "chg_pct": 0.82},
+            ]:
+                break
+            time.sleep(0.01)
         assert data == [
             {"ticker": "AAPL", "last": 194.0, "chg": 1.0, "chg_pct": 0.52},
             {"ticker": "TSLA", "last": 246.0, "chg": 2.0, "chg_pct": 0.82},
+        ]
+
+    @patch("lib.cache.yf.download")
+    def test_watchlist_quotes_retry_individual_symbols_when_bulk_rows_are_incomplete(
+        self, mock_download, client
+    ):
+        import routes.watchlist as watchlist_module
+
+        with open(watchlist_module.WATCHLIST_FILE, "w") as f:
+            json.dump(["CRM", "SNOW"], f)
+
+        dates = pd.bdate_range("2024-01-01", periods=5)
+
+        def make_df(closes):
+            closes = np.array(closes, dtype=float)
+            return pd.DataFrame(
+                {
+                    "Open": closes - 0.5,
+                    "High": closes + 1,
+                    "Low": closes - 1,
+                    "Close": closes,
+                    "Volume": np.full(len(closes), 1_000_000),
+                },
+                index=dates,
+            )
+
+        bulk = pd.concat(
+            {
+                "CRM": make_df([180, 181, 182, 183, 184]),
+                "SNOW": pd.DataFrame(
+                    {
+                        "Open": [np.nan],
+                        "High": [np.nan],
+                        "Low": [np.nan],
+                        "Close": [np.nan],
+                        "Volume": [np.nan],
+                    },
+                    index=[dates[-1]],
+                ),
+            },
+            axis=1,
+        )
+
+        def side_effect(tickers, **kwargs):
+            if tickers == ["CRM", "SNOW"]:
+                return bulk
+            if tickers == "SNOW":
+                return make_df([140, 142, 143, 144, 146])
+            raise AssertionError(f"Unexpected ticker request: {tickers}")
+
+        mock_download.side_effect = side_effect
+
+        data = []
+        for _ in range(30):
+            resp = client.get("/api/watchlist/quotes")
+            assert resp.status_code == 200
+            data = resp.get_json()
+            if data == [
+                {"ticker": "CRM", "last": 184.0, "chg": 1.0, "chg_pct": 0.55},
+                {"ticker": "SNOW", "last": 146.0, "chg": 2.0, "chg_pct": 1.39},
+            ]:
+                break
+            time.sleep(0.01)
+        assert data == [
+            {"ticker": "CRM", "last": 184.0, "chg": 1.0, "chg_pct": 0.55},
+            {"ticker": "SNOW", "last": 146.0, "chg": 2.0, "chg_pct": 1.39},
+        ]
+
+    @patch("lib.cache.yf.download")
+    def test_watchlist_quotes_return_snapshot_rows_while_refresh_is_in_flight(self, mock_download, client):
+        import routes.watchlist as watchlist_module
+
+        with open(watchlist_module.WATCHLIST_FILE, "w") as f:
+            json.dump(["CRM", "CRWD"], f)
+
+        mock_download.side_effect = lambda *args, **kwargs: time.sleep(0.2)
+
+        resp = client.get("/api/watchlist/quotes")
+        assert resp.status_code == 200
+        assert resp.get_json() == [
+            {"ticker": "CRM", "last": None, "chg": None, "chg_pct": None},
+            {"ticker": "CRWD", "last": None, "chg": None, "chg_pct": None},
         ]
 
     def test_watchlist_trends_returns_loading_then_cached_rows(self, client):
@@ -1169,6 +1290,38 @@ class TestChartAPI:
         assert len(data["candles"]) == n
         assert "strategies" not in data
         assert "supertrend_up" not in data
+
+    @patch("lib.cache.yf.download")
+    def test_chart_reuses_disk_cached_payload_after_memory_cache_is_cleared(
+        self, mock_download, client
+    ):
+        n = 100
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 140, n)
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+
+        url = "/api/chart?ticker=TSLA&start=2023-01-01&period=10&multiplier=3"
+        first = client.get(url)
+        assert first.status_code == 200
+        cache_module._cache.clear()
+
+        with (
+            patch("routes.chart.cached_download", side_effect=AssertionError("should use disk chart cache")),
+            patch("routes.chart._get_indicator_bundle", side_effect=AssertionError("should not recompute indicators")),
+        ):
+            second = client.get(url)
+
+        assert second.status_code == 200
+        assert len(second.get_json()["candles"]) == n
 
     @patch("lib.cache.yf.download")
     def test_supertrend_payload_includes_whitespace_breaks(self, mock_download, client):

@@ -219,6 +219,19 @@ function chartNavReset(){
   const to=_lastCandles[_lastCandles.length-1].time;
   chart.timeScale().setVisibleRange({from,to});
 }
+function chartRangePresetYears(years){
+  if(!chart||!_lastCandles?.length)return;
+  const latestTs=_lastCandles[_lastCandles.length-1].time;
+  const latestDate=new Date(latestTs*1000);
+  const fromDate=new Date(latestDate);
+  fromDate.setFullYear(fromDate.getFullYear()-years);
+  const firstCandleTs=_lastCandles[0].time;
+  const from=Math.max(Math.floor(fromDate.getTime()/1000),firstCandleTs);
+  chart.timeScale().setVisibleRange({from,to:latestTs});
+}
+function chartRangePresetReset(){
+  chartNavReset();
+}
 function chartNavFit(){
   if(!chart) return;
   chart.timeScale().fitContent();

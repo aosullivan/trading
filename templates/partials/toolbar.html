@@ -11,6 +11,12 @@
     <div class="tb-grp">
       <select id="interval" class="inp" style="cursor:pointer" onchange="chartStart=defaultStart(this.value);loadChart()"><option value="1d" selected>1D</option><option value="1wk">1W</option><option value="1mo">1M</option></select>
     </div>
+    <div class="tb-grp tb-range-presets" aria-label="Chart range presets">
+      <button type="button" class="tb-range-btn" onclick="chartRangePresetYears(1)">1Y</button>
+      <button type="button" class="tb-range-btn" onclick="chartRangePresetYears(3)">3Y</button>
+      <button type="button" class="tb-range-btn" onclick="chartRangePresetYears(5)">5Y</button>
+      <button type="button" class="tb-range-btn" onclick="chartRangePresetReset()">Default</button>
+    </div>
     <div class="tb-grp">
       <span class="tb-lbl">ST</span>
       <input type="number" id="period" value="10" min="1" max="100" class="inp inp-n">
