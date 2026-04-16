@@ -36,6 +36,7 @@ class TestIndexRoute:
         assert resp.status_code == 200
         assert b"Backtest Report" in resp.data
         assert b"strategy-select" in resp.data
+        assert b'option value="ema_9_26"' in resp.data
 
     def test_portfolio_page_exposes_strategy_and_basket_controls(self, client):
         resp = client.get("/portfolio")
@@ -43,6 +44,8 @@ class TestIndexRoute:
         assert b'option value="ribbon"' in resp.data
         assert b'option value="corpus_trend"' in resp.data
         assert b'option value="cci_hysteresis"' in resp.data
+        assert b'option value="monthly_breadth_guard_v1"' in resp.data
+        assert b'option value="monthly_breadth_guard_ladder_v1"' in resp.data
         assert b'option value="watchlist"' in resp.data
         assert b'option value="manual"' in resp.data
         assert b'option value="preset"' in resp.data
@@ -332,6 +335,66 @@ class TestPortfolioBacktestAPI:
         assert data["comparison"]["strategy_ending_equity"] > 0
         assert len(data["tickers"]) == len(portfolio_module._PORTFOLIO_PRESET_BASKETS["focus"])
         assert set(data["tickers"]) == set(portfolio_module._PORTFOLIO_PRESET_BASKETS["focus"])
+
+    @patch("routes.portfolio.compute_monthly_breadth_guard_directions")
+    @patch("routes.portfolio.cached_download")
+    def test_portfolio_backtest_supports_monthly_breadth_guard_strategy(
+        self, mock_download, mock_monthly_breadth_guard, client
+    ):
+        df = self._sample_portfolio_df()
+        mock_download.return_value = df
+        mock_monthly_breadth_guard.return_value = {
+            "MSFT": self._sample_direction(df),
+            "NVDA": pd.Series([-1, -1, 1, 1, 1], index=df.index),
+        }
+
+        resp = client.get(
+            "/api/portfolio/backtest",
+            query_string={
+                "stream": "0",
+                "strategy": "monthly_breadth_guard_v1",
+                "basket_source": "manual",
+                "tickers": "MSFT,NVDA",
+                "start": "2024-01-02",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["strategy"] == "monthly_breadth_guard_v1"
+        assert data["basket"]["requested_tickers"] == ["MSFT", "NVDA"]
+        assert set(data["tickers"]) == {"MSFT", "NVDA"}
+        mock_monthly_breadth_guard.assert_called_once()
+
+    @patch("routes.portfolio.compute_monthly_breadth_guard_ladder_directions")
+    @patch("routes.portfolio.cached_download")
+    def test_portfolio_backtest_supports_monthly_breadth_guard_ladder_strategy(
+        self, mock_download, mock_monthly_breadth_guard_ladder, client
+    ):
+        df = self._sample_portfolio_df()
+        mock_download.return_value = df
+        mock_monthly_breadth_guard_ladder.return_value = {
+            "MSFT": self._sample_direction(df),
+            "NVDA": pd.Series([-1, 1, 1, 1, 1], index=df.index),
+        }
+
+        resp = client.get(
+            "/api/portfolio/backtest",
+            query_string={
+                "stream": "0",
+                "strategy": "monthly_breadth_guard_ladder_v1",
+                "basket_source": "manual",
+                "tickers": "MSFT,NVDA",
+                "start": "2024-01-02",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["strategy"] == "monthly_breadth_guard_ladder_v1"
+        assert data["basket"]["requested_tickers"] == ["MSFT", "NVDA"]
+        assert set(data["tickers"]) == {"MSFT", "NVDA"}
+        mock_monthly_breadth_guard_ladder.assert_called_once()
 
     def test_portfolio_backtest_rejects_unsupported_strategy(self, client):
         resp = client.get(
@@ -888,6 +951,47 @@ class TestPortfolioCampaignAPI:
             "stale": False,
         }
 
+    def test_watchlist_trends_uses_stale_disk_rows_while_refreshing_new_version(self, client):
+        import routes.watchlist as watchlist_module
+
+        stale_row = {
+            "ticker": "AAPL",
+            "daily": {"ribbon": {"date": "2024-03-15", "dir": "bullish"}},
+            "weekly": {"ribbon": {"date": "2024-03-08", "dir": "bullish"}},
+        }
+        path = watchlist_module._trend_cache_path("AAPL")
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(
+            json.dumps(
+                {
+                    "version": watchlist_module._TRENDS_CACHE_VERSION - 1,
+                    "period": watchlist_module._TRENDS_PERIOD,
+                    "multiplier": watchlist_module._TRENDS_MULTIPLIER,
+                    "daily_date": "2024-03-15",
+                    "weekly_date": "2024-03-08",
+                    "row": stale_row,
+                }
+            )
+        )
+
+        with patch("routes.watchlist._build_watchlist_trends", return_value=[]):
+            resp = client.get("/api/watchlist/trends")
+
+        assert resp.status_code == 200
+        assert resp.get_json() == {
+            "items": [
+                {
+                    "ticker": "AAPL",
+                    "daily": stale_row["daily"],
+                    "weekly": stale_row["weekly"],
+                    "trade_setup": {},
+                },
+                {"ticker": "TSLA", "daily": {}, "weekly": {}, "trade_setup": {}},
+            ],
+            "loading": True,
+            "stale": False,
+        }
+
     def test_watchlist_trends_handles_malformed_rows(self, client):
         malformed = [
             {"ticker": "AAPL", "daily": {}, "weekly": {}, "trade_setup": {}},
@@ -1126,6 +1230,8 @@ class TestChartAPI:
             "corpus_trend",
             "corpus_trend_layered",
             "weekly_core_overlay_v1",
+            "ema_9_26",
+            "semis_persist_v1",
             "bb_breakout",
             "ema_crossover",
             "cci_trend",
@@ -1170,6 +1276,8 @@ class TestChartAPI:
         corpus = data["strategies"]["corpus_trend"]
         layered = data["strategies"]["corpus_trend_layered"]
         weekly_core_overlay = data["strategies"]["weekly_core_overlay_v1"]
+        ema_9_26 = data["strategies"]["ema_9_26"]
+        semis_persist = data["strategies"]["semis_persist_v1"]
         bb_breakout = data["strategies"]["bb_breakout"]
         ema_crossover = data["strategies"]["ema_crossover"]
         cci_trend = data["strategies"]["cci_trend"]
@@ -1184,6 +1292,8 @@ class TestChartAPI:
         assert corpus["confirmation_supported"] is True
         assert layered["confirmation_supported"] is False
         assert weekly_core_overlay["confirmation_supported"] is False
+        assert ema_9_26["confirmation_supported"] is True
+        assert semis_persist["confirmation_supported"] is False
         assert bb_breakout["confirmation_supported"] is True
         assert ema_crossover["confirmation_supported"] is True
         assert cci_trend["confirmation_supported"] is True
@@ -1215,6 +1325,7 @@ class TestChartAPI:
 
         ribbon = data["strategies"]["ribbon"]
         corpus = data["strategies"]["corpus_trend"]
+        ema_9_26 = data["strategies"]["ema_9_26"]
         ema_crossover = data["strategies"]["ema_crossover"]
         bb_breakout = data["strategies"]["bb_breakout"]
         cci_trend = data["strategies"]["cci_trend"]
@@ -1224,6 +1335,7 @@ class TestChartAPI:
         assert ribbon["confirmation_confirmed_fraction"] == pytest.approx(0.50)
         assert "base 50%" in ribbon["confirmation_hint"].lower()
         assert corpus["confirmation_supported"] is True
+        assert ema_9_26["confirmation_supported"] is True
         assert ema_crossover["confirmation_supported"] is True
         assert bb_breakout["confirmation_supported"] is True
         assert cci_trend["confirmation_supported"] is True

@@ -77,6 +77,20 @@ from lib.trend_ribbon_profile import (
     trend_ribbon_signal_kwargs,
 )
 from lib.support_resistance import compute_support_resistance
+from lib.trade_setup import compute_trade_setup
+from lib.specialized_strategies import (
+    EMA_9_26_KEY,
+    SEMIS_PERSIST_KEY,
+    compute_ema_9_26_strategy,
+    compute_semis_persist_strategy,
+    specialized_strategy_backtest_meta,
+)
+from lib.trend_sr_macro_strategy import (
+    TREND_SR_MACRO_KEY,
+    compute_trend_sr_macro_strategy,
+    trend_sr_macro_backtest_meta,
+    trend_sr_macro_confirmation_config,
+)
 
 bp = Blueprint("chart", __name__)
 
@@ -140,6 +154,7 @@ WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
         "corpus_trend",
         "bb_breakout",
         "ema_crossover",
+        EMA_9_26_KEY,
         "cci_trend",
     }
 )
@@ -590,6 +605,7 @@ def _get_indicator_bundle(
         EMA_FAST_PERIOD,
         EMA_SLOW_PERIOD,
     )
+    ema_9_26_bundle = compute_ema_9_26_strategy(df)
     macd_line, signal_line, macd_hist, macd_direction = compute_macd_crossover(df)
     donch_upper, donch_lower, donch_direction = compute_donchian_breakout(
         df,
@@ -622,6 +638,7 @@ def _get_indicator_bundle(
         entry_threshold=CCI_HYSTERESIS_ENTRY_THRESHOLD,
         exit_threshold=CCI_HYSTERESIS_EXIT_THRESHOLD,
     )
+    semis_persist_bundle = compute_semis_persist_strategy(df)
     orb_range_high, orb_range_low, orb_range_mid, orb_trend_ema, orb_direction = compute_orb_breakout(df)
     ribbon_center, ribbon_upper, ribbon_lower, ribbon_strength, ribbon_dir = compute_trend_ribbon(
         df,
@@ -637,6 +654,7 @@ def _get_indicator_bundle(
         "yearly_ma": yearly_ma_direction,
         "supertrend": direction,
         "ema_crossover": ema_direction,
+        EMA_9_26_KEY: ema_9_26_bundle["daily_direction"],
         "macd": macd_direction,
         "donchian": donch_direction,
         "corpus_trend": corpus_direction,
@@ -645,6 +663,7 @@ def _get_indicator_bundle(
         "parabolic_sar": psar_direction,
         "cci_trend": cci_direction,
         "cci_hysteresis": cci_hyst_direction,
+        SEMIS_PERSIST_KEY: semis_persist_bundle["daily_direction"],
         "orb_breakout": orb_direction,
         "ribbon": ribbon_dir,
     }
@@ -654,6 +673,10 @@ def _get_indicator_bundle(
         "ema_fast": ema_fast,
         "ema_slow": ema_slow,
         "ema_direction": ema_direction,
+        "ema_9_26_fast": ema_9_26_bundle["ema_fast"],
+        "ema_9_26_slow": ema_9_26_bundle["ema_slow"],
+        "ema_9_26_direction": ema_9_26_bundle["daily_direction"],
+        "ema_9_26_weekly_direction": ema_9_26_bundle["weekly_direction"],
         "macd_line": macd_line,
         "signal_line": signal_line,
         "macd_hist": macd_hist,
@@ -686,6 +709,11 @@ def _get_indicator_bundle(
         "cci_direction": cci_direction,
         "cci_hyst_val": cci_hyst_val,
         "cci_hyst_direction": cci_hyst_direction,
+        "semis_persist_fast": semis_persist_bundle["ema_fast"],
+        "semis_persist_slow": semis_persist_bundle["ema_slow"],
+        "semis_persist_breakout_high": semis_persist_bundle["breakout_high"],
+        "semis_persist_exit_low": semis_persist_bundle["exit_low"],
+        "semis_persist_direction": semis_persist_bundle["daily_direction"],
         "orb_range_high": orb_range_high,
         "orb_range_low": orb_range_low,
         "orb_range_mid": orb_range_mid,
@@ -696,7 +724,13 @@ def _get_indicator_bundle(
         "ribbon_lower": ribbon_lower,
         "ribbon_strength": ribbon_strength,
         "ribbon_dir": ribbon_dir,
-        "daily_flips": _last_flips_from_directions(direction_map),
+        "daily_flips": compute_all_trend_flips(
+            df,
+            period_val=period_val,
+            multiplier_val=multiplier_val,
+            ribbon_kwargs=_trend_ribbon_kwargs(ticker),
+            ticker=ticker,
+        ),
     }
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
     return bundle, False
@@ -725,6 +759,11 @@ def _get_weekly_bundle(
         df_w,
         EMA_FAST_PERIOD,
         EMA_SLOW_PERIOD,
+    )
+    _ema_9_26_fast, _ema_9_26_slow, ema_9_26_direction = compute_ema_crossover(
+        df_w,
+        9,
+        26,
     )
     _macd_line, _signal_line, _macd_hist, macd_direction = compute_macd_crossover(df_w)
     _donch_upper, _donch_lower, donch_direction = compute_donchian_breakout(
@@ -779,6 +818,7 @@ def _get_weekly_bundle(
         "yearly_ma": yearly_ma_direction,
         "supertrend": supertrend_direction,
         "ema_crossover": ema_direction,
+        EMA_9_26_KEY: ema_9_26_direction,
         "macd": macd_direction,
         "donchian": donch_direction,
         "corpus_trend": corpus_direction,
@@ -801,6 +841,7 @@ def _get_weekly_bundle(
             period_val=period_val,
             multiplier_val=multiplier_val,
             ribbon_kwargs=_trend_ribbon_kwargs(ticker, timeframe="weekly"),
+            ticker=ticker,
         ),
     }
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
@@ -1060,6 +1101,9 @@ def chart_data():
     ema_crossover_weekly_direction = _weekly_direction_for_strategy(
         weekly_bundle, "ema_crossover", df.index
     )
+    ema_9_26_weekly_direction = _weekly_direction_for_strategy(
+        weekly_bundle, EMA_9_26_KEY, df.index
+    )
     macd_weekly_direction = _weekly_direction_for_strategy(
         weekly_bundle, "macd", df.index
     )
@@ -1116,6 +1160,16 @@ def chart_data():
         active_mm_config,
         weekly_direction=ema_crossover_weekly_direction,
         confirmation_config=strategy_confirmation_config("ema_crossover"),
+    )
+    ema_9_26_direction = indicator_bundle["ema_9_26_direction"]
+    ema_9_26_trades, ema_9_26_summary, ema_9_26_equity_curve = _run_direction_backtest(
+        df_view,
+        ema_9_26_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        weekly_direction=ema_9_26_weekly_direction,
+        confirmation_config=strategy_confirmation_config(EMA_9_26_KEY),
     )
 
     macd_line = indicator_bundle["macd_line"]
@@ -1313,6 +1367,27 @@ def chart_data():
         active_mm_config,
         strategy_key="cci_hysteresis",
     )
+    semis_persist_direction = indicator_bundle["semis_persist_direction"]
+    semis_persist_trades, semis_persist_summary, semis_persist_equity_curve = _run_direction_backtest(
+        df_view,
+        semis_persist_direction,
+        df.index,
+        df_view.index,
+        active_mm_config,
+        strategy_key=SEMIS_PERSIST_KEY,
+    )
+    trend_sr_macro_bundle = compute_trend_sr_macro_strategy(df)
+    trend_sr_macro_direction = trend_sr_macro_bundle["daily_direction"]
+    trend_sr_macro_weekly_direction = trend_sr_macro_bundle["weekly_direction"]
+    trend_sr_macro_trades, trend_sr_macro_summary, trend_sr_macro_equity_curve = _run_direction_backtest(
+        df_view,
+        trend_sr_macro_direction,
+        df.index,
+        df_view.index,
+        mm_config=None,
+        weekly_direction=trend_sr_macro_weekly_direction,
+        confirmation_config=trend_sr_macro_confirmation_config(),
+    )
 
     orb_range_high = indicator_bundle["orb_range_high"]
     orb_range_low = indicator_bundle["orb_range_low"]
@@ -1373,6 +1448,7 @@ def chart_data():
                 period_val=period_val,
                 multiplier_val=multiplier_val,
                 ribbon_kwargs=_trend_ribbon_kwargs(ticker),
+                ticker=ticker,
             )
         except Exception:
             daily_flips = {}
@@ -1448,6 +1524,7 @@ def chart_data():
     sma_100w = []
     sma_200w = []
     weekly_flips = {}
+    df_w = pd.DataFrame()
     try:
         if source_interval == "1wk":
             df_w = source_df.copy()
@@ -1533,6 +1610,7 @@ def chart_data():
     # --- Support / Resistance levels ---
     sr_levels = compute_support_resistance(df, max_levels=20)
     mark_phase("support_resistance_ms")
+    trade_setup = compute_trade_setup(df, df_w, daily_flips, weekly_flips, ticker=ticker)
 
     # --- Volumes ---
     volumes = []
@@ -1734,6 +1812,18 @@ def chart_data():
                     strategy_confirmation_meta("ema_crossover"),
                 ),
             ),
+            EMA_9_26_KEY: _strategy_payload(
+                ema_9_26_trades,
+                ema_9_26_summary,
+                ema_9_26_equity_curve,
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        ema_9_26_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    strategy_confirmation_meta(EMA_9_26_KEY),
+                    specialized_strategy_backtest_meta(EMA_9_26_KEY),
+                ),
+            ),
             "cci_trend": _strategy_payload(
                 cci_trades,
                 cci_summary,
@@ -1753,6 +1843,26 @@ def chart_data():
                 backtest_meta=_confirmation_meta(
                     confirmation_config,
                     supported=False,
+                ),
+            ),
+            SEMIS_PERSIST_KEY: _strategy_payload(
+                semis_persist_trades,
+                semis_persist_summary,
+                semis_persist_equity_curve,
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        semis_persist_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    specialized_strategy_backtest_meta(SEMIS_PERSIST_KEY),
+                ),
+            ),
+            TREND_SR_MACRO_KEY: _strategy_payload(
+                trend_sr_macro_trades,
+                trend_sr_macro_summary,
+                trend_sr_macro_equity_curve,
+                buy_hold_equity_curve=buy_hold_equity_curve,
+                backtest_meta=trend_sr_macro_backtest_meta(
+                    trend_sr_macro_bundle
                 ),
             ),
             "polymarket": _strategy_payload(
@@ -1787,6 +1897,7 @@ def chart_data():
         },
         "vol_profile": vol_profile,
         "trend_flips": {"daily": daily_flips, "weekly": weekly_flips},
+        "trade_setup": trade_setup,
     }
     mark_phase("payload_ms")
     _cache_set(chart_cache_key, payload, ttl=_CHART_CACHE_TTL)

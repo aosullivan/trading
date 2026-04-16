@@ -13,6 +13,8 @@ CHART_SIGNALS_JS_PATH = ROOT / "static" / "js" / "chart_signals.js"
 CHART_SR_JS_PATH = ROOT / "static" / "js" / "chart_sr.js"
 BACKTEST_PANEL_JS_PATH = ROOT / "static" / "js" / "backtest_panel.js"
 BACKTEST_REPORT_JS_PATH = ROOT / "static" / "js" / "backtest_report.js"
+WATCHLIST_PARTIAL_PATH = ROOT / "templates" / "partials" / "watchlist.html"
+WATCHLIST_JS_PATH = ROOT / "static" / "js" / "watchlist.js"
 
 
 def test_price_overlays_opt_out_of_autoscale():
@@ -76,10 +78,13 @@ def test_template_exposes_monthly_interval_option_and_label():
 
 def test_template_exposes_trend_flip_pulse_controls():
     toolbar_source = TOOLBAR_PARTIAL_PATH.read_text()
+    template_source = TEMPLATE_PATH.read_text()
     signals_source = CHART_SIGNALS_JS_PATH.read_text()
     assert 'id="trend-flip-controls"' in toolbar_source
     assert 'id="trend-flip-aggregate-btn"' in toolbar_source
     assert 'id="trend-flip-aggregate-popover"' in toolbar_source
+    assert "strategy_preference_helpers.js" in template_source
+    assert "trend_pulse_helpers.js" in template_source
     assert "function renderTrendFlipAggregate(){" in signals_source
     assert "function toggleTrendFlipAggregate(e){" in signals_source
     assert "Signal Pulse" in signals_source
@@ -149,3 +154,36 @@ def test_moving_average_legend_exposes_auto_and_100w_options():
     assert "'1wk':['sma50w','sma100w','sma200w']" in source
     assert "function syncAutoMovingAverages(){" in source
     assert "label:'100W MA'" in source
+
+
+def test_watchlist_trends_shows_strength_and_trade_score_columns():
+    partial_source = WATCHLIST_PARTIAL_PATH.read_text()
+    watchlist_source = WATCHLIST_JS_PATH.read_text()
+
+    assert "Strength" in partial_source
+    assert "Trade Score" in partial_source
+    assert "WL_TREND_SORT_KEYS=['ticker','flip','strength','score']" in watchlist_source
+    assert "wlTrendSortKey==='strength'" in watchlist_source
+    assert "openWatchlistTradeScore" in watchlist_source
+
+
+def test_watchlist_trends_normalizes_preferred_strategy_payload_shape():
+    watchlist_source = WATCHLIST_JS_PATH.read_text()
+
+    assert "function wlNormalizePreferredStrategyMeta(meta,ticker){" in watchlist_source
+    assert "meta?.strategy_key" in watchlist_source
+    assert "strategyKey:meta.strategy_key" in watchlist_source
+    assert "const preferredStrategy=wlResolvePreferredStrategyMeta(row,flips);" in watchlist_source
+
+
+def test_index_includes_trade_score_modal_assets():
+    index_source = TEMPLATE_PATH.read_text()
+    modal_source = (ROOT / "templates" / "partials" / "trade_score_modal.html").read_text()
+    modal_js_source = (ROOT / "static" / "js" / "trade_score_modal.js").read_text()
+
+    assert "partials/trade_score_modal.html" in index_source
+    assert "js/trade_score_modal.js" in index_source
+    assert 'id="trade-score-modal"' in modal_source
+    assert "function openTradeScoreDetails" in modal_js_source
+    assert "TRADE_SCORE_FORMULA_TEXT" in modal_js_source
+    assert "tradeScoreBreakdown" in modal_js_source

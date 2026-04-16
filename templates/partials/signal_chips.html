@@ -1,232 +1,58 @@
-  <!-- SIGNAL CHIPS -->
+  <!-- STRATEGY CHIPS -->
   <div class="overlays">
-		    <div class="chip" onclick="toggleSignal(this,'ribbon')"><span class="cd" style="background:#7f98ff"></span>Trend Ribbon<div class="chip-tip" onclick="event.stopPropagation()">
-	      <h4>Trend Ribbon</h4>
-	      <div class="tip-sub">Adaptive Trend Overlay</div>
-		      <p>Trend Ribbon plots a <strong>smoothed center line</strong> with an adaptive band that widens as trend conviction strengthens and narrows before potential reversals. Green shading marks bullish structure; red shading marks bearish structure. The strategy is <strong>fully in</strong> when daily and weekly ribbons confirm bull regime, <strong>fully out</strong> once daily flips bear while weekly is no longer bullish, and then stays locked out for a cooldown sized to the prior bull cycle.</p>
-	      <div class="tip-section">How To Read It</div>
-	      <ul>
-	        <li>Price holding above a green ribbon suggests bull-regime continuation</li>
-	        <li>Compression toward the center line suggests momentum is fading</li>
-	        <li>A daily color flip matters most when the weekly ribbon confirms the same regime</li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-			      <div class="tip-example">BTC's ribbon stays wide and green through a bull leg, then compresses and flips as momentum fades. After a confirmed bear exit, the model waits through a proportional cooldown before accepting the next bull flip, which helps avoid mid-bear fake rallies.</div>
-		    </div></div>
-		    <div class="chip" onclick="toggleSignal(this,'cb50')"><span class="cd" style="background:#00d4ff"></span>CB50<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>Channel Breakout 50</h4>
-		      <div class="tip-sub">Close-Based Breakout (Trend Following Ch.45)</div>
-		      <p>Goes <strong>long</strong> when today's close equals the <strong>highest close</strong> over the last 50 days, and exits when it equals the <strong>lowest close</strong>. An always-in reversal system from Michael Covel's <em>Trend Following</em>.</p>
-		      <div class="tip-section">Calculation</div>
-		      <ul>
-		        <li><strong>HC50</strong> = highest close in last 50 days</li>
-		        <li><strong>LC50</strong> = lowest close in last 50 days</li>
-		        <li><strong>Buy</strong> when Close = HC50</li>
-		        <li><strong>Sell</strong> when Close = LC50</li>
-		      </ul>
-		      <div class="tip-section">Example</div>
-		      <div class="tip-example">BTC breaks to a new 50-day closing high at $68k → CB50 goes long. It stays long until price makes a new 50-day closing low, capturing the full trend move.</div>
-		    </div></div>
-		    <div class="chip" onclick="toggleSignal(this,'cb150')"><span class="cd" style="background:#26c6da"></span>CB150<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>Channel Breakout 150</h4>
-		      <div class="tip-sub">Close-Based Breakout (Trend Following Ch.45)</div>
-		      <p>Same logic as CB50 but with a <strong>150-day</strong> lookback. Longer-term variant that historically showed higher returns and Sharpe ratio (0.89 vs 0.56) but less positive skew.</p>
-		      <div class="tip-section">Calculation</div>
-		      <ul>
-		        <li><strong>HC150</strong> = highest close in last 150 days</li>
-		        <li><strong>LC150</strong> = lowest close in last 150 days</li>
-		        <li><strong>Buy</strong> when Close = HC150</li>
-		        <li><strong>Sell</strong> when Close = LC150</li>
-		      </ul>
-		      <div class="tip-section">Example</div>
-		      <div class="tip-example">TSLA makes a new 150-day closing high → CB150 enters. This longer lookback filters out more noise than CB50, producing fewer trades with larger average winners.</div>
-		    </div></div>
-		    <div class="chip" onclick="toggleSignal(this,'sma_10_100')"><span class="cd" style="background:#66bb6a"></span>SMA 10/100<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>SMA 10/100 Cross</h4>
-		      <div class="tip-sub">Moving Average Crossover (Trend Following Ch.45)</div>
-		      <p>Long when the <strong>10-day SMA</strong> crosses above the <strong>100-day SMA</strong>. One of two crossover systems from Covel's backtested trend following framework.</p>
-		      <div class="tip-section">Calculation</div>
-		      <ul>
-		        <li><strong>SMA(10)</strong> = average of last 10 closes</li>
-		        <li><strong>SMA(100)</strong> = average of last 100 closes</li>
-		        <li><strong>Buy</strong> when SMA(10) &gt; SMA(100)</li>
-		        <li><strong>Sell</strong> when SMA(10) &lt; SMA(100)</li>
-		      </ul>
-		      <div class="tip-section">Example</div>
-		      <div class="tip-example">AAPL's 10-day SMA crosses above its 100-day SMA after a pullback → bullish crossover. The fast average accelerating above the slow one signals trend resumption.</div>
-		    </div></div>
-		    <div class="chip" onclick="toggleSignal(this,'sma_10_200')"><span class="cd" style="background:#42a5f5"></span>SMA 10/200<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>SMA 10/200 Cross</h4>
-		      <div class="tip-sub">Moving Average Crossover (Trend Following Ch.45)</div>
-		      <p>Same as SMA 10/100 but with a <strong>200-day</strong> slow average. Even slower to turn, filtering more noise at the cost of later entries and exits.</p>
-		      <div class="tip-section">Calculation</div>
-		      <ul>
-		        <li><strong>SMA(10)</strong> = average of last 10 closes</li>
-		        <li><strong>SMA(200)</strong> = average of last 200 closes</li>
-		        <li><strong>Buy</strong> when SMA(10) &gt; SMA(200)</li>
-		        <li><strong>Sell</strong> when SMA(10) &lt; SMA(200)</li>
-		      </ul>
-		      <div class="tip-section">Example</div>
-		      <div class="tip-example">NVDA's 10-day SMA crosses above the 200-day SMA → strong trend confirmation. This is a more conservative filter than the 10/100, staying out of choppier intermediate swings.</div>
-		    </div></div>
-		    <div class="chip" onclick="toggleSignal(this,'ema_trend')"><span class="cd" style="background:#ab47bc"></span>EMA Trend<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>EMA Trend Signal (5-month)</h4>
-		      <div class="tip-sub">Academic Momentum (Lemperiere et al., Ch.42)</div>
-		      <p>Measures <strong>price deviation from its EMA</strong>, normalized by volatility. Positive signal = bullish, negative = bearish. Uses a ~105 trading day (5-month) decay rate.</p>
-		      <div class="tip-section">Calculation</div>
-		      <ul>
-		        <li><strong>EMA ref</strong> = exponential moving average, span = 105 days</li>
-		        <li><strong>Vol</strong> = EMA of absolute daily price changes, span = 105 days</li>
-		        <li><strong>Signal</strong> = (Price &minus; EMA ref) / Vol</li>
-		        <li><strong>Buy</strong> when Signal &gt; 0; <strong>Sell</strong> when Signal &lt; 0</li>
-		      </ul>
-		      <div class="tip-section">Example</div>
-		      <div class="tip-example">ETH trades well above its 5-month EMA with rising signal strength → confirmed uptrend. When price dips below the EMA and signal turns negative, the model exits.</div>
-		    </div></div>
-		    <div class="chip" onclick="toggleSignal(this,'yearly_ma')"><span class="cd" style="background:#ef5350"></span>1Y MA<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>1-Year MA Trend</h4>
-		      <div class="tip-sub">Trend Filter (Koijen et al., Ch.49)</div>
-		      <p>The trend component of the <strong>carry + trend</strong> combination strategy. Long when price is above its <strong>252-day (1-year) simple moving average</strong>, flat when below.</p>
-		      <div class="tip-section">Calculation</div>
-		      <ul>
-		        <li><strong>SMA(252)</strong> = average of last 252 closes (~1 trading year)</li>
-		        <li><strong>Buy</strong> when Close &gt; SMA(252)</li>
-		        <li><strong>Sell</strong> when Close &lt; SMA(252)</li>
-		      </ul>
-		      <div class="tip-section">Example</div>
-		      <div class="tip-example">SPY holds above its 1-year MA through a bull market → stays long. When a correction pushes price below the 252-day average, the model steps aside to avoid drawdowns.</div>
-		    </div></div>
-		    <div class="chip" onclick="toggleSignal(this,'supertrend')"><span class="cd" style="background:#5b7fff"></span>Supertrend<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>Supertrend (10/2.5)</h4>
-	      <div class="tip-sub">Trend-Following Overlay</div>
-		      <p>Supertrend is a <strong>trend-following indicator</strong> plotted on the price chart. It uses <strong>ATR (Average True Range)</strong> to set dynamic stop levels above or below price, flipping direction when price crosses the band. The tuned default uses <strong>10 periods</strong> and a <strong>2.5x ATR multiplier</strong>.</p>
-	      <div class="tip-section">Calculation</div>
-	      <ul>
-		        <li>Compute ATR over <code>n</code> periods (default 10)</li>
-	        <li><strong>Upper Band</strong> = <code>(High + Low) / 2 + Multiplier × ATR</code></li>
-	        <li><strong>Lower Band</strong> = <code>(High + Low) / 2 − Multiplier × ATR</code></li>
-	        <li>If close &gt; previous upper band → trend = <strong>UP</strong> (lower band shown)</li>
-	        <li>If close &lt; previous lower band → trend = <strong>DOWN</strong> (upper band shown)</li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-	      <div class="tip-example">TSLA closes above the upper band at $245 → Supertrend flips bullish, green line appears below price as a trailing stop. As long as price stays above it, the uptrend is intact.</div>
-	      <div class="tip-section">Links</div>
-	      <p><a href="https://www.investopedia.com/supertrend-indicator-7976167" target="_blank">Investopedia: Supertrend</a> · <a href="https://www.tradingview.com/support/solutions/43000634738/" target="_blank">TradingView Docs</a></p>
-	    </div></div>
-		    <div class="chip" onclick="toggleSignal(this,'ema_crossover')"><span class="cd" style="background:#ff9800"></span>EMA Cross<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>EMA Crossover (5/20)</h4>
-	      <div class="tip-sub">Trend / Momentum</div>
-		      <p>Uses two <strong>Exponential Moving Averages</strong> — a fast EMA(5) and a slow EMA(20). An EMA gives more weight to recent prices, making it more responsive than a simple moving average.</p>
-	      <div class="tip-section">Calculation</div>
-	      <ul>
-	        <li><code>EMA = Price × k + EMA_prev × (1 − k)</code></li>
-	        <li>Where <code>k = 2 / (period + 1)</code></li>
-		        <li><strong>Buy</strong> when EMA(5) crosses <em>above</em> EMA(20)</li>
-		        <li><strong>Sell</strong> when EMA(5) crosses <em>below</em> EMA(20)</li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-		      <div class="tip-example">AAPL's EMA(5) crosses above EMA(20) at $190 → bullish signal. The faster average is accelerating above the slower one, suggesting upward momentum.</div>
-	      <div class="tip-section">Links</div>
-	      <p><a href="https://www.investopedia.com/terms/e/ema.asp" target="_blank">Investopedia: EMA</a> · <a href="https://school.stockcharts.com/doku.php?id=technical_indicators:moving_averages" target="_blank">StockCharts: Moving Averages</a></p>
-	    </div></div>
-	    <div class="chip" onclick="toggleSignal(this,'macd')"><span class="cd" style="background:#b050ff"></span>MACD<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>MACD — Moving Average Convergence Divergence (16/32/9)</h4>
-	      <div class="tip-sub">Momentum Oscillator</div>
-	      <p>MACD measures the <strong>relationship between two EMAs</strong> to identify momentum changes and potential trend reversals. It oscillates around zero with no upper/lower bound.</p>
-	      <div class="tip-section">Calculation</div>
-	      <ul>
-		        <li><strong>MACD Line</strong> = <code>EMA(16) − EMA(32)</code></li>
-	        <li><strong>Signal Line</strong> = <code>EMA(9) of MACD Line</code></li>
-	        <li><strong>Histogram</strong> = <code>MACD Line − Signal Line</code></li>
-	        <li><strong>Buy</strong> when MACD crosses above Signal Line</li>
-	        <li><strong>Sell</strong> when MACD crosses below Signal Line</li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-	      <div class="tip-example">NVDA's MACD line crosses above the signal line while both are below zero → bullish crossover. The histogram flips positive, confirming momentum is shifting upward even though price hasn't broken out yet.</div>
-	      <div class="tip-section">Links</div>
-	      <p><a href="https://www.investopedia.com/terms/m/macd.asp" target="_blank">Investopedia: MACD</a> · <a href="https://www.tradingview.com/support/solutions/43000502344/" target="_blank">TradingView: MACD</a></p>
-	    </div></div>
-	    <div class="chip" onclick="toggleSignal(this,'donchian')"><span class="cd" style="background:#ffd644"></span>Donchian<div class="chip-tip" onclick="event.stopPropagation()">
-	      <h4>Donchian Channel Breakout (10)</h4>
-	      <div class="tip-sub">Breakout / Volatility</div>
-	      <p>Plots the <strong>highest high</strong> and <strong>lowest low</strong> over a lookback period as a channel. Price breaking above the upper band signals bullish breakout; below the lower band signals bearish.</p>
-	      <div class="tip-section">Calculation</div>
-	      <ul>
-	        <li><strong>Upper Band</strong> = <code>Highest High over n periods</code></li>
-	        <li><strong>Lower Band</strong> = <code>Lowest Low over n periods</code></li>
-	        <li><strong>Buy</strong> when close breaks above upper band</li>
-	        <li><strong>Sell</strong> when close breaks below lower band</li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-	      <div class="tip-example">BTC consolidates for 10 days between $60k-$64k. Price breaks above $64k (the Donchian upper band) → breakout buy signal. This is the basis of the famous "Turtle Trading" strategy.</div>
-	      <div class="tip-section">Links</div>
-	      <p><a href="https://www.investopedia.com/terms/d/donchianchannels.asp" target="_blank">Investopedia: Donchian</a> · <a href="https://www.tradingview.com/support/solutions/43000502253/" target="_blank">TradingView: Donchian</a></p>
-	    </div></div>
-	    <div class="chip" onclick="toggleSignal(this,'bb_breakout')"><span class="cd" style="background:#ff5274"></span>BB Breakout<div class="chip-tip" onclick="event.stopPropagation()">
-	      <h4>Bollinger Bands Breakout (30/1.5)</h4>
-	      <div class="tip-sub">Volatility / Mean Reversion</div>
-		      <p>Bollinger Bands plot a <strong>middle SMA</strong> with upper/lower bands at <strong>±1.5 standard deviations</strong>. A close outside signals a volatility breakout, while a break back below the middle band exits the long bias.</p>
-	      <div class="tip-section">Calculation</div>
-	      <ul>
-		        <li><strong>Middle Band</strong> = <code>SMA(30)</code></li>
-		        <li><strong>Upper Band</strong> = <code>SMA(30) + 1.5 × StdDev(30)</code></li>
-		        <li><strong>Lower Band</strong> = <code>SMA(30) − 1.5 × StdDev(30)</code></li>
-	        <li><strong>Buy</strong> when close breaks above the upper band</li>
-	        <li><strong>Sell</strong> when close breaks below the lower band</li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-	      <div class="tip-example">AMZN squeezes inside narrowing Bollinger Bands (low volatility). Price suddenly closes above the upper band at $185 → breakout signal. The "squeeze" preceding it often leads to explosive moves.</div>
-	      <div class="tip-section">Links</div>
-	      <p><a href="https://www.investopedia.com/terms/b/bollingerbands.asp" target="_blank">Investopedia: Bollinger Bands</a> · <a href="https://www.tradingview.com/support/solutions/43000501840/" target="_blank">TradingView: BB</a></p>
-	    </div></div>
-	    <div class="chip" onclick="toggleSignal(this,'keltner')"><span class="cd" style="background:#e040fb"></span>Keltner<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>Keltner Channel (30/10/1.5)</h4>
-	      <div class="tip-sub">Volatility / Trend</div>
-		      <p>Similar to Bollinger Bands but uses <strong>ATR instead of standard deviation</strong> for the band width. This tuned setup uses a slower <strong>EMA(30)</strong> center and <strong>1.5 × ATR(10)</strong> envelopes to smooth noise while preserving breakout responsiveness.</p>
-	      <div class="tip-section">Calculation</div>
-	      <ul>
-		        <li><strong>Middle</strong> = <code>EMA(30)</code></li>
-		        <li><strong>Upper</strong> = <code>EMA(30) + 1.5 × ATR(10)</code></li>
-		        <li><strong>Lower</strong> = <code>EMA(30) − 1.5 × ATR(10)</code></li>
-	        <li><strong>Buy</strong> when close breaks above the upper channel</li>
-	        <li><strong>Sell</strong> when close breaks below the lower channel</li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-	      <div class="tip-example">META trades within Keltner Channels for weeks. A strong earnings gap pushes price above the upper channel → breakout confirmed. Keltner + Bollinger Band squeeze (BB inside Keltner) is a popular combo for finding explosive setups.</div>
-	      <div class="tip-section">Links</div>
-	      <p><a href="https://www.investopedia.com/terms/k/keltnerchannel.asp" target="_blank">Investopedia: Keltner</a> · <a href="https://www.tradingview.com/support/solutions/43000502266/" target="_blank">TradingView: Keltner</a></p>
-	    </div></div>
-	    <div class="chip" onclick="toggleSignal(this,'parabolic_sar')"><span class="cd" style="background:#76ff03"></span>SAR<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>Parabolic SAR (0.01/0.01/0.1)</h4>
-	      <div class="tip-sub">Trend / Trailing Stop</div>
-	      <p>Places dots <strong>above or below price</strong> to indicate trend direction. The dots accelerate toward price as the trend matures, eventually triggering a reversal when price touches a dot.</p>
-	      <div class="tip-section">Calculation</div>
-	      <ul>
-	        <li><code>SAR_next = SAR + AF × (EP − SAR)</code></li>
-		        <li><strong>AF</strong> (Acceleration Factor) starts at 0.01, increments by 0.01 each new extreme, max 0.10</li>
-	        <li><strong>EP</strong> (Extreme Point) = highest high in uptrend / lowest low in downtrend</li>
-	        <li>Dots below price = <strong>bullish</strong>; dots above = <strong>bearish</strong></li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-	      <div class="tip-example">GOOGL is in an uptrend with SAR dots below price. As the trend extends, dots accelerate closer to price. When price finally dips below a dot → SAR flips bearish, dots appear above. This acts as both a signal and trailing stop-loss level.</div>
-	      <div class="tip-section">Links</div>
-	      <p><a href="https://www.investopedia.com/terms/p/parabolicindicator.asp" target="_blank">Investopedia: Parabolic SAR</a> · <a href="https://www.tradingview.com/support/solutions/43000502345/" target="_blank">TradingView: SAR</a></p>
-	    </div></div>
-	    <div class="chip" onclick="toggleSignal(this,'cci_trend')"><span class="cd" style="background:#ff6e40"></span>CCI<div class="chip-tip" onclick="event.stopPropagation()">
-		      <h4>CCI — Commodity Channel Index (30/80)</h4>
-	      <div class="tip-sub">Momentum Oscillator</div>
-		      <p>Measures how far price deviates from its <strong>statistical mean</strong>. Despite its name, it works on any asset. Readings above +80 suggest overbought/strong uptrend; below -80 suggest oversold/strong downtrend.</p>
-	      <div class="tip-section">Calculation</div>
-	      <ul>
-	        <li><strong>Typical Price</strong> = <code>(High + Low + Close) / 3</code></li>
-		        <li><code>CCI = (TP − SMA(TP, 30)) / (0.015 × Mean Deviation)</code></li>
-	        <li>The 0.015 constant scales ~75% of values between −100 and +100</li>
-		        <li><strong>Buy</strong> when CCI crosses above +80 (momentum breakout)</li>
-		        <li><strong>Sell</strong> when CCI crosses below −80</li>
-	      </ul>
-	      <div class="tip-section">Example</div>
-		      <div class="tip-example">AMD's CCI surges from -40 to +110 → strong bullish momentum. The reading above +80 confirms price is trending significantly above its 30-period mean, suggesting institutional buying pressure.</div>
-	      <div class="tip-section">Links</div>
-	      <p><a href="https://www.investopedia.com/terms/c/commoditychannelindex.asp" target="_blank">Investopedia: CCI</a> · <a href="https://www.tradingview.com/support/solutions/43000502001/" target="_blank">TradingView: CCI</a></p>
-	    </div></div>
-	  </div>
+    <div class="chip on" onclick="toggleSignal(this,'ribbon')"><span class="cd" style="background:#7f98ff"></span>Trend Ribbon<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>Trend-Driven</h4>
+      <div class="tip-sub">Maintained</div>
+      <p>The main promoted ribbon-regime strategy. It uses daily ribbon flips, weekly confirmation, and cooldown logic to stay with major trends while avoiding fast re-entry after bearish breaks.</p>
+    </div></div>
+    <div class="chip" onclick="toggleSignal(this,'corpus_trend')"><span class="cd" style="background:#4dd0e1"></span>Corpus Trend<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>Corpus Trend</h4>
+      <div class="tip-sub">Maintained</div>
+      <p>Donchian breakout entries with ATR-aware trend discipline. Good for comparing a more classic trend-following baseline against the ribbon family.</p>
+    </div></div>
+    <div class="chip" onclick="toggleSignal(this,'corpus_trend_layered')"><span class="cd" style="background:#26c6da"></span>Corpus Layered<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>Corpus Trend Layered</h4>
+      <div class="tip-sub">Maintained Comparison</div>
+      <p>A staged corpus variant used mainly for comparison. It behaves like corpus trend but splits exposure into layered sleeves instead of using one all-in path.</p>
+    </div></div>
+    <div class="chip" onclick="toggleSignal(this,'cci_hysteresis')"><span class="cd" style="background:#ff8a65"></span>CCI Hysteresis<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>CCI Hysteresis</h4>
+      <div class="tip-sub">Maintained</div>
+      <p>The current promoted focus-basket baseline. It enters only after strong CCI expansion and exits with a looser lower threshold, which makes the long bias stickier than the basic CCI trend model.</p>
+    </div></div>
+    <div class="chip" onclick="toggleSignal(this,'polymarket')"><span class="cd" style="background:#8bc34a"></span>Polymarket<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>Polymarket Skew</h4>
+      <div class="tip-sub">Maintained</div>
+      <p>Prediction-market driven direction using saved Polymarket probability history. This is most relevant on `BTC-USD`, where the external signal is available.</p>
+    </div></div>
+    <div class="chip" onclick="toggleSignal(this,'weekly_core_overlay_v1')"><span class="cd" style="background:#ffd644"></span>Weekly Core<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>Weekly Core + Daily Overlay</h4>
+      <div class="tip-sub">Experimental</div>
+      <p>Keeps a slower weekly core allocation on while the higher timeframe stays bullish, then uses a faster daily overlay for the last sleeve of exposure.</p>
+    </div></div>
+    <div class="chip" onclick="toggleSignal(this,'ema_9_26')"><span class="cd" style="background:#ffb74d"></span>EMA 9/26<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>EMA 9/26 Cross</h4>
+      <div class="tip-sub">Experimental</div>
+      <p>A slower EMA crossover variant tuned for smoother index-style trends. It keeps the comparison cleaner than the faster 5/20 pair and supports the same daily-plus-weekly confirmation flow.</p>
+    </div></div>
+    <div class="chip" onclick="toggleSignal(this,'semis_persist_v1')"><span class="cd" style="background:#81c784"></span>Semis Persist<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>Semis Persist v1</h4>
+      <div class="tip-sub">Experimental</div>
+      <p>A semiconductors-tuned persistence model: a slower 30/100 EMA trend stack gets the position on, then exits only after 10 straight bearish bars so leader names have more room to keep running.</p>
+    </div></div>
+    <div class="chip" onclick="toggleSignal(this,'bb_breakout')"><span class="cd" style="background:#ff5274"></span>BB Breakout<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>BB Breakout</h4>
+      <div class="tip-sub">Experimental</div>
+      <p>Volatility breakout entry using Bollinger Bands with a simpler exit rule. Useful when you want to compare the maintained trend models to a cleaner breakout family.</p>
+    </div></div>
+    <div class="chip" onclick="toggleSignal(this,'ema_crossover')"><span class="cd" style="background:#ff9800"></span>EMA 5/20<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>EMA 5/20 Cross</h4>
+      <div class="tip-sub">Experimental</div>
+      <p>The original faster EMA crossover momentum model. It is still on the chart as the quicker comparison line, while `EMA 9/26` now covers the slower medium-trend version.</p>
+    </div></div>
+    <div class="chip" onclick="toggleSignal(this,'cci_trend')"><span class="cd" style="background:#ff6e40"></span>CCI Trend<div class="chip-tip" onclick="event.stopPropagation()">
+      <h4>CCI Trend</h4>
+      <div class="tip-sub">Experimental</div>
+      <p>The simpler CCI breakout version without hysteresis. It is kept around as the clean reference line for the stronger `CCI Hysteresis` variant.</p>
+    </div></div>
+  </div>

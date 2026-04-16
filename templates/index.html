@@ -55,6 +55,7 @@
 {% include 'partials/watchlist.html' %}
 
 {% include 'partials/financials_modal.html' %}
+{% include 'partials/trade_score_modal.html' %}
 
 </div><!-- /app -->
 
@@ -62,8 +63,11 @@
 <script src="{{ url_for('static', filename='js/chart_legend.js') }}"></script>
 <script src="{{ url_for('static', filename='js/chart_sr.js') }}"></script>
 <script src="{{ url_for('static', filename='js/chart_overlays.js') }}"></script>
+<script src="{{ url_for('static', filename='js/strategy_preference_helpers.js') }}"></script>
+<script src="{{ url_for('static', filename='js/trend_pulse_helpers.js') }}"></script>
 <script src="{{ url_for('static', filename='js/chart_signals.js') }}"></script>
 <script src="{{ url_for('static', filename='js/financials_modal.js') }}"></script>
+<script src="{{ url_for('static', filename='js/trade_score_modal.js') }}"></script>
 <script src="{{ url_for('static', filename='js/url_state.js') }}"></script>
 <script src="{{ url_for('static', filename='js/backtest_panel.js') }}"></script>
 <script src="{{ url_for('static', filename='js/chart_load.js') }}"></script>

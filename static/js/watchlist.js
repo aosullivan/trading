@@ -5,7 +5,7 @@ const WL_DEFAULT_TREND_FRAME='daily';
 const WL_DEFAULT_TREND_SIDE='bullish';
 const WL_DEFAULT_TREND_SORT_KEY='score';
 const WL_SORT_KEYS=['sym','last','chg','chg_pct'];
-const WL_TREND_SORT_KEYS=['ticker','flip','score'];
+const WL_TREND_SORT_KEYS=['ticker','flip','strength','score'];
 const WL_PANEL_DEFAULT_WIDTH=352;
 const WL_PANEL_MIN_WIDTH=320;
 const WL_PANEL_MAX_WIDTH=540;
@@ -14,6 +14,7 @@ const WL_TRENDS_REFRESH_MS=300000;
 const WL_TRENDS_POLL_MS=4000;
 const WL_IDLE_PAUSE_MS=300000;
 const WL_MOUSEMOVE_ACTIVITY_MS=1000;
+const watchlistStrategyPreferenceHelpers=globalThis.strategyPreferenceHelpers;
 
 function toggleWatchlist(){
   wlPanelCollapsed=!wlPanelCollapsed;
@@ -141,6 +142,7 @@ const _WL_TECH_SYMS=new Set(['AAPL','AMZN','GOOG','HIMS','HOOD','META','MSFT','R
 const _WL_ETF_SYMS=new Set(['ARKK','CPER','IAU','IGV','MAGS','SMH','TLT','USO','VGT','XLE']);
 const _WL_CRYPTO_ADJ_SYMS=new Set(['COIN','CRCL','GLXY','HUT','MSTR']);
 function wlTickerCategory(t){
+  if(watchlistStrategyPreferenceHelpers?.tickerCategory)return watchlistStrategyPreferenceHelpers.tickerCategory(t);
   if(t.endsWith('-USD'))return 'crypto';
   const raw=t.replace(/^\^/,'').toUpperCase();
   if(_WL_TREASURY_SYMS.has(raw))return 'treasuries';
@@ -151,6 +153,62 @@ function wlTickerCategory(t){
   if(_WL_ETF_SYMS.has(raw))return 'etfs';
   if(_WL_CRYPTO_ADJ_SYMS.has(raw))return 'crypto';
   return 'misc';
+}
+function wlPreferredStrategyMeta(ticker){
+  if(watchlistStrategyPreferenceHelpers?.preferredStrategyMetaForTicker){
+    return watchlistStrategyPreferenceHelpers.preferredStrategyMetaForTicker(ticker);
+  }
+  const category=wlTickerCategory(ticker);
+  const fallbackByCategory={
+    indexes:{strategyKey:'ema_9_26',strategyLabel:'EMA 9/26 Cross'},
+    treasuries:{strategyKey:'trend_sr_macro_v1',strategyLabel:'Trend SR + Macro v1'},
+    semis:{strategyKey:'semis_persist_v1',strategyLabel:'Semis Persist v1'},
+    tech:{strategyKey:'ema_crossover',strategyLabel:'EMA 5/20 Cross'},
+    software:{strategyKey:'trend_sr_macro_v1',strategyLabel:'Trend SR + Macro v1'},
+    etfs:{strategyKey:'ribbon',strategyLabel:'Trend-Driven'},
+    crypto:{strategyKey:'cci_trend',strategyLabel:'CCI Trend'},
+    misc:{strategyKey:'ribbon',strategyLabel:'Trend-Driven'},
+  };
+  const preferred=fallbackByCategory[category]||fallbackByCategory.misc;
+  return{
+    category,
+    categoryLabel:WL_CATEGORY_LABELS[category]||'General',
+    strategyKey:preferred.strategyKey,
+    strategyLabel:preferred.strategyLabel,
+  };
+}
+function wlNormalizePreferredStrategyMeta(meta,ticker){
+  if(meta?.strategyKey)return meta;
+  if(meta?.strategy_key){
+    return{
+      category:meta.category||wlTickerCategory(ticker),
+      categoryLabel:meta.categoryLabel||meta.category_label||WL_CATEGORY_LABELS[meta.category]||WL_CATEGORY_LABELS[wlTickerCategory(ticker)]||'General',
+      strategyKey:meta.strategy_key,
+      strategyLabel:meta.strategyLabel||meta.strategy_label||meta.strategy_key,
+    };
+  }
+  return wlPreferredStrategyMeta(ticker);
+}
+function wlResolvePreferredStrategyMeta(row,flips){
+  const ticker=row?.ticker||'';
+  const preferred=wlNormalizePreferredStrategyMeta(row?.trade_setup?.shared?.preferred_strategy,ticker);
+  const availableKeys=getAllFlipKeys(flips);
+  if(!availableKeys.length)return preferred;
+  if(preferred?.strategyKey&&availableKeys.includes(preferred.strategyKey))return preferred;
+  if(availableKeys.includes('ribbon')){
+    return{
+      category:preferred?.category||wlTickerCategory(ticker),
+      categoryLabel:preferred?.categoryLabel||WL_CATEGORY_LABELS[wlTickerCategory(ticker)]||'General',
+      strategyKey:'ribbon',
+      strategyLabel:'Trend-Driven',
+    };
+  }
+  return{
+    category:preferred?.category||wlTickerCategory(ticker),
+    categoryLabel:preferred?.categoryLabel||WL_CATEGORY_LABELS[wlTickerCategory(ticker)]||'General',
+    strategyKey:availableKeys[0],
+    strategyLabel:preferred?.strategyLabel||availableKeys[0],
+  };
 }
 function ensureWLCurrentTickerTab(){
   const currentTicker=wlCurrentTicker();
@@ -165,7 +223,8 @@ function ensureWLCurrentTickerTrendSide(){
   if(!currentTicker||!wlList.includes(currentTicker))return true;
   const row=wlTrendRows.find(item=>item?.ticker===currentTicker);
   if(!row)return false;
-  const nextSide=wlNormalizeTrendSide(wlTrendRowMeta(row)?.[wlTrendFrame]?.meta?.tone);
+  const metaRow=wlTrendRowMeta(row);
+  const nextSide=wlNormalizeTrendSide(metaRow?.tradeSetup?.[wlTrendFrame]?.side||metaRow?.[wlTrendFrame]?.meta?.tone);
   if(nextSide===wlTrendSide)return true;
   wlTrendSide=nextSide;
   syncWLTrendSideButtons();
@@ -242,7 +301,7 @@ function sortWLTrends(key){
     wlTrendSortKey=key;
     wlTrendSortAsc=wlTrendSortDefaultAsc(key);
   }
-  syncWLSortArrows(['ticker','flip','score'],'wl-trend-arrow-',wlTrendSortKey,wlTrendSortAsc);
+  syncWLSortArrows(['ticker','flip','strength','score'],'wl-trend-arrow-',wlTrendSortKey,wlTrendSortAsc);
   renderWL(wlList);
   syncWatchlistURLState();
 }
@@ -461,71 +520,109 @@ function fetchTrends(){
     .catch(()=>syncWLRefreshStateBadge());
 }
 
-function wlTrendFrameFlip(frameFlips,keys,weights,summary){
-  summary=summary||frameSummary(frameFlips,keys,weights);
-  if(!summary.total)return{key:null,dir:null,date:null,meta:summary.meta,score:null,age:null,dateValue:-Infinity};
+function wlTrendFrameFlip(frameFlips,preferredMeta,tradeSetup){
+  const strategyKey=preferredMeta?.strategyKey;
+  const preferredFlip=(frameFlips?.[strategyKey])||{};
+  const dir=preferredFlip.current_dir||preferredFlip.dir||null;
+  const date=preferredFlip.regime_start_date||preferredFlip.current_state_date||preferredFlip.date||null;
+  const age=date?daysSinceNumber({date}):null;
+  const tone=dir==='bullish'?'bullish':dir==='bearish'?'bearish':'mixed';
+  const score=tradeSetup?.trend_bias ?? (dir==='bullish'?100:dir==='bearish'?-100:null);
   return{
-    key:'pulse',
-    dir:summary.bullish>=summary.bearish?'bullish':'bearish',
-    date:summary.avgDate,
-    meta:summary.meta,
-    score:summary.meta.score,
-    age:summary.avgAge,
-    dateValue:summary.avgDate?Date.parse(`${summary.avgDate}T00:00:00Z`):-Infinity,
+    key:strategyKey||null,
+    label:preferredMeta?.strategyLabel||'Preferred strategy',
+    dir,
+    date,
+    meta:{
+      label:dir==='bullish'?'Bullish':dir==='bearish'?'Bearish':'No data',
+      tone,
+      coveragePct:dir?100:0,
+      score:score??0,
+    },
+    score,
+    tradeScore:tradeSetup?.score??null,
+    age,
+    dateValue:date?Date.parse(`${date}T00:00:00Z`):-Infinity,
   };
+}
+
+function wlTradeSetupFrame(row,frame){
+  return row?.trade_setup?.[frame]||{};
 }
 
 function wlTrendRowMeta(row){
   const flips={daily:row.daily||{},weekly:row.weekly||{}};
+  const preferredStrategy=wlResolvePreferredStrategyMeta(row,flips);
   const keys=getAllFlipKeys(flips);
   if(!keys.length){
     return{
       ticker:row.ticker,
       category:wlTickerCategory(row.ticker),
-      daily:{key:null,dir:null,date:null,score:null,age:null,dateValue:-Infinity,meta:{tone:'mixed'}},
-      weekly:{key:null,dir:null,date:null,score:null,age:null,dateValue:-Infinity,meta:{tone:'mixed'}},
+      daily:{key:null,dir:null,date:null,score:null,tradeScore:null,age:null,dateValue:-Infinity,meta:{tone:'mixed'}},
+      weekly:{key:null,dir:null,date:null,score:null,tradeScore:null,age:null,dateValue:-Infinity,meta:{tone:'mixed'}},
       flips,
+      tradeSetup:row.trade_setup||{},
+      preferredStrategy,
       freshness:Number.POSITIVE_INFINITY,
     };
   }
-  const weights=trendPulseWeights(keys,'weighted',wlTickerCategory(row.ticker));
-  const dailySummary=frameSummary(flips.daily,keys,weights);
-  const weeklySummary=frameSummary(flips.weekly,keys,weights);
-  const daily=wlTrendFrameFlip(flips.daily,keys,weights,dailySummary);
-  const weekly=wlTrendFrameFlip(flips.weekly,keys,weights,weeklySummary);
+  const dailySetup=wlTradeSetupFrame(row,'daily');
+  const weeklySetup=wlTradeSetupFrame(row,'weekly');
+  const daily=wlTrendFrameFlip(flips.daily,preferredStrategy,dailySetup);
+  const weekly=wlTrendFrameFlip(flips.weekly,preferredStrategy,weeklySetup);
   return{
     ticker:row.ticker,
     category:wlTickerCategory(row.ticker),
     daily,
     weekly,
     flips,
+    tradeSetup:row.trade_setup||{},
+    preferredStrategy,
   };
 }
 
 function renderTrends(){
   const cur=document.getElementById('ticker').value.toUpperCase();
-  syncWLSortArrows(['ticker','flip','score'],'wl-trend-arrow-',wlTrendSortKey,wlTrendSortAsc);
+  syncWLSortArrows(['ticker','flip','strength','score'],'wl-trend-arrow-',wlTrendSortKey,wlTrendSortAsc);
   const rows=(wlTrendRows||[])
     .filter(row=>wlActiveTab==='all'||wlTickerCategory(row?.ticker||'')===wlActiveTab)
     .map(wlTrendRowMeta)
     .sort((a,b)=>{
     const aFrame=a[wlTrendFrame]||{};
     const bFrame=b[wlTrendFrame]||{};
+    const aStrength=aFrame.score;
+    const bStrength=bFrame.score;
+    const aScore=aFrame.tradeScore??aFrame.score;
+    const bScore=bFrame.tradeScore??bFrame.score;
     let delta=0;
     if(wlTrendSortKey==='ticker'){
       delta=a.ticker.localeCompare(b.ticker);
     }else if(wlTrendSortKey==='flip'){
       delta=(aFrame.dateValue??-Infinity)-(bFrame.dateValue??-Infinity);
       if(delta===0){
-        const absA=aFrame.score==null?-1:Math.abs(aFrame.score);
-        const absB=bFrame.score==null?-1:Math.abs(bFrame.score);
+        const absA=aScore==null?-1:Math.abs(aScore);
+        const absB=bScore==null?-1:Math.abs(bScore);
         delta=absA-absB;
+        if(delta===0){
+          delta=(aFrame.meta?.coveragePct??-1)-(bFrame.meta?.coveragePct??-1);
+        }
+      }
+    }else if(wlTrendSortKey==='strength'){
+      const absA=aStrength==null?-1:Math.abs(aStrength);
+      const absB=bStrength==null?-1:Math.abs(bStrength);
+      delta=absA-absB;
+      if(delta===0)delta=(aStrength??-999)-(bStrength??-999);
+      if(delta===0){
+        delta=(aFrame.meta?.coveragePct??-1)-(bFrame.meta?.coveragePct??-1);
       }
     }else{
-      const absA=aFrame.score==null?-1:Math.abs(aFrame.score);
-      const absB=bFrame.score==null?-1:Math.abs(bFrame.score);
+      const absA=aScore==null?-1:Math.abs(aScore);
+      const absB=bScore==null?-1:Math.abs(bScore);
       delta=absA-absB;
-      if(delta===0)delta=(aFrame.score??-999)-(bFrame.score??-999);
+      if(delta===0)delta=(aScore??-999)-(bScore??-999);
+      if(delta===0){
+        delta=(aFrame.meta?.coveragePct??-1)-(bFrame.meta?.coveragePct??-1);
+      }
     }
     if(delta!==0)return wlTrendSortAsc?delta:-delta;
     if((aFrame.age??Number.POSITIVE_INFINITY)!==(bFrame.age??Number.POSITIVE_INFINITY)){
@@ -543,7 +640,11 @@ function renderTrends(){
   const statusRow=wlTrendsLoading||wlTrendsStale
     ?`<div class="wl-trend-msg">${wlTrendsLoading?'Refreshing trend pulse...':'Trend pulse is updating...'}</div>`
     :'';
-  const visibleRows=rows.filter(row=>(row[wlTrendFrame]?.meta?.tone||'mixed')===wlTrendSide);
+  const visibleRows=rows.filter(row=>{
+    const setupSide=row?.tradeSetup?.[wlTrendFrame]?.side;
+    const tone=row[wlTrendFrame]?.meta?.tone||'mixed';
+    return (setupSide||tone)===wlTrendSide;
+  });
   document.getElementById('wl-count').textContent=visibleRows.length;
   document.getElementById('wl-items').innerHTML=statusRow
     +(visibleRows.length?visibleRows.map(row=>wlTrendRowHtml(row,cur)).join(''):`<div class="wl-trend-msg">No ${wlTrendSide} symbols in ${wlTrendFrame} trends.</div>`);
@@ -551,23 +652,29 @@ function renderTrends(){
 
 function wlTrendRowHtml(row,cur){
   const flip=row[wlTrendFrame]||{};
-  const score=flip.score==null?'--':`${flip.score>0?'+':''}${flip.score}`;
-  const tone=flip.meta?.tone||'mixed';
+  const setup=row?.tradeSetup?.[wlTrendFrame]||{};
+  const strengthValue=flip.score;
+  const displayScore=setup.score??flip.tradeScore??flip.score;
+  const strength=strengthValue==null?'--':`${strengthValue>0?'+':''}${strengthValue}`;
+  const score=displayScore==null?'--':`${displayScore>0?'+':''}${displayScore}`;
+  const tone=setup.side||flip.meta?.tone||'mixed';
   const cls=tone==='bullish'?'up':tone==='bearish'?'dn':'';
   return `<div class="wl-trend-row${row.ticker===cur?' active':''}">
     <div class="wl-tk wl-trend-symbol" onclick="event.stopPropagation();pickTicker('${row.ticker}')"><span>${row.ticker}</span></div>
-    <div class="wl-trend-cell" onclick="event.stopPropagation();openTrendPulse('${row.ticker}')">${wlTrendCellHtml(flip)}</div>
-    <div class="wl-v wl-trend-score ${cls}" onclick="event.stopPropagation();openTrendPulse('${row.ticker}')">${score}</div>
+    <div class="wl-trend-cell" onclick="event.stopPropagation();openTrendPulse('${row.ticker}')">${wlTrendCellHtml(flip,row.preferredStrategy)}</div>
+    <div class="wl-v wl-trend-score ${cls}" onclick="event.stopPropagation();openTrendPulse('${row.ticker}')">${strength}</div>
+    <div class="wl-v wl-trend-score ${cls}" onclick="event.stopPropagation();openWatchlistTradeScore('${row.ticker}')">${score}</div>
   </div>`;
 }
 
-function wlTrendCellHtml(f){
+function wlTrendCellHtml(f,preferredStrategy){
   if(!f?.dir)return'<span class="wl-trend-flip">--</span>';
   const tone=f.dir==='bullish'?'up':'dn';
   const age=f.age==null?daysSinceNumber(f):f.age;
   const fullDate=flipDateLabel(f);
   const shortDate=fullDate.replace(/\s+\d{4}$/,'');
-  return `<span class="wl-trend-flip ${tone}" title="${fullDate}">${age==null?'--':age+'d'} ${shortDate}</span>`;
+  const label=preferredStrategy?.strategyLabel||f.label||'Preferred strategy';
+  return `<span class="wl-trend-flip ${tone}" title="${label} · ${fullDate}">${age==null?'--':age+'d'} ${shortDate}</span>`;
 }
 
 function renderWL(list){
@@ -683,12 +790,16 @@ async function openTrendPulse(t){
   const row=wlTrendRows.find(item=>item?.ticker===t);
   if(row?.daily||row?.weekly){
     document.getElementById('ticker').value=t;
-    lastData={...(lastData||{}),trend_flips:{daily:row.daily||{},weekly:row.weekly||{}}};
+    lastData={...(lastData||{}),trend_flips:{daily:row.daily||{},weekly:row.weekly||{}},trade_setup:row.trade_setup||{}};
     updateFlipInfo();
     if(typeof openTrendFlipAggregate==='function')openTrendFlipAggregate();
     renderWL(wlList);
   }
   await pickTicker(t);
+  if(row?.trade_setup){
+    lastData={...(lastData||{}),trade_setup:row.trade_setup||{}};
+    updateFlipInfo();
+  }
   if(typeof openTrendFlipAggregate==='function')openTrendFlipAggregate();
 }
 

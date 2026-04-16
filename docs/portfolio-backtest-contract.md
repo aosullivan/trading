@@ -19,8 +19,25 @@ The current retained portfolio strategy surface is:
 - `ribbon`
 - `corpus_trend`
 - `cci_hysteresis`
+- `monthly_breadth_guard_v1`
+- `monthly_breadth_guard_ladder_v1`
 
-These stay aligned with the retained single-ticker strategy inventory rather than creating a separate portfolio-only taxonomy.
+The first three stay aligned with the retained single-ticker strategy inventory.
+`monthly_breadth_guard_v1` is the first portfolio-only regime entry. It is a
+slow month-end basket filter that:
+
+- requires the equal-weight basket to reclaim its 10-month trend with a small re-entry buffer
+- requires breadth confirmation before turning risk-on
+- drops back to cash after confirmed basket and breadth deterioration
+- keeps only the strongest few names while risk is on
+
+`monthly_breadth_guard_ladder_v1` keeps the same slow monthly regime filter, but
+adds a crash-aware re-entry ladder:
+
+- after deep drawdowns, it can start back in before full long-trend recovery
+- it only does that when the basket has stopped worsening month-over-month
+- it layers in through a small number of the strongest rebound names
+- full exposure still requires the normal breadth-and-trend recovery
 
 The following are not part of the first portfolio selector:
 

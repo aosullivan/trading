@@ -32,6 +32,7 @@ from lib.data_fetching import (
     resolve_treasury_price_proxy_ticker,
 )
 from lib.paths import get_resource_path, get_user_data_path
+from lib.trade_setup import compute_trade_setup
 from lib.technical_indicators import SUPERTREND_MULTIPLIER, SUPERTREND_PERIOD
 
 bp = Blueprint("watchlist", __name__)
@@ -42,9 +43,27 @@ _TRENDS_CACHE_DIR = get_user_data_path("data_cache", "watchlist_trends")
 _TRENDS_START_DATE = "2015-01-01"
 _TRENDS_PERIOD = SUPERTREND_PERIOD
 _TRENDS_MULTIPLIER = SUPERTREND_MULTIPLIER
-_TRENDS_CACHE_VERSION = 2
+_TRENDS_CACHE_VERSION = 5
 _TRENDS_REFRESH_BATCH_SIZE = 6
 _TRENDS_REFRESH_BATCH_PAUSE = 0.25
+
+
+def _empty_trend_row(ticker: str) -> dict:
+    return {"ticker": ticker, "daily": {}, "weekly": {}, "trade_setup": {}}
+
+
+def _normalize_trend_row(ticker: str, row: dict | None) -> dict:
+    if not isinstance(row, dict):
+        return _empty_trend_row(ticker)
+    daily = row.get("daily")
+    weekly = row.get("weekly")
+    trade_setup = row.get("trade_setup")
+    return {
+        "ticker": ticker,
+        "daily": daily if isinstance(daily, dict) else {},
+        "weekly": weekly if isinstance(weekly, dict) else {},
+        "trade_setup": trade_setup if isinstance(trade_setup, dict) else {},
+    }
 
 
 def load_watchlist():
@@ -194,22 +213,23 @@ def _trend_cache_path(ticker: str) -> str:
     return os.path.join(_TRENDS_CACHE_DIR, f"{safe}.json")
 
 
-def _read_disk_trend_payload(ticker: str) -> dict | None:
+def _read_disk_trend_payload(ticker: str, *, allow_stale: bool = False) -> dict | None:
     path = _trend_cache_path(ticker)
     if not os.path.exists(path):
         return None
     try:
         with open(path) as f:
             payload = json.load(f)
-        if payload.get("version") != _TRENDS_CACHE_VERSION:
-            return None
-        if payload.get("period") != _TRENDS_PERIOD:
-            return None
-        if float(payload.get("multiplier", 0)) != float(_TRENDS_MULTIPLIER):
-            return None
         row = payload.get("row")
         if not isinstance(row, dict) or row.get("ticker") != ticker:
             return None
+        if not allow_stale:
+            if payload.get("version") != _TRENDS_CACHE_VERSION:
+                return None
+            if payload.get("period") != _TRENDS_PERIOD:
+                return None
+            if float(payload.get("multiplier", 0)) != float(_TRENDS_MULTIPLIER):
+                return None
         return payload
     except Exception:
         return None
@@ -221,17 +241,17 @@ def _load_disk_trend_row(ticker: str, daily_date: str | None, weekly_date: str |
         return None
     if payload.get("daily_date") != daily_date or payload.get("weekly_date") != weekly_date:
         return None
-    return payload.get("row")
+    return _normalize_trend_row(ticker, payload.get("row"))
 
 
 def _load_disk_trend_snapshot_rows(tickers: list[str]) -> list[dict]:
     rows = []
     for ticker in tickers:
-        payload = _read_disk_trend_payload(ticker)
+        payload = _read_disk_trend_payload(ticker, allow_stale=True)
         if payload is None:
-            rows.append({"ticker": ticker, "daily": {}, "weekly": {}})
+            rows.append(_empty_trend_row(ticker))
         else:
-            rows.append(payload["row"])
+            rows.append(_normalize_trend_row(ticker, payload.get("row")))
     return rows
 
 
@@ -291,17 +311,20 @@ def _build_trend_row(ticker: str) -> dict:
             df_d,
             period_val=_TRENDS_PERIOD,
             multiplier_val=_TRENDS_MULTIPLIER,
+            ticker=ticker,
         )
         weekly = compute_all_trend_flips(
             df_w,
             period_val=_TRENDS_PERIOD,
             multiplier_val=_TRENDS_MULTIPLIER,
+            ticker=ticker,
         )
-        row = {"ticker": ticker, "daily": daily, "weekly": weekly}
+        trade_setup = compute_trade_setup(df_d, df_w, daily, weekly, ticker=ticker)
+        row = {"ticker": ticker, "daily": daily, "weekly": weekly, "trade_setup": trade_setup}
         _save_disk_trend_row(ticker, daily_date, weekly_date, row)
         return row
     except Exception:
-        return {"ticker": ticker, "daily": {}, "weekly": {}}
+        return {"ticker": ticker, "daily": {}, "weekly": {}, "trade_setup": {}}
 
 
 def _build_watchlist_trends(tickers: list[str], cache_key: str | None = None) -> list[dict]:
@@ -316,7 +339,7 @@ def _build_watchlist_trends(tickers: list[str], cache_key: str | None = None) ->
             try:
                 rows_by_ticker[ticker] = future.result()
             except Exception:
-                rows_by_ticker[ticker] = {"ticker": ticker, "daily": {}, "weekly": {}}
+                rows_by_ticker[ticker] = _empty_trend_row(ticker)
             if cache_key:
                 _set_watchlist_trends_cache(
                     cache_key,
@@ -326,10 +349,7 @@ def _build_watchlist_trends(tickers: list[str], cache_key: str | None = None) ->
                         if symbol in rows_by_ticker
                     ],
                 )
-    return [
-        rows_by_ticker.get(ticker, {"ticker": ticker, "daily": {}, "weekly": {}})
-        for ticker in tickers
-    ]
+    return [rows_by_ticker.get(ticker, _empty_trend_row(ticker)) for ticker in tickers]
 
 
 def _refresh_watchlist_trends_cache(cache_key: str, tickers: list[str]):
@@ -337,18 +357,18 @@ def _refresh_watchlist_trends_cache(cache_key: str, tickers: list[str]):
         cached = _get_watchlist_trends_cache(cache_key)
         rows = cached[0] if cached is not None else _load_disk_trend_snapshot_rows(tickers)
         rows_by_ticker = {row.get("ticker"): row for row in rows if isinstance(row, dict)}
-        _set_watchlist_trends_cache(cache_key, [
-            rows_by_ticker.get(ticker, {"ticker": ticker, "daily": {}, "weekly": {}})
-            for ticker in tickers
-        ])
+        _set_watchlist_trends_cache(
+            cache_key,
+            [rows_by_ticker.get(ticker, _empty_trend_row(ticker)) for ticker in tickers],
+        )
         for i in range(0, len(tickers), _TRENDS_REFRESH_BATCH_SIZE):
             batch = tickers[i:i + _TRENDS_REFRESH_BATCH_SIZE]
             for row in _build_watchlist_trends(batch):
                 rows_by_ticker[row["ticker"]] = row
-            _set_watchlist_trends_cache(cache_key, [
-                rows_by_ticker.get(ticker, {"ticker": ticker, "daily": {}, "weekly": {}})
-                for ticker in tickers
-            ])
+            _set_watchlist_trends_cache(
+                cache_key,
+                [rows_by_ticker.get(ticker, _empty_trend_row(ticker)) for ticker in tickers],
+            )
             if i + _TRENDS_REFRESH_BATCH_SIZE < len(tickers):
                 _time.sleep(_TRENDS_REFRESH_BATCH_PAUSE)
     finally:

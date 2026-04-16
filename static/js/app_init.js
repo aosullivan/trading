@@ -11,4 +11,4 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&document.activeElement.id==='ticker')loadChart();
 });
 
-initChart();buildChartLegend();restoreURLState();loadWL();loadChart();
+initChart();buildChartLegend();restoreURLState();syncInitialSignalChipState();loadWL();loadChart();

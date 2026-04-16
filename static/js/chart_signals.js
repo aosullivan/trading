@@ -5,7 +5,14 @@ const signalColors={
   supertrend:'#5b7fff',ema_crossover:'#ff9800',macd:'#b050ff',
   donchian:'#ffd644',bb_breakout:'#ff5274',
   keltner:'#e040fb',parabolic_sar:'#76ff03',cci_trend:'#ff6e40',orb_breakout:'#ffab40',
-  ribbon:'#7f98ff'
+  ribbon:'#7f98ff',
+  corpus_trend:'#4dd0e1',
+  corpus_trend_layered:'#26c6da',
+  weekly_core_overlay_v1:'#ffd644',
+  ema_9_26:'#ffb74d',
+  semis_persist_v1:'#81c784',
+  cci_hysteresis:'#ff8a65',
+  polymarket:'#8bc34a'
 };
 // Add info buttons to chips and handle click-to-show tooltips
 let _openTip=null;
@@ -52,54 +59,32 @@ document.addEventListener('click',()=>{
 });
 
 const activeSignals=new Set();
-const flipOrder=['ribbon','cb50','cb150','sma_10_100','sma_10_200','ema_trend','yearly_ma','supertrend','ema_crossover','macd','donchian','bb_breakout','keltner','parabolic_sar','cci_trend','orb_breakout'];
+const flipOrder=['ribbon','corpus_trend','corpus_trend_layered','weekly_core_overlay_v1','ema_9_26','semis_persist_v1','cci_hysteresis','bb_breakout','ema_crossover','cci_trend','polymarket'];
 const flipOrderRank=Object.fromEntries(flipOrder.map((key,idx)=>[key,idx]));
-const flipLabels={pulse:'Pulse',cb50:'CB50',cb150:'CB150',sma_10_100:'10/100',sma_10_200:'10/200',ema_trend:'EMAt',yearly_ma:'1Y',supertrend:'ST',ema_crossover:'EMA',macd:'MACD',donchian:'Donch',bb_breakout:'BB',keltner:'Kelt',parabolic_sar:'SAR',cci_trend:'CCI',orb_breakout:'ORB',ribbon:'Trend'};
-const flipNames={cb50:'CB50',cb150:'CB150',sma_10_100:'SMA 10/100',sma_10_200:'SMA 10/200',ema_trend:'EMA Trend',yearly_ma:'1-Year MA',supertrend:'Supertrend',ema_crossover:'EMA Cross',macd:'MACD',donchian:'Donchian',bb_breakout:'BB Breakout',keltner:'Keltner',parabolic_sar:'Parabolic SAR',cci_trend:'CCI',orb_breakout:'ORB Breakout',ribbon:'Trend-Driven'};
+const flipLabels={pulse:'Pulse',ribbon:'Trend',corpus_trend:'Corpus',corpus_trend_layered:'Corpus L',weekly_core_overlay_v1:'Core+Ov',ema_9_26:'EMA9',semis_persist_v1:'Semis',cci_hysteresis:'CCI H',bb_breakout:'BB',ema_crossover:'EMA5',cci_trend:'CCI',polymarket:'Poly'};
+const flipNames={ribbon:'Trend-Driven',corpus_trend:'Corpus Trend',corpus_trend_layered:'Corpus Trend Layered',weekly_core_overlay_v1:'Weekly Core + Daily Overlay',ema_9_26:'EMA 9/26 Cross',semis_persist_v1:'Semis Persist v1',cci_hysteresis:'CCI Hysteresis',bb_breakout:'BB Breakout',ema_crossover:'EMA 5/20 Cross',cci_trend:'CCI Trend',polymarket:'Polymarket Skew'};
 const flipDateFormatter=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
 let trendPulseMode='equal';
 const trendPulseProfiles={
   default:{
-    ribbon:20,cb50:10,cb150:10,sma_10_100:8,sma_10_200:8,ema_trend:7,yearly_ma:6,
-    supertrend:8,ema_crossover:7,macd:6,donchian:5,bb_breakout:4,keltner:3,parabolic_sar:3,cci_trend:2,orb_breakout:5
-  },
-  tech:{
-    ribbon:20,cb50:10,cb150:9,sma_10_100:8,sma_10_200:7,ema_trend:8,yearly_ma:5,
-    supertrend:8,ema_crossover:8,macd:7,donchian:5,bb_breakout:3,keltner:3,parabolic_sar:3,cci_trend:1,orb_breakout:5
-  },
-  semis:{
-    ribbon:20,cb50:10,cb150:10,sma_10_100:8,sma_10_200:7,ema_trend:7,yearly_ma:6,
-    supertrend:8,ema_crossover:7,macd:7,donchian:6,bb_breakout:3,keltner:2,parabolic_sar:3,cci_trend:1,orb_breakout:5
-  },
-  software:{
-    ribbon:20,cb50:10,cb150:9,sma_10_100:8,sma_10_200:7,ema_trend:8,yearly_ma:5,
-    supertrend:7,ema_crossover:8,macd:7,donchian:5,bb_breakout:4,keltner:3,parabolic_sar:3,cci_trend:2,orb_breakout:5
+    ribbon:24,corpus_trend:18,corpus_trend_layered:14,weekly_core_overlay_v1:12,
+    ema_9_26:8,semis_persist_v1:10,cci_hysteresis:14,bb_breakout:8,ema_crossover:7,cci_trend:5,polymarket:0
   },
   crypto:{
-    ribbon:20,cb50:11,cb150:9,sma_10_100:8,sma_10_200:7,ema_trend:7,yearly_ma:5,
-    supertrend:9,ema_crossover:7,macd:6,donchian:6,bb_breakout:3,keltner:2,parabolic_sar:2,cci_trend:1,orb_breakout:4
+    ribbon:22,corpus_trend:16,corpus_trend_layered:12,weekly_core_overlay_v1:14,
+    ema_9_26:6,semis_persist_v1:5,cci_hysteresis:12,bb_breakout:7,ema_crossover:7,cci_trend:5,polymarket:12
   },
-  indexes:{
-    ribbon:18,cb50:9,cb150:10,sma_10_100:8,sma_10_200:9,ema_trend:7,yearly_ma:8,
-    supertrend:6,ema_crossover:6,macd:5,donchian:4,bb_breakout:5,keltner:3,parabolic_sar:2,cci_trend:2,orb_breakout:4
-  },
-  etfs:{
-    ribbon:18,cb50:9,cb150:10,sma_10_100:8,sma_10_200:9,ema_trend:7,yearly_ma:8,
-    supertrend:6,ema_crossover:6,macd:5,donchian:4,bb_breakout:5,keltner:3,parabolic_sar:2,cci_trend:2,orb_breakout:4
-  },
-  treasuries:{
-    ribbon:18,cb50:8,cb150:10,sma_10_100:7,sma_10_200:9,ema_trend:8,yearly_ma:10,
-    supertrend:6,ema_crossover:5,macd:4,donchian:3,bb_breakout:4,keltner:3,parabolic_sar:2,cci_trend:2,orb_breakout:3
-  },
-  misc:{
-    ribbon:20,cb50:10,cb150:10,sma_10_100:8,sma_10_200:8,ema_trend:7,yearly_ma:6,
-    supertrend:7,ema_crossover:6,macd:6,donchian:5,bb_breakout:4,keltner:3,parabolic_sar:3,cci_trend:2,orb_breakout:5
+  semis:{
+    ribbon:20,corpus_trend:16,corpus_trend_layered:12,weekly_core_overlay_v1:10,
+    ema_9_26:8,semis_persist_v1:18,cci_hysteresis:10,bb_breakout:8,ema_crossover:7,cci_trend:5,polymarket:0
   }
 };
 const trendPulseCategoryLabels={
   indexes:'Index',treasuries:'Rates',semis:'Semis',tech:'Tech',software:'Software',
   etfs:'ETF',crypto:'Crypto',misc:'General',default:'General'
 };
+const trendPulseMath=globalThis.trendPulseHelpers;
+const chartSignalStrategyPreferenceHelpers=globalThis.strategyPreferenceHelpers;
 function daysSinceNumber(f){
   if(!f?.date)return null;
   return Math.max(0,Math.floor((Date.now()-new Date(f.date+'T00:00:00').getTime())/864e5));
@@ -119,22 +104,34 @@ function daysSinceHtml(f){
 function flipInfoRowHtml(frame,f){
   return`<span class="trend-flip-row"><span class="trend-flip-frame">${frame}</span>${daysSinceHtml(f)}</span>`;
 }
-function flipToneMeta(bullish,bearish){
-  const total=bullish+bearish;
-  if(!total)return{label:'No data',tone:'mixed',consensusPct:null,score:0};
-  const bullPct=Math.round(bullish/total*100);
-  const consensusPct=Math.round(Math.max(bullish,bearish)/total*100);
-  const score=Math.round(((bullish-bearish)/total)*100);
-  if(bullPct>=70)return{label:'Strong Bullish',tone:'bullish',consensusPct,score};
-  if(bullPct>=55)return{label:'Bullish Tilt',tone:'bullish',consensusPct,score};
-  if(bullPct<=30)return{label:'Strong Bearish',tone:'bearish',consensusPct,score};
-  if(bullPct<=45)return{label:'Bearish Tilt',tone:'bearish',consensusPct,score};
-  return{label:'Mixed',tone:'mixed',consensusPct,score};
+function flipToneMeta(bullish,bearish,possibleTotal){
+  return trendPulseMath.flipToneMeta(bullish,bearish,possibleTotal);
 }
 function trendPulseCategory(){
   const ticker=document.getElementById('ticker')?.value?.toUpperCase()||'';
+  if(chartSignalStrategyPreferenceHelpers?.tickerCategory&&ticker)return chartSignalStrategyPreferenceHelpers.tickerCategory(ticker);
   if(typeof wlTickerCategory==='function'&&ticker)return wlTickerCategory(ticker);
   return 'default';
+}
+function preferredStrategyMeta(ticker,tradeSetup){
+  const sharedPreferred=tradeSetup?.shared?.preferred_strategy;
+  if(sharedPreferred?.strategy_key){
+    return{
+      category:sharedPreferred.category,
+      categoryLabel:sharedPreferred.category_label,
+      strategyKey:sharedPreferred.strategy_key,
+      strategyLabel:sharedPreferred.strategy_label,
+    };
+  }
+  if(chartSignalStrategyPreferenceHelpers?.preferredStrategyMetaForTicker){
+    return chartSignalStrategyPreferenceHelpers.preferredStrategyMetaForTicker(ticker);
+  }
+  return{
+    category:trendPulseCategory(),
+    categoryLabel:trendPulseCategoryLabels[trendPulseCategory()]||'General',
+    strategyKey:'ribbon',
+    strategyLabel:'Trend-Driven',
+  };
 }
 function trendPulseWeights(keys,mode,category){
   if(mode!=='weighted')return Object.fromEntries(keys.map(key=>[key,1]));
@@ -153,31 +150,7 @@ function formatPulseWeight(weight){
   return `${(weight*100).toFixed(1)}%`;
 }
 function frameSummary(frameFlips,keys,weights){
-  const valid=keys
-    .map(k=>({flip:frameFlips?.[k],weight:weights[k]||1}))
-    .filter(item=>item.flip?.dir);
-  const bullish=valid
-    .filter(item=>item.flip.dir==='bullish')
-    .reduce((sum,item)=>sum+item.weight,0);
-  const bearish=valid
-    .filter(item=>item.flip.dir==='bearish')
-    .reduce((sum,item)=>sum+item.weight,0);
-  const consensusDir=bullish>=bearish?'bullish':'bearish';
-  const ages=valid
-    .filter(item=>item.flip.dir===consensusDir)
-    .map(item=>({age:daysSinceNumber(item.flip),weight:item.weight}))
-    .filter(item=>item.age!=null);
-  const ageWeight=ages.reduce((sum,item)=>sum+item.weight,0);
-  const avgAge=ages.length?Math.round(ages.reduce((sum,item)=>sum+item.age*item.weight,0)/(ageWeight||1)):null;
-  const avgDate=avgAge==null?null:new Date(Date.now()-avgAge*864e5).toISOString().slice(0,10);
-  return{
-    bullish,
-    bearish,
-    total:bullish+bearish,
-    avgAge,
-    avgDate,
-    meta:flipToneMeta(bullish,bearish),
-  };
+  return trendPulseMath.frameSummary(frameFlips,keys,weights,daysSinceNumber);
 }
 function aggregateRows(flips,keys,weights){
   return keys.map(key=>{
@@ -214,6 +187,7 @@ function frameCardHtml(title,summary,mode){
   const scoreCls=summary.meta.tone==='bullish'?'bull':summary.meta.tone==='bearish'?'bear':'';
   const bullPct=summary.meta.consensusPct==null?'--':`${summary.meta.consensusPct}%`;
   const score=summary.total?`${summary.meta.score>0?'+':''}${summary.meta.score}`:'--';
+  const coverage=summary.meta.coveragePct==null?'--':`${summary.meta.coveragePct}%`;
   const pillCls=summary.meta.tone==='bullish'?'tf-pill-bull':summary.meta.tone==='bearish'?'tf-pill-bear':'tf-pill-mixed';
   return`<div class="tf-agg-card">
     <div class="tf-agg-card-top">
@@ -224,17 +198,21 @@ function frameCardHtml(title,summary,mode){
     <div class="tf-agg-stats">
       <span><strong>${formatPulseMetric(summary.bullish,mode,summary.total)}</strong> bull</span>
       <span><strong>${formatPulseMetric(summary.bearish,mode,summary.total)}</strong> bear</span>
-      <span><strong>${summary.avgAge==null?'--':summary.avgAge+'d'}</strong> avg flip age</span>
+      <span><strong>${coverage}</strong> coverage</span>
+      <span><strong>${summary.avgAge==null?'--':summary.avgAge+'d'}</strong> avg regime age</span>
     </div>
-    <div class="tf-agg-note">Net score ${score} ${mode==='weighted'?'from weighted signal share.':`across ${summary.total||0} signals.`}</div>
+    <div class="tf-agg-note">Net score ${score} ${mode==='weighted'?'after coverage-adjusted weighting.':`after coverage adjustment across ${summary.possibleTotal||0} tracked signals.`}</div>
   </div>`;
 }
 function getSelectedFlipKeys(){
-  const keys=[...activeSignals];
+  const available=getAllFlipKeys(lastData?.trend_flips);
+  const availableSet=new Set(available);
+  const keys=[...activeSignals].filter(key=>availableSet.has(key));
   if(legendItems.find(i=>i.key==='ribbon')?.on)keys.push('ribbon');
-  const found=new Set(keys);
+  const found=new Set(keys.filter(key=>availableSet.has(key)));
   const ordered=flipOrder.filter(key=>found.has(key));
-  return ordered.concat([...found].filter(key=>!ordered.includes(key)).sort());
+  const selected=ordered.concat([...found].filter(key=>!ordered.includes(key)).sort());
+  return selected.length?selected:available;
 }
 function getAllFlipKeys(flips){
   const found=new Set([...Object.keys(flips?.daily||{}),...Object.keys(flips?.weekly||{})]);
@@ -246,14 +224,106 @@ function trendPulseModeTitle(mode){
 }
 function trendPulseDescription(mode,category){
   if(mode==='weighted'){
-    return `Trend-Driven is pinned first and carries the largest weight. Remaining weights reflect ${trendPulseCategoryLabels[category]||'General'} popularity, then rows sort by weighted bullish/bearish alignment and flip freshness.`;
+    return `Trend-Driven is pinned first and carries the largest weight. Remaining weights reflect the active ${trendPulseCategoryLabels[category]||'General'} strategy mix, then rows sort by weighted bullish/bearish alignment and regime age.`;
   }
-  return 'Trend-Driven is pinned first. Every indicator contributes one vote, then rows sort by bullish/bearish alignment and flip freshness.';
+  return 'Trend-Driven is pinned first. Every tracked strategy contributes one vote, then rows sort by bullish/bearish alignment and regime age.';
 }
 function setTrendPulseMode(e,mode){
   e.stopPropagation();
   trendPulseMode=mode==='weighted'?'weighted':'equal';
   renderTrendFlipAggregate();
+}
+function tradeSetupScoreCardHtml(title,frame,setup){
+  if(!setup||setup.score==null)return '';
+  const scoreCls=setup.side==='bullish'?'bull':setup.side==='bearish'?'bear':'';
+  const pillCls=setup.side==='bullish'?'tf-pill-bull':setup.side==='bearish'?'tf-pill-bear':'tf-pill-mixed';
+  const score=`${setup.score>0?'+':''}${setup.score}`;
+  return `<div class="tf-agg-card tf-agg-card-clickable" onclick="event.stopPropagation();openTradeScoreDetails('${frame}')">
+    <div class="tf-agg-card-top">
+      <div class="tf-agg-card-title">${title}</div>
+      <span class="tf-pill ${pillCls}">${setup.side||'mixed'}</span>
+    </div>
+    <div class="tf-agg-card-score ${scoreCls}">${score}</div>
+    <div class="tf-agg-stats">
+      <span><strong>${setup.trend_bias>0?'+':''}${setup.trend_bias??'--'}</strong> trend bias</span>
+      <span><strong>${Math.round(setup.level_component??0)}</strong> level</span>
+      <span><strong>${Math.round(setup.ma_component??0)}</strong> MA</span>
+      <span><strong>${Math.round(setup.room_component??0)}</strong> room</span>
+    </div>
+    <div class="tf-agg-note">Trade Score combines trend bias with support/resistance, nearest moving average, and upside/downside room.</div>
+  </div>`;
+}
+function tradeSetupDistanceHtml(label,entry){
+  if(!entry)return `<span class="tf-pill tf-pill-mixed">${label} --</span>`;
+  const pct=entry.distance_pct==null?'--':`${entry.distance_pct}%`;
+  const atr=entry.distance_atr==null?'--':`${entry.distance_atr} ATR`;
+  const pos=entry.position||'at';
+  const price=entry.price==null?'--':entry.price;
+  return `<span class="tf-pill tf-pill-mixed">${label} ${price} · ${pct} ${pos} · ${atr}</span>`;
+}
+function tradeSetupSharedHtml(tradeSetup){
+  const shared=tradeSetup?.shared;
+  if(!shared||(!shared.nearest_support&&!shared.nearest_resistance&&!shared.nearest_ma))return '';
+  const nearestMa=shared.nearest_ma;
+  const maLabel=nearestMa
+    ?`Nearest MA ${nearestMa.label} ${nearestMa.price} · ${nearestMa.distance_pct}% ${nearestMa.position} · ${nearestMa.distance_atr==null?'--':nearestMa.distance_atr+' ATR'}`
+    :'Nearest MA --';
+  const upside=shared.upside_room_pct==null?'--':`${shared.upside_room_pct}% / ${shared.upside_room_atr==null?'--':shared.upside_room_atr+' ATR'}`;
+  const downside=shared.downside_room_pct==null?'--':`${shared.downside_room_pct}% / ${shared.downside_room_atr==null?'--':shared.downside_room_atr+' ATR'}`;
+  const confluence=[shared.confluence?.bullish,shared.confluence?.bearish].filter(Boolean);
+  return `<div class="tf-agg-card tf-setup-card">
+    <div class="tf-agg-card-top">
+      <div class="tf-agg-card-title">Structure</div>
+      <span class="tf-pill tf-pill-accent">Price ${shared.price??'--'}</span>
+    </div>
+    <div class="tf-pills tf-setup-pills">
+      ${tradeSetupDistanceHtml('Support',shared.nearest_support)}
+      ${tradeSetupDistanceHtml('Resistance',shared.nearest_resistance)}
+      <span class="tf-pill tf-pill-mixed">${maLabel}</span>
+      <span class="tf-pill tf-pill-mixed">Upside room ${upside}</span>
+      <span class="tf-pill tf-pill-mixed">Downside room ${downside}</span>
+      ${confluence.map(label=>`<span class="tf-pill tf-pill-accent">${label}</span>`).join('')}
+    </div>
+  </div>`;
+}
+function preferredFlipForFrame(frameFlips,preferred){
+  if(!preferred?.strategyKey)return{};
+  return frameFlips?.[preferred.strategyKey]||{};
+}
+function preferredPulseTone(dailyFlip,weeklyFlip){
+  const dailyDir=dailyFlip?.dir||dailyFlip?.current_dir||null;
+  const weeklyDir=weeklyFlip?.dir||weeklyFlip?.current_dir||null;
+  const bullish=(dailyDir==='bullish'?1:0)+(weeklyDir==='bullish'?1:0);
+  const bearish=(dailyDir==='bearish'?1:0)+(weeklyDir==='bearish'?1:0);
+  if(!bullish&&!bearish)return{label:'No data',tone:'mixed'};
+  if(bullish===2)return{label:'Bullish',tone:'bullish'};
+  if(bearish===2)return{label:'Bearish',tone:'bearish'};
+  if(bullish>bearish)return{label:'Bullish Tilt',tone:'bullish'};
+  if(bearish>bullish)return{label:'Bearish Tilt',tone:'bearish'};
+  return{label:'Split',tone:'mixed'};
+}
+function preferredStrategyCardHtml(title,flip,setup,preferred){
+  const dir=flip?.dir||flip?.current_dir||null;
+  const tone=dir==='bullish'?'bullish':dir==='bearish'?'bearish':'mixed';
+  const pillCls=tone==='bullish'?'tf-pill-bull':tone==='bearish'?'tf-pill-bear':'tf-pill-mixed';
+  const score=setup?.score==null?'--':`${setup.score>0?'+':''}${setup.score}`;
+  const age=daysSinceNumber(flip);
+  const startDate=flipDateLabel(flip)||'--';
+  const source=setup?.trend_source_label||`Preferred strategy bias (${preferred.strategyLabel})`;
+  return `<div class="tf-agg-card">
+    <div class="tf-agg-card-top">
+      <div class="tf-agg-card-title">${title}</div>
+      <span class="tf-pill ${pillCls}">${dir?dir.charAt(0).toUpperCase()+dir.slice(1):'No data'}</span>
+    </div>
+    <div class="tf-agg-card-score ${tone==='bullish'?'bull':tone==='bearish'?'bear':''}">${score}</div>
+    <div class="tf-agg-stats">
+      <span><strong>${preferred.strategyLabel}</strong> source</span>
+      <span><strong>${age==null?'--':age+'d'}</strong> regime age</span>
+      <span><strong>${startDate}</strong> since</span>
+      <span><strong>${setup?.trend_bias??'--'}</strong> bias</span>
+    </div>
+    <div class="tf-agg-note">${source} sets the direction first, then the trade score layers in structure, moving averages, and room.</div>
+  </div>`;
 }
 function renderTrendFlipAggregate(){
   const btn=document.getElementById('trend-flip-aggregate-btn');
@@ -266,66 +336,32 @@ function renderTrendFlipAggregate(){
     closeTrendFlipAggregate();
     return;
   }
-  const mode=trendPulseMode==='weighted'?'weighted':'equal';
-  const category=trendPulseCategory();
-  const weights=trendPulseWeights(keys,mode);
-  const daily=frameSummary(flips.daily,keys,weights);
-  const weekly=frameSummary(flips.weekly,keys,weights);
-  const overall=flipToneMeta(daily.bullish+weekly.bullish,daily.bearish+weekly.bearish);
-  const rows=aggregateRows(flips,keys,weights);
-  const alignedBull=rows.filter(r=>r.daily?.dir==='bullish'&&r.weekly?.dir==='bullish').length;
-  const alignedBear=rows.filter(r=>r.daily?.dir==='bearish'&&r.weekly?.dir==='bearish').length;
-  const split=rows.filter(r=>r.daily?.dir&&r.weekly?.dir&&r.daily.dir!==r.weekly.dir).length;
+  const tradeSetup=lastData?.trade_setup||{};
+  const ticker=document.getElementById('ticker')?.value?.toUpperCase()||'';
+  const preferred=preferredStrategyMeta(ticker,tradeSetup);
+  const dailyFlip=preferredFlipForFrame(flips.daily,preferred);
+  const weeklyFlip=preferredFlipForFrame(flips.weekly,preferred);
+  const overall=preferredPulseTone(dailyFlip,weeklyFlip);
   btn.style.display='inline-flex';
   btn.dataset.tone=overall.tone;
-  state.textContent=`${overall.label} · ${trendPulseModeTitle(mode)}`;
-  btn.title=`${overall.label} • Daily ${formatPulseMetric(daily.bullish,mode,daily.total)} bullish • Weekly ${formatPulseMetric(weekly.bullish,mode,weekly.total)} bullish`;
+  state.textContent=`${preferred.strategyLabel} · ${overall.label}`;
+  btn.title=`${preferred.strategyLabel} • Daily ${dailyFlip?.dir||dailyFlip?.current_dir||'no data'} • Weekly ${weeklyFlip?.dir||weeklyFlip?.current_dir||'no data'}`;
   pop.innerHTML=`<div class="tf-agg-head">
     <div>
       <h4>Signal Pulse</h4>
-      <div class="tf-agg-sub">${trendPulseDescription(mode,category)}</div>
+      <div class="tf-agg-sub">Class-aware pulse for this symbol. ${preferred.categoryLabel} names default to ${preferred.strategyLabel}, and the daily/weekly cards below are driven from that preferred strategy first.</div>
     </div>
     <div class="tf-pills">
       <span class="tf-pill ${overall.tone==='bullish'?'tf-pill-bull':overall.tone==='bearish'?'tf-pill-bear':'tf-pill-mixed'}">${overall.label}</span>
-      <span class="tf-pill tf-pill-mixed">${keys.length} indicators</span>
-      <span class="tf-pill tf-pill-accent">${trendPulseCategoryLabels[category]||'General'}</span>
+      <span class="tf-pill tf-pill-accent">${preferred.categoryLabel||trendPulseCategoryLabels[preferred.category]||'General'}</span>
+      <span class="tf-pill tf-pill-mixed">${preferred.strategyLabel}</span>
     </div>
-  </div>
-  <div class="tf-agg-tabs">
-    <button type="button" class="tf-agg-tab ${mode==='equal'?'active':''}" onclick="setTrendPulseMode(event,'equal')">Equal-Weighted</button>
-    <button type="button" class="tf-agg-tab ${mode==='weighted'?'active':''}" onclick="setTrendPulseMode(event,'weighted')">Weighted Avg</button>
   </div>
   <div class="tf-agg-grid">
-    ${frameCardHtml('Daily Consensus',daily,mode)}
-    ${frameCardHtml('Weekly Consensus',weekly,mode)}
+    ${preferredStrategyCardHtml('Daily Preferred Signal',dailyFlip,tradeSetup.daily,preferred)}
+    ${preferredStrategyCardHtml('Weekly Preferred Signal',weeklyFlip,tradeSetup.weekly,preferred)}
   </div>
-  <div class="tf-pills">
-    <span class="tf-pill tf-pill-bull">Bull both ${alignedBull}</span>
-    <span class="tf-pill tf-pill-bear">Bear both ${alignedBear}</span>
-    <span class="tf-pill tf-pill-mixed">Split ${split}</span>
-  </div>
-  <div class="tf-agg-table">
-    <div class="tf-agg-tr tf-agg-tr-${mode} th">
-      <div>Indicator</div>
-      <div>Daily</div>
-      <div>Weekly</div>
-      <div>Bias</div>
-      ${mode==='weighted'?'<div>Weight</div>':''}
-    </div>
-    ${rows.map(row=>{
-      const bias=biasText(row);
-      return`<div class="tf-agg-tr tf-agg-tr-${mode}">
-        <div class="tf-agg-ind">
-          <span class="tf-ind-dot" style="background:${signalColors[row.key]||'#ffd644'}"></span>
-          <span class="tf-agg-ind-name">${flipNames[row.key]||row.key}</span>
-        </div>
-        <div>${flipCellHtml(row.daily)}</div>
-        <div>${flipCellHtml(row.weekly)}</div>
-        <div><span class="tf-bias tf-bias-${bias.cls}">${bias.label}</span></div>
-        ${mode==='weighted'?`<div><span class="tf-weight">${formatPulseWeight(row.weight)}</span></div>`:''}
-      </div>`;
-    }).join('')}
-  </div>`;
+  ${tradeSetupSharedHtml(tradeSetup)}`;
 }
 function toggleTrendFlipAggregate(e){
   e.stopPropagation();
@@ -373,6 +409,14 @@ function toggleSignal(el,name){
   pushURLParams();
 }
 let activeBacktestStrat=null;
+function syncInitialSignalChipState(){
+  document.querySelectorAll('.overlays .chip[onclick^="toggleSignal"]').forEach(el=>{
+    const onclick=el.getAttribute('onclick')||'';
+    const match=onclick.match(/toggleSignal\(this,'([^']+)'\)/);
+    if(!match)return;
+    if(el.classList.contains('on'))activeSignals.add(match[1]);
+  });
+}
 function updateMarkers(){
   if(!lastData?.strategies){candleSeries.setMarkers([]);return}
   const all=[];

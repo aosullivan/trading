@@ -31,6 +31,12 @@ from lib.portfolio_research import (
     build_research_campaign_payload,
     research_matrix_catalog,
 )
+from lib.portfolio_strategies import (
+    MONTHLY_BREADTH_GUARD_KEY,
+    MONTHLY_BREADTH_GUARD_LADDER_KEY,
+    compute_monthly_breadth_guard_directions,
+    compute_monthly_breadth_guard_ladder_directions,
+)
 from lib.technical_indicators import compute_corpus_trend_signal, compute_cci_hysteresis
 from lib.ribbon_signals import compute_confirmed_ribbon_direction
 from lib.settings import DAILY_WARMUP_DAYS
@@ -61,6 +67,8 @@ _SUPPORTED_PORTFOLIO_STRATEGIES = {
     "ribbon",
     "corpus_trend",
     "cci_hysteresis",
+    MONTHLY_BREADTH_GUARD_KEY,
+    MONTHLY_BREADTH_GUARD_LADDER_KEY,
 }
 _PORTFOLIO_PRESET_BASKETS = PORTFOLIO_PRESET_BASKETS
 
@@ -227,6 +235,25 @@ def _compute_signal(strategy: str, ticker: str, df):
         return ticker, direction
     except Exception:
         return ticker, None
+
+
+def _compute_strategy_directions(strategy: str, ticker_data: dict[str, object]) -> dict[str, object]:
+    if strategy == MONTHLY_BREADTH_GUARD_KEY:
+        return compute_monthly_breadth_guard_directions(ticker_data)
+    if strategy == MONTHLY_BREADTH_GUARD_LADDER_KEY:
+        return compute_monthly_breadth_guard_ladder_directions(ticker_data)
+
+    ticker_directions = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {
+            pool.submit(_compute_signal, strategy, t, ticker_data[t]): t
+            for t in ticker_data
+        }
+        for fut in as_completed(futures):
+            t, direction = fut.result()
+            if direction is not None:
+                ticker_directions[t] = direction
+    return ticker_directions
 
 
 def _sse_event(event: str, data: dict) -> str:
@@ -517,16 +544,7 @@ def _execute_portfolio_payload(strategy, allocator_policy, tickers, skipped, bas
     if not ticker_data:
         raise ValueError("No data available")
 
-    ticker_directions = {}
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        futures = {
-            pool.submit(_compute_signal, strategy, t, ticker_data[t]): t
-            for t in ticker_data
-        }
-        for fut in as_completed(futures):
-            t, direction = fut.result()
-            if direction is not None:
-                ticker_directions[t] = direction
+    ticker_directions = _compute_strategy_directions(strategy, ticker_data)
 
     if not ticker_directions:
         raise ValueError("Could not compute signals")
@@ -709,25 +727,33 @@ def portfolio_backtest():
         ns = len(sig_tickers)
         yield _sse_event("progress", {"stage": "signals", "message": f"Computing signals for {ns} tickers…", "pct": 40})
 
-        ticker_directions = {}
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            futures = {
-                pool.submit(_compute_signal, strategy, t, ticker_data[t]): t
-                for t in sig_tickers
-            }
-            done = 0
-            for fut in as_completed(futures):
-                t, direction = fut.result()
-                done += 1
-                if direction is not None:
-                    ticker_directions[t] = direction
-                if done % 3 == 0 or done == ns:
-                    pct = 40 + int(40 * done / ns)
-                    yield _sse_event("progress", {
-                        "stage": "signals",
-                        "message": f"Signals {done}/{ns}",
-                        "pct": pct,
-                    })
+        if strategy in {MONTHLY_BREADTH_GUARD_KEY, MONTHLY_BREADTH_GUARD_LADDER_KEY}:
+            ticker_directions = _compute_strategy_directions(strategy, ticker_data)
+            yield _sse_event("progress", {
+                "stage": "signals",
+                "message": "Signals 1/1",
+                "pct": 80,
+            })
+        else:
+            ticker_directions = {}
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = {
+                    pool.submit(_compute_signal, strategy, t, ticker_data[t]): t
+                    for t in sig_tickers
+                }
+                done = 0
+                for fut in as_completed(futures):
+                    t, direction = fut.result()
+                    done += 1
+                    if direction is not None:
+                        ticker_directions[t] = direction
+                    if done % 3 == 0 or done == ns:
+                        pct = 40 + int(40 * done / ns)
+                        yield _sse_event("progress", {
+                            "stage": "signals",
+                            "message": f"Signals {done}/{ns}",
+                            "pct": pct,
+                        })
 
         if not ticker_directions:
             yield _sse_event("error_event", {"message": "Could not compute signals for any ticker"})

@@ -3,7 +3,9 @@
   "supported_strategies": [
     "ribbon",
     "corpus_trend",
-    "cci_hysteresis"
+    "cci_hysteresis",
+    "monthly_breadth_guard_v1",
+    "monthly_breadth_guard_ladder_v1"
   ],
   "supported_allocator_policies": [
     "signal_flip_v1",

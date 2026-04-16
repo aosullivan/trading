@@ -13,7 +13,10 @@
     {"value": "corpus_trend_layered", "label": "Corpus Trend Layered"},
     {"value": "cci_hysteresis", "label": "CCI Hysteresis (30/150/-40)"},
     {"value": "polymarket", "label": "Polymarket Skew"},
+    {"value": "trend_sr_macro_v1", "label": "Trend SR + Macro v1"},
     {"value": "weekly_core_overlay_v1", "label": "Weekly Core + Daily Overlay"},
+    {"value": "ema_9_26", "label": "EMA 9/26 Cross"},
+    {"value": "semis_persist_v1", "label": "Semis Persist v1"},
     {"value": "bb_breakout", "label": "BB Breakout (30/1.5)"},
     {"value": "ema_crossover", "label": "EMA 5/20 Cross"},
     {"value": "cci_trend", "label": "CCI Trend (30/80)"}
@@ -72,10 +75,13 @@
       "corpus_trend",
       "corpus_trend_layered",
       "weekly_core_overlay_v1",
+      "ema_9_26",
+      "semis_persist_v1",
       "bb_breakout",
       "ema_crossover",
       "cci_trend",
       "cci_hysteresis",
+      "trend_sr_macro_v1",
       "polymarket"
     ],
     "strategy_keys_with_local_buy_hold": [
@@ -83,7 +89,8 @@
       "corpus_trend",
       "corpus_trend_layered",
       "weekly_core_overlay_v1",
-      "cci_hysteresis"
+      "cci_hysteresis",
+      "trend_sr_macro_v1"
     ]
   }
 }
