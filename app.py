@@ -1,5 +1,10 @@
 from flask import Flask
 
+try:
+    from flask_compress import Compress
+except ImportError:  # Optional dependency; run without gzip if missing.
+    Compress = None
+
 from lib.paths import get_resource_path
 from routes import ALL_BLUEPRINTS
 
@@ -10,6 +15,17 @@ def create_app() -> Flask:
         template_folder=get_resource_path("templates"),
         static_folder=get_resource_path("static"),
     )
+
+    if Compress is not None:
+        flask_app.config.setdefault("COMPRESS_MIMETYPES", [
+            "application/json",
+            "text/html",
+            "text/css",
+            "text/javascript",
+            "application/javascript",
+        ])
+        flask_app.config.setdefault("COMPRESS_MIN_SIZE", 500)
+        Compress(flask_app)
 
     for bp in ALL_BLUEPRINTS:
         flask_app.register_blueprint(bp)

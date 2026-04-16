@@ -16,6 +16,7 @@ from lib.cache import (
     _CHART_CACHE_TTL,
 )
 from lib.data_fetching import (
+    _disk_cache_path,
     cached_download,
     normalize_ticker,
     is_treasury_price_ticker,
@@ -176,16 +177,66 @@ def _chart_payload_cache_dir() -> str:
 
 
 def _chart_payload_cache_scope(end: str) -> dict[str, str]:
-    today = pd.Timestamp.now().tz_localize(None).normalize().strftime("%Y-%m-%d")
+    """Return the validity scope for a payload cache entry.
+
+    Previously this tagged "live" entries with the current local day and
+    invalidated them at every midnight, forcing a full recompute on the first
+    click of the day. The cache key now includes the source-frame signature
+    (see `_frame_signature`), so entries stay valid as long as the underlying
+    bars haven't changed — making a calendar-day check redundant.
+    """
     if not end:
-        return {"mode": "live", "day": today}
+        return {"mode": "live"}
     try:
         requested_end = _parse_end_date(end)
     except Exception:
-        return {"mode": "live", "day": today}
+        return {"mode": "live"}
     if requested_end is None or requested_end >= pd.Timestamp.now().tz_localize(None).normalize():
-        return {"mode": "live", "day": today}
-    return {"mode": "historical", "day": ""}
+        return {"mode": "live"}
+    return {"mode": "historical"}
+
+
+def _source_data_token(ticker: str, interval: str) -> str:
+    """Freshness fingerprint for a ticker's source-data CSV cache.
+
+    Cheap — one stat() call. The token changes whenever `cached_download`
+    touches the file (a real Yahoo refresh that appends a new bar), so it
+    can safely live in a chart-cache key without requiring a full DataFrame
+    read on every request. Replaces the old calendar-day-based scope which
+    invalidated everything at local midnight.
+    """
+    try:
+        path = _disk_cache_path(ticker, interval)
+    except Exception:
+        return "no-path"
+    try:
+        return str(int(os.path.getmtime(path)))
+    except OSError:
+        return "no-file"
+
+
+_CHART_PAYLOAD_CACHE_MAX_AGE_SECONDS = 7 * 24 * 3600  # prune files older than a week
+
+
+def _prune_chart_payload_cache_dir(max_age_seconds: int = _CHART_PAYLOAD_CACHE_MAX_AGE_SECONDS):
+    """Delete cache files that haven't been touched in ``max_age_seconds``.
+
+    Cheap best-effort pass (one `os.scandir`) invoked from the write path so
+    the directory doesn't grow forever now that entries survive day rollovers.
+    """
+    try:
+        cutoff = time.time() - max_age_seconds
+        with os.scandir(_chart_payload_cache_dir()) as it:
+            for entry in it:
+                if not entry.is_file():
+                    continue
+                try:
+                    if entry.stat().st_mtime < cutoff:
+                        os.remove(entry.path)
+                except OSError:
+                    continue
+    except OSError:
+        return
 
 
 def _chart_payload_cache_path(kind: str, cache_key: str) -> str:
@@ -210,8 +261,6 @@ def _read_chart_payload_cache(kind: str, cache_key: str, end: str) -> dict | Non
     if meta.get("version") != _CHART_PAYLOAD_CACHE_VERSION:
         return None
     if meta.get("mode") != scope["mode"]:
-        return None
-    if scope["mode"] == "live" and meta.get("day") != scope["day"]:
         return None
 
     payload = wrapper.get("payload")
@@ -239,6 +288,9 @@ def _write_chart_payload_cache(kind: str, cache_key: str, end: str, payload: dic
                 os.remove(tmp_path)
         except OSError:
             pass
+    # Best-effort garbage collection so the directory doesn't grow forever now
+    # that entries aren't auto-invalidated by calendar-day changes.
+    _prune_chart_payload_cache_dir()
 
 
 # ---------------------------------------------------------------------------
@@ -925,6 +977,41 @@ def _get_weekly_bundle(
     return bundle, False
 
 
+def _get_sr_and_trade_setup(
+    ticker: str,
+    df: pd.DataFrame,
+    df_w: pd.DataFrame,
+    daily_flips: dict,
+    weekly_flips: dict,
+) -> tuple[dict, bool]:
+    """Memoize support/resistance levels + trade_setup together.
+
+    `compute_trade_setup` internally calls `compute_support_resistance` again
+    on the same daily frame — the two outputs share inputs, so caching them
+    as a pair avoids that double scan and skips both calls on cache hit.
+    """
+    cache_key = (
+        f"sr_trade_setup:{ticker}:{_frame_signature(df)}:"
+        f"{_frame_signature(df_w) if df_w is not None and not df_w.empty else 'none'}"
+    )
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached, True
+
+    sr_levels = compute_support_resistance(df, max_levels=20)
+    trade_setup = compute_trade_setup(
+        df,
+        df_w,
+        daily_flips,
+        weekly_flips,
+        ticker=ticker,
+        sr_levels=sr_levels,
+    )
+    bundle = {"sr_levels": sr_levels, "trade_setup": trade_setup}
+    _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
+    return bundle, False
+
+
 def _weekly_direction_for_strategy(
     weekly_bundle: dict | None,
     strategy_key: str,
@@ -1002,10 +1089,22 @@ def chart_data():
         )
     )
     candles_only = request.args.get("candles_only", "").lower() in ("1", "true", "yes")
-    candles_cache_key = f"chart:candles:{ticker}:{interval}:{start}:{end or 'latest'}"
+
+    # Resolved ticker-name: cheap lookup against in-memory info cache; any
+    # network fetch happens in a background thread.
+    ticker_name = _resolve_cached_ticker_name(ticker)
+    mark_phase("metadata_ms")
+
+    # Cheap freshness token from the source CSV's mtime. Swaps the old
+    # "invalidate every local midnight" scope with "invalidate whenever
+    # cached_download touches the source file". A single stat() — ~µs.
+    source_token = _source_data_token(data_ticker, source_interval)
+    candles_cache_key = (
+        f"chart:candles:{ticker}:{interval}:{start}:{end or 'latest'}:{source_token}"
+    )
     chart_cache_key = (
         f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
-        f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}"
+        f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}:{source_token}"
     )
     if candles_only:
         cached_candles = _cache_get(candles_cache_key)
@@ -1039,7 +1138,6 @@ def chart_data():
         cached_chart = _cache_get(chart_cache_key)
         if cached_chart is not None:
             if not cached_chart.get("ticker_name"):
-                ticker_name = _resolve_cached_ticker_name(ticker)
                 if ticker_name:
                     cached_chart = {**cached_chart, "ticker_name": ticker_name}
                     _cache_set(chart_cache_key, cached_chart, ttl=_CHART_CACHE_TTL)
@@ -1059,7 +1157,6 @@ def chart_data():
         )
         if disk_cached_chart is not None:
             if not disk_cached_chart.get("ticker_name"):
-                ticker_name = _resolve_cached_ticker_name(ticker)
                 if ticker_name:
                     disk_cached_chart = {**disk_cached_chart, "ticker_name": ticker_name}
                     _write_chart_payload_cache("chart", chart_cache_key, end, disk_cached_chart)
@@ -1073,11 +1170,12 @@ def chart_data():
                 _elapsed_ms(request_started_at),
             )
             return jsonify(disk_cached_chart)
+    mark_phase("cache_lookup_ms")
 
-    # Fetch full name for display
-    ticker_name = _resolve_cached_ticker_name(ticker)
-    mark_phase("metadata_ms")
-
+    # Cache miss: fetch the source frame. `cached_download` already has its
+    # own on-disk CSV cache plus a TTL-based in-memory cache, so this rarely
+    # hits Yahoo — but when it does, the resulting CSV mtime bump ensures
+    # the next request re-derives (`source_token` will differ).
     try:
         warmup_start = _warmup_start(start, interval)
         kwargs = {
@@ -1090,13 +1188,11 @@ def chart_data():
         source_df = cached_download(data_ticker, **kwargs)
     except Exception as e:
         current_app.logger.info(
-            "chart_data fetch_error ticker=%s interval=%s range=%s..%s metadata_ms=%s fetch_ms=%s total_ms=%s error=%s",
+            "chart_data fetch_error ticker=%s interval=%s range=%s..%s total_ms=%s error=%s",
             ticker,
             interval,
             start,
             end or "latest",
-            timings_ms.get("metadata_ms", 0),
-            _elapsed_ms(phase_started_at),
             _elapsed_ms(request_started_at),
             str(e),
         )
@@ -1105,13 +1201,11 @@ def chart_data():
 
     if source_df.empty:
         current_app.logger.info(
-            "chart_data empty_source ticker=%s interval=%s range=%s..%s metadata_ms=%s fetch_ms=%s total_ms=%s",
+            "chart_data empty_source ticker=%s interval=%s range=%s..%s total_ms=%s",
             ticker,
             interval,
             start,
             end or "latest",
-            timings_ms.get("metadata_ms", 0),
-            timings_ms.get("fetch_ms", 0),
             _elapsed_ms(request_started_at),
         )
         return jsonify({"error": f"No data for {ticker}"}), 400
@@ -1128,18 +1222,28 @@ def chart_data():
         df_view = df_view[~df_view.index.duplicated(keep="last")]
     if df_view.empty:
         current_app.logger.info(
-            "chart_data empty_view ticker=%s interval=%s range=%s..%s metadata_ms=%s fetch_ms=%s frame_ms=%s total_ms=%s",
+            "chart_data empty_view ticker=%s interval=%s range=%s..%s total_ms=%s",
             ticker,
             interval,
             start,
             end or "latest",
-            timings_ms.get("metadata_ms", 0),
-            timings_ms.get("fetch_ms", 0),
-            _elapsed_ms(phase_started_at),
             _elapsed_ms(request_started_at),
         )
         return jsonify({"error": f"No data for {ticker} in selected range"}), 400
     mark_phase("frame_ms")
+
+    # Re-compute the token AFTER the fetch: `cached_download` may have just
+    # touched the CSV (a new bar arrived), in which case we want to cache
+    # the fresh payload under the new token so subsequent requests hit.
+    post_fetch_token = _source_data_token(data_ticker, source_interval)
+    if post_fetch_token != source_token:
+        candles_cache_key = (
+            f"chart:candles:{ticker}:{interval}:{start}:{end or 'latest'}:{post_fetch_token}"
+        )
+        chart_cache_key = (
+            f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
+            f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}:{post_fetch_token}"
+        )
 
     if candles_only:
         candles = _ohlcv_df_to_candles(df_view)
@@ -1722,10 +1826,13 @@ def chart_data():
         )
     mark_phase("weekly_ms")
 
-    # --- Support / Resistance levels ---
-    sr_levels = compute_support_resistance(df, max_levels=20)
-    mark_phase("support_resistance_ms")
-    trade_setup = compute_trade_setup(df, df_w, daily_flips, weekly_flips, ticker=ticker)
+    # --- Support / Resistance + trade setup (cached as a pair) ---
+    sr_setup_bundle, sr_setup_bundle_hit = _get_sr_and_trade_setup(
+        ticker, df, df_w, daily_flips, weekly_flips
+    )
+    sr_levels = sr_setup_bundle["sr_levels"]
+    trade_setup = sr_setup_bundle["trade_setup"]
+    mark_phase("sr_setup_ms")
 
     # --- Volumes ---
     volumes = []

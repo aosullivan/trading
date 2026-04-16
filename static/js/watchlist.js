@@ -500,6 +500,54 @@ function queueWatchlistTrendPreload(delayMs=1500){
   },delayMs);
 }
 
+// --- Neighbour chart preload ---
+// After the current chart has rendered, quietly warm the `/api/chart` cache
+// for the watchlist tickers immediately above and below the current one.
+// The response is discarded — the backend's memory+disk caches are the whole
+// point. This cuts the first-click latency when the user clicks a neighbour.
+let wlChartPreloadTimer=null;
+let wlChartPreloadController=null;
+
+function queueWatchlistChartPreload(delayMs=3000){
+  if(!wlRefreshAllowed())return;
+  // Respect data-saver / metered connections.
+  if(typeof navigator!=='undefined'&&navigator.connection&&navigator.connection.saveData)return;
+  if(!Array.isArray(wlList)||wlList.length<2)return;
+  if(wlChartPreloadTimer)clearTimeout(wlChartPreloadTimer);
+  // Abort any in-flight preloads from a previous ticker switch.
+  if(wlChartPreloadController){
+    try{wlChartPreloadController.abort();}catch(_e){}
+    wlChartPreloadController=null;
+  }
+  wlChartPreloadTimer=setTimeout(()=>{
+    wlChartPreloadTimer=null;
+    if(!wlRefreshAllowed())return;
+    const cur=(document.getElementById('ticker')?.value||'').toUpperCase();
+    if(!cur)return;
+    const idx=wlList.findIndex(t=>String(t).toUpperCase()===cur);
+    if(idx<0)return;
+    const neighbours=[];
+    if(idx-1>=0)neighbours.push(wlList[idx-1]);
+    if(idx+1<wlList.length)neighbours.push(wlList[idx+1]);
+    if(!neighbours.length)return;
+    const interval=document.getElementById('interval')?.value||'1d';
+    const period=document.getElementById('period')?.value||'10';
+    const mult=document.getElementById('multiplier')?.value||'2.5';
+    const start=(typeof chartStart!=='undefined'&&chartStart)||'2015-01-01';
+    const end=(typeof chartEnd!=='undefined'&&chartEnd)||'';
+    const controller=(typeof AbortController!=='undefined')?new AbortController():null;
+    wlChartPreloadController=controller;
+    neighbours.forEach(t=>{
+      try{
+        const url=(typeof buildChartRequestUrl==='function')
+          ? buildChartRequestUrl(String(t).toUpperCase(),interval,start,end,period,mult,{candlesOnly:false,includeMM:true})
+          : `/api/chart?ticker=${encodeURIComponent(String(t).toUpperCase())}&interval=${encodeURIComponent(interval)}&start=${encodeURIComponent(start)}&period=${encodeURIComponent(period)}&multiplier=${encodeURIComponent(mult)}${end?`&end=${encodeURIComponent(end)}`:''}`;
+        fetch(url,controller?{signal:controller.signal}:undefined).catch(()=>{});
+      }catch(_e){}
+    });
+  },delayMs);
+}
+
 function fetchQuotes(){
   if(!wlRefreshAllowed()){
     stopWLRefreshTimers();

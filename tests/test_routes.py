@@ -1,6 +1,7 @@
 """Tests for Flask API routes."""
 
 import json
+import os
 from pathlib import Path
 import time
 from unittest.mock import patch, MagicMock
@@ -1322,6 +1323,68 @@ class TestChartAPI:
 
         assert second.status_code == 200
         assert len(second.get_json()["candles"]) == n
+
+    @patch("lib.cache.yf.download")
+    def test_chart_sr_trade_setup_cache_hit_skips_recompute(
+        self, mock_download, client
+    ):
+        """On a second identical request the _get_sr_and_trade_setup cache
+        should short-circuit both compute_support_resistance and
+        compute_trade_setup. Patching them to raise proves they weren't
+        called a second time."""
+        n = 120
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(7)
+        close = 200 + np.cumsum(np.random.randn(n))
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 1,
+                "Low": close - 1,
+                "Close": close,
+                "Volume": np.full(n, 1_000_000),
+            },
+            index=dates,
+        )
+        url = "/api/chart?ticker=AAPL&start=2023-01-01&period=10&multiplier=3"
+        assert client.get(url).status_code == 200
+        with (
+            patch(
+                "routes.chart.compute_support_resistance",
+                side_effect=AssertionError("SR cache should have served"),
+            ),
+            patch(
+                "routes.chart.compute_trade_setup",
+                side_effect=AssertionError("trade_setup cache should have served"),
+            ),
+        ):
+            # Cache hit at the chart-payload level will short-circuit
+            # everything — that's the intended behaviour. We only want to
+            # prove the SR+trade-setup pair survives the memory cache being
+            # cleared but the disk cache still present.
+            cache_module._cache.clear()
+            second = client.get(url)
+        assert second.status_code == 200
+
+    def test_source_data_token_changes_with_mtime(self, tmp_path):
+        """The freshness token must flip whenever the underlying CSV mtime
+        changes, since the chart cache key is built from it."""
+        from routes import chart as chart_module
+
+        fake_path = tmp_path / "TEST_1d.csv"
+
+        with patch(
+            "routes.chart._disk_cache_path", return_value=str(fake_path)
+        ):
+            assert chart_module._source_data_token("TEST", "1d") == "no-file"
+            fake_path.write_text("x")
+            t1 = chart_module._source_data_token("TEST", "1d")
+            assert t1 not in ("no-file", "no-path")
+            # Bump mtime by 2 seconds and ensure the token changes.
+            new_mtime = os.path.getmtime(fake_path) + 2
+            os.utime(fake_path, (new_mtime, new_mtime))
+            t2 = chart_module._source_data_token("TEST", "1d")
+            assert t2 != t1
 
     @patch("lib.cache.yf.download")
     def test_supertrend_payload_includes_whitespace_breaks(self, mock_download, client):

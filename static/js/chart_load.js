@@ -128,12 +128,15 @@ async function loadChart(){
   const fullUrl=buildChartRequestUrl(ticker,interval,start,end,period,mult,{candlesOnly:false,includeMM:true});
 	try{
     syncChartHeader(ticker,interval,period,mult,'');
+    // Fire both requests concurrently so the full payload is already in-flight
+    // by the time the candles-only response arrives.
+    const candlesPromise=fetch(candlesUrl).then(r=>r.json()).catch(()=>null);
+    const fullPromise=fetch(fullUrl).then(r=>r.json());
     let candlesData=null;
     try{
-      const candlesRes=await fetch(candlesUrl);
-      candlesData=await candlesRes.json();
+      candlesData=await candlesPromise;
       if(requestToken!==chartLoadRequestToken)return;
-      if(!candlesData.error){
+      if(candlesData&&!candlesData.error){
         applyCandlesPayload(ticker,interval,period,mult,candlesData);
         ld.classList.remove('on');
         if(!candlesData.ticker_name){
@@ -142,7 +145,7 @@ async function loadChart(){
       }
     }catch(_e){}
 
-    const res=await fetch(fullUrl),data=await res.json();
+    const data=await fullPromise;
     if(requestToken!==chartLoadRequestToken)return;
     if(data.error){alert(data.error);return}
     syncChartHeader(ticker,interval,period,mult,data.ticker_name||candlesData?.ticker_name||'');
@@ -208,6 +211,7 @@ async function loadChart(){
       ld.classList.remove('on');
       pushURLParams();
       if(typeof queueWatchlistTrendPreload==='function')queueWatchlistTrendPreload();
+      if(typeof queueWatchlistChartPreload==='function')queueWatchlistChartPreload();
     }
   }
 }

@@ -538,13 +538,15 @@ def compute_trade_setup(
     daily_flips: dict,
     weekly_flips: dict,
     ticker: str | None = None,
+    sr_levels: list | None = None,
 ) -> dict:
     if df_d is None or df_d.empty:
         return {"daily": _frame_setup(0, {}), "weekly": _frame_setup(0, {}), "shared": {}}
 
     current_price = float(df_d["Close"].iloc[-1])
     atr_value = _atr(df_d)
-    sr_levels = compute_support_resistance(df_d, max_levels=20)
+    if sr_levels is None:
+        sr_levels = compute_support_resistance(df_d, max_levels=20)
     nearest_support = _level_payload(current_price, atr_value, _nearest_level(sr_levels, current_price, "support"))
     nearest_resistance = _level_payload(current_price, atr_value, _nearest_level(sr_levels, current_price, "resistance"))
 
