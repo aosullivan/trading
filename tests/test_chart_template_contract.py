@@ -107,7 +107,51 @@ def test_template_exposes_trend_flip_pulse_controls():
 
 def test_template_updates_last_data_before_refreshing_trend_flip_ui():
     source = CHART_LOAD_JS_PATH.read_text()
-    assert "lastData=data;\n    syncAutoMovingAverages();\n    // Trend flip dates\n    updateFlipInfo();" in source
+    last_data_pos = source.index("lastData=data;")
+    sync_pos = source.index("syncAutoMovingAverages();", last_data_pos)
+    flip_pos = source.index("updateFlipInfo();", sync_pos)
+    assert last_data_pos < sync_pos < flip_pos
+
+
+def test_chart_load_uses_strategy_only_shared_path_and_lazy_strategy_fetches():
+    source = CHART_LOAD_JS_PATH.read_text()
+
+    assert "const candlesUrl=buildChartRequestUrl" in source
+    assert "candlesOnly:true" in source
+    assert "cancelWatchlistChartPreload" in source
+    assert "applyCandlesPayload(ticker,interval,period,mult,candleData);" in source
+    assert "include_shared=1" in source
+    assert "function applySharedChartPayload" in source
+    assert "async function loadStrategyPayload(name){" in source
+    assert "async function switchStrategy(name){" in source
+
+
+def test_stale_chart_loads_release_backtest_loading_counter():
+    source = CHART_LOAD_JS_PATH.read_text()
+
+    stale_return_pos = source.index("if(!candlesLoaded||requestToken!==chartLoadRequestToken){")
+    stale_release_pos = source.index("setBacktestLoading(false)", stale_return_pos)
+    stale_current_check_pos = source.index("if(requestToken===chartLoadRequestToken){", stale_return_pos)
+    strategy_finally_pos = source.index("finally{", source.index("const data=await fetch(selectedStrategyUrl)"))
+    strategy_release_pos = source.index("setBacktestLoading(false)", strategy_finally_pos)
+    strategy_current_check_pos = source.index("if(requestToken===chartLoadRequestToken){", strategy_finally_pos)
+
+    assert stale_release_pos < stale_current_check_pos
+    assert strategy_release_pos < strategy_current_check_pos
+
+
+def test_watchlist_neighbour_preload_uses_lightweight_chart_paths():
+    source = WATCHLIST_JS_PATH.read_text()
+
+    assert "function queueWatchlistChartPreload" in source
+    assert "function cancelWatchlistChartPreload" in source
+    assert "cancelWatchlistChartPreload();" in source
+    assert "document.getElementById('loading')?.classList.contains('on')" in source
+    assert "candlesOnly:true" in source
+    assert "strategyOnly:true" in source
+    assert "includeShared:true" in source
+    assert "cache_only=1&prewarm=1" in source
+    assert "candlesOnly:false" not in source
 
 
 def test_backtest_launches_in_new_tab_and_standalone_page_uses_report_script():
@@ -182,6 +226,7 @@ def test_watchlist_trends_shows_strength_and_trade_score_columns():
     assert "WL_TREND_SORT_KEYS=['ticker','flip','strength','score']" in watchlist_source
     assert "wlTrendSortKey==='strength'" in watchlist_source
     assert "openWatchlistTradeScore" in watchlist_source
+    assert "openWatchlistActionStrength" in watchlist_source
 
 
 def test_watchlist_trends_normalizes_preferred_strategy_payload_shape():
@@ -225,3 +270,5 @@ def test_index_includes_trade_score_modal_assets():
     assert "function openTradeScoreDetails" in modal_js_source
     assert "TRADE_SCORE_FORMULA_TEXT" in modal_js_source
     assert "tradeScoreBreakdown" in modal_js_source
+    assert "tradeScoreActionStrength" in modal_js_source
+    assert 'id="trade-score-action-strength"' in modal_source

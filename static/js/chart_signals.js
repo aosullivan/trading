@@ -9,6 +9,7 @@ const signalColors={
   corpus_trend:'#4dd0e1',
   corpus_trend_layered:'#26c6da',
   weekly_core_overlay_v1:'#ffd644',
+  supertrend_i:'#5bff9a',
   ema_9_26:'#ffb74d',
   semis_persist_v1:'#81c784',
   cci_hysteresis:'#ff8a65',
@@ -59,23 +60,23 @@ document.addEventListener('click',()=>{
 });
 
 const activeSignals=new Set();
-const flipOrder=['ribbon','corpus_trend','corpus_trend_layered','weekly_core_overlay_v1','ema_9_26','semis_persist_v1','cci_hysteresis','bb_breakout','ema_crossover','cci_trend','polymarket'];
+const flipOrder=['ribbon','corpus_trend','corpus_trend_layered','weekly_core_overlay_v1','supertrend_i','ema_9_26','semis_persist_v1','cci_hysteresis','bb_breakout','ema_crossover','cci_trend','polymarket'];
 const flipOrderRank=Object.fromEntries(flipOrder.map((key,idx)=>[key,idx]));
-const flipLabels={pulse:'Pulse',ribbon:'Trend',corpus_trend:'Corpus',corpus_trend_layered:'Corpus L',weekly_core_overlay_v1:'Core+Ov',ema_9_26:'EMA9',semis_persist_v1:'Semis',cci_hysteresis:'CCI H',bb_breakout:'BB',ema_crossover:'EMA5',cci_trend:'CCI',polymarket:'Poly'};
-const flipNames={ribbon:'Trend-Driven',corpus_trend:'Corpus Trend',corpus_trend_layered:'Corpus Trend Layered',weekly_core_overlay_v1:'Weekly Core + Daily Overlay',ema_9_26:'EMA 9/26 Cross',semis_persist_v1:'Semis Persist v1',cci_hysteresis:'CCI Hysteresis',bb_breakout:'BB Breakout',ema_crossover:'EMA 5/20 Cross',cci_trend:'CCI Trend',polymarket:'Polymarket Skew'};
+const flipLabels={pulse:'Pulse',ribbon:'Trend',corpus_trend:'Corpus',corpus_trend_layered:'Corpus L',weekly_core_overlay_v1:'Core+Ov',supertrend_i:'ST-I',ema_9_26:'EMA9',semis_persist_v1:'Semis',cci_hysteresis:'CCI H',bb_breakout:'BB',ema_crossover:'EMA5',cci_trend:'CCI',polymarket:'Poly'};
+const flipNames={ribbon:'Trend-Driven',corpus_trend:'Corpus Trend',corpus_trend_layered:'Corpus Trend Layered',weekly_core_overlay_v1:'Weekly Core + Daily Overlay',supertrend_i:'Supertrend-I',ema_9_26:'EMA 9/26 Cross',semis_persist_v1:'Semis Persist v1',cci_hysteresis:'CCI Hysteresis',bb_breakout:'BB Breakout',ema_crossover:'EMA 5/20 Cross',cci_trend:'CCI Trend',polymarket:'Polymarket Skew'};
 const flipDateFormatter=new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'});
 let trendPulseMode='equal';
 const trendPulseProfiles={
   default:{
-    ribbon:24,corpus_trend:18,corpus_trend_layered:14,weekly_core_overlay_v1:12,
+    ribbon:24,corpus_trend:18,corpus_trend_layered:14,weekly_core_overlay_v1:12,supertrend_i:10,
     ema_9_26:8,semis_persist_v1:10,cci_hysteresis:14,bb_breakout:8,ema_crossover:7,cci_trend:5,polymarket:0
   },
   crypto:{
-    ribbon:22,corpus_trend:16,corpus_trend_layered:12,weekly_core_overlay_v1:14,
+    ribbon:22,corpus_trend:16,corpus_trend_layered:12,weekly_core_overlay_v1:14,supertrend_i:10,
     ema_9_26:6,semis_persist_v1:5,cci_hysteresis:12,bb_breakout:7,ema_crossover:7,cci_trend:5,polymarket:12
   },
   semis:{
-    ribbon:20,corpus_trend:16,corpus_trend_layered:12,weekly_core_overlay_v1:10,
+    ribbon:20,corpus_trend:16,corpus_trend_layered:12,weekly_core_overlay_v1:10,supertrend_i:8,
     ema_9_26:8,semis_persist_v1:18,cci_hysteresis:10,bb_breakout:8,ema_crossover:7,cci_trend:5,polymarket:0
   }
 };

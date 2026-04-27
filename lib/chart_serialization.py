@@ -17,6 +17,7 @@ from lib.technical_indicators import (
     compute_keltner_breakout,
     compute_macd_crossover,
     compute_corpus_trend_signal,
+    compute_supertrend_i,
     compute_trend_ribbon,
 )
 from lib.specialized_strategies import (
@@ -153,6 +154,7 @@ def compute_all_trend_flips(
         ("ribbon", lambda d: compute_trend_ribbon(d, **ribbon_kwargs)[4]),
         ("corpus_trend", lambda d: compute_corpus_trend_signal(d)[4]),
         ("corpus_trend_layered", lambda d: compute_corpus_trend_signal(d)[4]),
+        ("supertrend_i", lambda d: compute_supertrend_i(d, period_val, multiplier_val)[1]),
         ("weekly_core_overlay_v1", lambda d: _weekly_core_overlay_direction(d, ticker)),
         (
             "bb_breakout",

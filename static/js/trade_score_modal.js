@@ -19,6 +19,13 @@ function tradeScoreSigned(value,digits=0){
   return number>0?`+${text}`:text;
 }
 
+function tradeScorePlain(value,digits=0){
+  if(value==null||Number.isNaN(Number(value)))return'--';
+  const number=Number(value);
+  const text=digits>0?number.toFixed(digits):String(Math.round(number));
+  return text.replace(/\.0$/,'');
+}
+
 function tradeScorePercent(value){
   if(value==null||Number.isNaN(Number(value)))return'--';
   return `${Number(value).toFixed(2).replace(/\.00$/,'')}%`;
@@ -167,15 +174,84 @@ function tradeScoreBreakdown(setup,shared){
   };
 }
 
-function renderTradeScorePayload(ticker,frame,tradeSetup){
+function tradeScoreActionStrength(setup,shared){
+  const source=setup?.action_strength;
+  if(source?.items?.length)return source;
+  if(!setup)return{label:'Action Strength',items:[]};
+  const level=Number(setup.level_component??0);
+  const ma=Number(setup.ma_component??0);
+  const location=setup.side==='mixed'?0:((level*0.20)+(ma*0.15))/0.35;
+  return{
+    label:'Action Strength',
+    items:[
+      {
+        key:'direction_confidence',
+        label:'Direction',
+        score:Math.abs(Number(setup.trend_bias??0)),
+        detail:`Net directional pressure is ${tradeScoreSigned(setup.trend_bias)} after bullish and bearish signals offset each other.`,
+      },
+      {
+        key:'entry_location_quality',
+        label:'Location',
+        score:location,
+        detail:setup.side==='mixed'
+          ?'Location is held at zero while the setup is mixed.'
+          :'Blends the nearest support/resistance and moving-average components.',
+      },
+      {
+        key:'risk_reward_room',
+        label:'Room',
+        score:Number(setup.room_component??50),
+        detail:'Compares available room in the setup direction against room on the adverse side.',
+      },
+      {
+        key:'strategy_agreement',
+        label:'Agreement',
+        score:Math.abs(Number(setup.trend_bias??0)),
+        detail:'Estimates signal consensus from the net trend bias when detailed agreement is unavailable.',
+      },
+    ],
+  };
+}
+
+function tradeScoreActionCaption(item){
+  if(item?.key==='direction_confidence')return'Regime';
+  if(item?.key==='entry_location_quality')return'Support + MA';
+  if(item?.key==='risk_reward_room')return'Room';
+  if(item?.key==='strategy_agreement')return'Consensus';
+  return'';
+}
+
+function tradeScoreActionStrengthHtml(actionStrength,toneCls,compact=false){
+  const items=actionStrength?.items||[];
+  if(!items.length)return'';
+  const heading=compact?'':`<h4>${escapeHtml(actionStrength.label||'Action Strength')}</h4>`;
+  return `${heading}
+    <div class="trade-score-action-grid">
+      ${items.map(item=>`<div class="trade-score-action-card trade-score-action-card-${toneCls}">
+        <div class="trade-score-action-head">
+          <span>${escapeHtml(item.label||'Signal')}</span>
+          <strong>${tradeScorePlain(item.score)} / 100</strong>
+        </div>
+        <div class="trade-score-action-meter"><span style="width:${Math.max(0,Math.min(100,Number(item.score??0)))}%"></span></div>
+        <p>${escapeHtml(compact?tradeScoreActionCaption(item):(item.detail||''))}</p>
+      </div>`).join('')}
+    </div>`;
+}
+
+function renderTradeScorePayload(ticker,frame,tradeSetup,options={}){
   const scopedFrame=frame==='weekly'?'weekly':'daily';
   const setup=tradeSetup?.[scopedFrame];
   const shared=tradeSetup?.shared||{};
+  const isActionFocus=options?.focus==='action_strength';
+  const focus=isActionFocus?'Action Strength':'Trade Score';
+  document.querySelector('#trade-score-modal .trade-score-modal')?.classList.toggle('trade-score-modal-compact',isActionFocus);
   if(!setup||setup.score==null){
-    document.getElementById('trade-score-title').textContent=`${ticker||'Ticker'} ${tradeScoreFrameLabel(scopedFrame)} Trade Score`;
+    document.getElementById('trade-score-title').textContent=`${ticker||'Ticker'} ${tradeScoreFrameLabel(scopedFrame)} ${focus}`;
     document.getElementById('trade-score-subtitle').textContent='No trade score is available yet.';
     document.getElementById('trade-score-status').textContent='The app does not have enough setup data for this frame yet.';
     document.getElementById('trade-score-topline').innerHTML='';
+    document.getElementById('trade-score-action-strength').innerHTML='';
     document.getElementById('trade-score-grid').innerHTML='';
     document.getElementById('trade-score-formula').innerHTML='';
     document.getElementById('trade-score-highlights').innerHTML='';
@@ -184,6 +260,7 @@ function renderTradeScorePayload(ticker,frame,tradeSetup){
   }
   const breakdown=tradeScoreBreakdown(setup,shared);
   const toneCls=tradeScoreToneClass(setup.side);
+  const actionStrength=tradeScoreActionStrength(setup,shared);
   const components=(breakdown.components||[]).map(component=>`<div class="trade-score-factor trade-score-factor-${toneCls}">
     <div class="trade-score-factor-head">
       <span>${escapeHtml(component.label||'Factor')}</span>
@@ -191,23 +268,15 @@ function renderTradeScorePayload(ticker,frame,tradeSetup){
     </div>
     <div class="trade-score-factor-score ${toneCls}">${tradeScoreSigned(component.weighted_contribution,1)} pts</div>
     <div class="trade-score-factor-meta">${tradeScoreSigned(component.component_score)} / 100 factor score</div>
-    <p>${escapeHtml(component.detail||'')}</p>
   </div>`).join('');
-  const bonus=breakdown.bonus
-    ?`<div class="trade-score-bonus ${toneCls}">
-      <span>${escapeHtml(breakdown.bonus.label||'Bonus')}</span>
-      <strong>${tradeScoreSigned(breakdown.bonus.points,0)} pts</strong>
-      <em>${escapeHtml(breakdown.bonus.detail||'')}</em>
-    </div>`
-    :'';
-  const highlights=(breakdown.highlights||[]).length
-    ?`<h4>Why It Landed Here</h4>${(breakdown.highlights||[]).map(item=>`<div class="trade-score-highlight">${escapeHtml(item)}</div>`).join('')}`
-    :'';
-  const confluence=[shared.confluence?.bullish,shared.confluence?.bearish].filter(Boolean);
-  document.getElementById('trade-score-title').textContent=`${ticker||'Ticker'} ${tradeScoreFrameLabel(scopedFrame)} Trade Score`;
-  document.getElementById('trade-score-subtitle').textContent=`${breakdown.strength_label||'Trade setup'} · ${setup.side||'mixed'}`;
-  document.getElementById('trade-score-status').textContent=breakdown.summary||'Trade Score combines trend bias, structure, moving averages, and room.';
-  document.getElementById('trade-score-topline').innerHTML=`<div class="trade-score-pill trade-score-pill-${toneCls}">
+  document.getElementById('trade-score-title').textContent=`${ticker||'Ticker'} ${tradeScoreFrameLabel(scopedFrame)} ${focus}`;
+  document.getElementById('trade-score-subtitle').textContent=isActionFocus
+    ?`${tradeScoreSigned(setup.score)} trade score · ${setup.side||'mixed'}`
+    :`${breakdown.strength_label||'Trade setup'} · ${setup.side||'mixed'}`;
+  document.getElementById('trade-score-status').textContent='';
+  document.getElementById('trade-score-topline').innerHTML=isActionFocus
+    ?''
+    :`<div class="trade-score-pill trade-score-pill-${toneCls}">
       <span>Final score</span>
       <strong>${tradeScoreSigned(setup.score)}</strong>
     </div>
@@ -218,27 +287,17 @@ function renderTradeScorePayload(ticker,frame,tradeSetup){
     <div class="trade-score-pill">
       <span>Raw setup</span>
       <strong>${tradeScoreSigned(breakdown.raw_score,1)}</strong>
-    </div>
-    ${bonus}`;
-  document.getElementById('trade-score-grid').innerHTML=components;
-  document.getElementById('trade-score-formula').innerHTML=`<h4>How It Is Calculated</h4><div>${escapeHtml(breakdown.formula||'')}</div>`;
-  document.getElementById('trade-score-highlights').innerHTML=highlights;
-  document.getElementById('trade-score-structure').innerHTML=`<h4>Structure Snapshot</h4>
-    <div class="trade-score-structure-box">
-      <div class="trade-score-structure-row"><span>Price</span><strong>${tradeScorePrice(shared.price)}</strong></div>
-      <div class="trade-score-structure-row"><span>ATR</span><strong>${tradeScorePrice(shared.atr)}</strong></div>
-      ${tradeScoreLevelRow('Nearest support',shared.nearest_support)}
-      ${tradeScoreLevelRow('Nearest resistance',shared.nearest_resistance)}
-      ${shared.nearest_ma?`<div class="trade-score-structure-row"><span>Nearest MA</span><strong>${escapeHtml(shared.nearest_ma.label)} ${tradeScorePrice(shared.nearest_ma.price)}</strong><em>${tradeScorePercent(shared.nearest_ma.distance_pct)} · ${tradeScoreAtr(shared.nearest_ma.distance_atr)} · ${escapeHtml(shared.nearest_ma.position||'at')}</em></div>`:''}
-      <div class="trade-score-structure-row"><span>Upside room</span><strong>${tradeScorePercent(shared.upside_room_pct)}</strong><em>${tradeScoreAtr(shared.upside_room_atr)}</em></div>
-      <div class="trade-score-structure-row"><span>Downside room</span><strong>${tradeScorePercent(shared.downside_room_pct)}</strong><em>${tradeScoreAtr(shared.downside_room_atr)}</em></div>
-      ${confluence.map(item=>`<div class="trade-score-structure-row trade-score-structure-row-accent"><span>Confluence</span><strong>${escapeHtml(item)}</strong></div>`).join('')}
     </div>`;
+  document.getElementById('trade-score-action-strength').innerHTML=isActionFocus?tradeScoreActionStrengthHtml(actionStrength,toneCls,true):'';
+  document.getElementById('trade-score-grid').innerHTML=isActionFocus?'':components;
+  document.getElementById('trade-score-formula').innerHTML='';
+  document.getElementById('trade-score-highlights').innerHTML='';
+  document.getElementById('trade-score-structure').innerHTML='';
 }
 
-function openTradeScoreDetails(frame='daily',ticker=null,tradeSetup=null){
+function openTradeScoreDetails(frame='daily',ticker=null,tradeSetup=null,options={}){
   const resolvedTicker=(ticker||document.getElementById('ticker')?.value||'').toUpperCase();
-  renderTradeScorePayload(resolvedTicker,frame,tradeSetup||lastData?.trade_setup||{});
+  renderTradeScorePayload(resolvedTicker,frame,tradeSetup||lastData?.trade_setup||{},options);
   document.getElementById('trade-score-modal')?.classList.add('open');
 }
 
@@ -246,6 +305,12 @@ function openWatchlistTradeScore(ticker){
   const row=wlTrendRows.find(item=>item?.ticker===ticker);
   if(!row?.trade_setup)return;
   openTradeScoreDetails(wlTrendFrame,ticker,row.trade_setup);
+}
+
+function openWatchlistActionStrength(ticker){
+  const row=wlTrendRows.find(item=>item?.ticker===ticker);
+  if(!row?.trade_setup)return;
+  openTradeScoreDetails(wlTrendFrame,ticker,row.trade_setup,{focus:'action_strength'});
 }
 
 document.addEventListener('keydown',event=>{

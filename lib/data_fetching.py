@@ -13,6 +13,8 @@ from lib.cache import (
     _FRED_CACHE_TTL,
     _cache_get,
     _cache_set,
+    _is_yf_rate_limit_error,
+    _yf_cooldown_active,
     _yf_rate_limited_download,
 )
 
@@ -27,6 +29,32 @@ _LATEST_INTERVAL_CACHE_FRESHNESS = 3600  # 1 hour
 _LAZY_REFRESH_INTERVALS = {"1d", "1wk", "1mo"}
 _lazy_refresh_lock = threading.Lock()
 _lazy_refreshing: set[str] = set()
+_download_singleflight_lock = threading.Lock()
+_download_singleflight_events: dict[str, threading.Event] = {}
+
+
+def _download_singleflight_key(ticker: str, allow_stale_latest: bool, kwargs: dict) -> str:
+    return (
+        f"{os.path.abspath(_DATA_CACHE_DIR)}:{ticker}:{allow_stale_latest}:"
+        f"{json.dumps(kwargs, sort_keys=True, default=str)}"
+    )
+
+
+def _enter_download_singleflight(key: str) -> tuple[bool, threading.Event]:
+    with _download_singleflight_lock:
+        event = _download_singleflight_events.get(key)
+        if event is not None:
+            return False, event
+        event = threading.Event()
+        _download_singleflight_events[key] = event
+        return True, event
+
+
+def _leave_download_singleflight(key: str, event: threading.Event) -> None:
+    with _download_singleflight_lock:
+        if _download_singleflight_events.get(key) is event:
+            _download_singleflight_events.pop(key, None)
+        event.set()
 
 
 def _disk_cache_path(ticker: str, interval: str) -> str:
@@ -38,6 +66,20 @@ def _disk_cache_path(ticker: str, interval: str) -> str:
 def _meta_path(ticker: str, interval: str) -> str:
     safe = f"{ticker}_{interval}".replace("/", "_")
     return os.path.join(_DATA_CACHE_DIR, f"{safe}.meta.json")
+
+
+def _frame_cache_signature(df: pd.DataFrame | None) -> str:
+    if df is None or df.empty:
+        return "empty"
+    idx = pd.Index(df.index)
+    first_ts = int(pd.Timestamp(idx[0]).timestamp())
+    last_ts = int(pd.Timestamp(idx[-1]).timestamp())
+    last_row = df.iloc[-1]
+    tail_values = []
+    for col in ("Open", "High", "Low", "Close", "Volume"):
+        val = last_row.get(col)
+        tail_values.append("nan" if pd.isna(val) else f"{float(val):.6f}")
+    return f"{len(df)}:{first_ts}:{last_ts}:{':'.join(tail_values)}"
 
 
 def _has_suspicious_weekly_spacing(df: pd.DataFrame) -> bool:
@@ -158,6 +200,25 @@ def _schedule_lazy_cache_refresh(ticker: str, kwargs: dict):
 
 
 def cached_download(ticker: str, *, allow_stale_latest: bool = True, **kwargs) -> pd.DataFrame:
+    """Download OHLCV data with persistent local file cache.
+
+    Concurrent identical misses are coalesced: the first caller fetches/writes,
+    while later callers wait briefly and then reuse the cache the first caller
+    just populated.
+    """
+    key = _download_singleflight_key(ticker, allow_stale_latest, kwargs)
+    is_owner, event = _enter_download_singleflight(key)
+    if not is_owner:
+        event.wait(timeout=90)
+        return _cached_download_impl(ticker, allow_stale_latest=allow_stale_latest, **kwargs)
+
+    try:
+        return _cached_download_impl(ticker, allow_stale_latest=allow_stale_latest, **kwargs)
+    finally:
+        _leave_download_singleflight(key, event)
+
+
+def _cached_download_impl(ticker: str, *, allow_stale_latest: bool = True, **kwargs) -> pd.DataFrame:
     """Download OHLCV data with persistent local file cache."""
     interval = kwargs.get("interval", "1d")
     start = kwargs.get("start")
@@ -170,7 +231,12 @@ def cached_download(ticker: str, *, allow_stale_latest: bool = True, **kwargs) -
             return cached
         download_kwargs = dict(kwargs)
         download_kwargs.setdefault("threads", False)
-        df = _yf_rate_limited_download(ticker, **download_kwargs)
+        try:
+            df = _yf_rate_limited_download(ticker, **download_kwargs)
+        except Exception as exc:
+            if _is_yf_rate_limit_error(exc):
+                return pd.DataFrame()
+            raise
         _cache_set(key, df)
         return df
 
@@ -218,13 +284,18 @@ def cached_download(ticker: str, *, allow_stale_latest: bool = True, **kwargs) -
             fetch_start = (last_cached + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
         requested_end = _clamped_requested_end(end)
         if requested_end is not None and pd.Timestamp(fetch_start) > requested_end:
-            _write_meta(meta_p, now)
+            _write_meta(meta_p, now, cached_df)
             return _slice_df(cached_df, start, end)
         if pd.Timestamp(fetch_start) > pd.Timestamp.now():
-            _write_meta(meta_p, now)
+            _write_meta(meta_p, now, cached_df)
             return _slice_df(cached_df, start, end)
     else:
         fetch_start = start
+
+    if _yf_cooldown_active():
+        if cached_df is not None:
+            return _slice_df(cached_df, start, end)
+        return pd.DataFrame()
 
     fetch_kwargs = dict(kwargs)
     fetch_kwargs["start"] = fetch_start
@@ -232,9 +303,11 @@ def cached_download(ticker: str, *, allow_stale_latest: bool = True, **kwargs) -
     fetch_kwargs.setdefault("threads", False)
     try:
         new_df = _yf_rate_limited_download(ticker, **fetch_kwargs)
-    except Exception:
+    except Exception as exc:
         if cached_df is not None:
             return _slice_df(cached_df, start, end)
+        if _is_yf_rate_limit_error(exc):
+            return pd.DataFrame()
         return pd.DataFrame()
 
     if isinstance(new_df.columns, pd.MultiIndex):
@@ -244,7 +317,7 @@ def cached_download(ticker: str, *, allow_stale_latest: bool = True, **kwargs) -
         new_df = new_df[~new_df.index.duplicated(keep="last")]
 
     if _incremental_data_failed_validation(cached_df, new_df, interval):
-        _write_meta(meta_p, now)
+        _write_meta(meta_p, now, cached_df)
         return _slice_df(cached_df, start, end)
 
     if cached_df is not None and not cached_df.empty and not new_df.empty:
@@ -256,20 +329,35 @@ def cached_download(ticker: str, *, allow_stale_latest: bool = True, **kwargs) -
     else:
         combined = cached_df if cached_df is not None else pd.DataFrame()
 
-    if not combined.empty:
-        try:
-            combined.to_csv(csv_path)
-        except Exception:
-            pass
+    should_write_combined = not combined.empty and not (
+        new_df.empty and cached_df is not None and not cached_df.empty
+    )
 
-    _write_meta(meta_p, now)
+    if should_write_combined:
+        # Atomic write: tempfile + os.replace so concurrent readers never see
+        # a half-written CSV and concurrent writers last-writer-wins cleanly.
+        tmp_path = f"{csv_path}.tmp.{os.getpid()}.{threading.get_ident()}"
+        try:
+            combined.to_csv(tmp_path)
+            os.replace(tmp_path, csv_path)
+        except Exception:
+            try:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except OSError:
+                pass
+
+    _write_meta(meta_p, now, combined)
     return _slice_df(combined, start, end)
 
 
-def _write_meta(meta_path: str, now: float):
+def _write_meta(meta_path: str, now: float, df: pd.DataFrame | None = None):
     try:
+        payload = {"last_fetch": now}
+        if df is not None:
+            payload["data_signature"] = _frame_cache_signature(df)
         with open(meta_path, "w") as f:
-            json.dump({"last_fetch": now}, f)
+            json.dump(payload, f)
     except Exception:
         pass
 

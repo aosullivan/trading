@@ -1,6 +1,7 @@
 // Map strategy names to their overlay series
 const overlayMap={
   ribbon:[()=>ribbonUpperSeries,()=>ribbonLowerSeries,()=>ribbonCenterSeries],
+  supertrend_i:[()=>stIUpSeries,()=>stIDownSeries],
   ema_crossover:[()=>ema9Series,()=>ema21Series],
   bb_breakout:[()=>bbUpperSeries,()=>bbMidSeries,()=>bbLowerSeries],
   cci_trend:[()=>cciLineSeries],
@@ -22,6 +23,8 @@ function updateOverlaysFromSignals(){
   overlaySeries.forEach(s=>{if(!chipProtected.has(s))s.applyOptions({visible:false})});
   stUpSeries.forEach(s=>{if(!chipProtected.has(s))s.applyOptions({visible:false})});
   stDownSeries.forEach(s=>{if(!chipProtected.has(s))s.applyOptions({visible:false})});
+  stIUpSeries.forEach(s=>{if(!chipProtected.has(s))s.applyOptions({visible:false})});
+  stIDownSeries.forEach(s=>{if(!chipProtected.has(s))s.applyOptions({visible:false})});
   active.forEach(name=>{
     const fns=overlayMap[name];
     if(fns)fns.forEach(fn=>forEachSeriesRef(fn(),s=>s.applyOptions({visible:true})));

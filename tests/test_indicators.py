@@ -6,6 +6,7 @@ import pytest
 
 from lib.technical_indicators import (
     compute_supertrend,
+    compute_supertrend_i,
     compute_channel_breakout_close,
     compute_sma_crossover,
     compute_ema_trend_signal,
@@ -43,6 +44,25 @@ class TestSupertrend:
         st1, d1 = compute_supertrend(sample_df, period=5, multiplier=1)
         st2, d2 = compute_supertrend(sample_df, period=20, multiplier=5)
         assert not st1.equals(st2)
+
+    def test_supertrend_i_flips_on_intrabar_touch(self):
+        idx = pd.date_range("2024-01-01", periods=4, freq="D")
+        df = pd.DataFrame(
+            {
+                "Open": [100.0, 100.0, 100.0, 100.0],
+                "High": [101.0, 106.0, 103.0, 102.0],
+                "Low": [99.0, 99.0, 96.0, 98.0],
+                "Close": [100.0, 100.0, 100.0, 100.0],
+                "Volume": [1, 1, 1, 1],
+            },
+            index=idx,
+        )
+
+        _, close_direction = compute_supertrend(df, period=1, multiplier=1)
+        _, touch_direction = compute_supertrend_i(df, period=1, multiplier=1)
+
+        assert close_direction.iloc[1] == -1
+        assert touch_direction.iloc[1] == 1
 
 
 class TestChannelBreakoutClose:

@@ -120,6 +120,68 @@ def compute_supertrend(
     return supertrend, direction
 
 
+def compute_supertrend_i(
+    df,
+    period=SUPERTREND_PERIOD,
+    multiplier=SUPERTREND_MULTIPLIER,
+):
+    """Compute an intrabar-touch Supertrend variant.
+
+    The classic Supertrend flip waits for the close to cross the active band.
+    Supertrend-I keeps the same ATR ratchet, but flips as soon as a candle's
+    high/low touches the active stop line.
+    """
+    high = df["High"]
+    low = df["Low"]
+    close = df["Close"]
+
+    atr = _compute_wilder_atr(high, low, close, period)
+
+    hl2 = (high + low) / 2
+    upper_basic = hl2 + multiplier * atr
+    lower_basic = hl2 - multiplier * atr
+
+    upper_band = pd.Series(np.nan, index=df.index)
+    lower_band = pd.Series(np.nan, index=df.index)
+    supertrend = pd.Series(np.nan, index=df.index)
+    direction = pd.Series(-1, index=df.index)
+
+    if len(df) < period:
+        return supertrend, direction
+
+    start = period - 1
+    upper_band.iloc[start] = upper_basic.iloc[start]
+    lower_band.iloc[start] = lower_basic.iloc[start]
+    supertrend.iloc[start] = upper_band.iloc[start]
+
+    for i in range(start + 1, len(df)):
+        upper_band.iloc[i] = (
+            upper_basic.iloc[i]
+            if (
+                upper_basic.iloc[i] < upper_band.iloc[i - 1]
+                or close.iloc[i - 1] > upper_band.iloc[i - 1]
+            )
+            else upper_band.iloc[i - 1]
+        )
+        lower_band.iloc[i] = (
+            lower_basic.iloc[i]
+            if (
+                lower_basic.iloc[i] > lower_band.iloc[i - 1]
+                or close.iloc[i - 1] < lower_band.iloc[i - 1]
+            )
+            else lower_band.iloc[i - 1]
+        )
+
+        if supertrend.iloc[i - 1] == upper_band.iloc[i - 1]:
+            direction.iloc[i] = 1 if high.iloc[i] >= upper_band.iloc[i] else -1
+        else:
+            direction.iloc[i] = -1 if low.iloc[i] <= lower_band.iloc[i] else 1
+
+        supertrend.iloc[i] = lower_band.iloc[i] if direction.iloc[i] == 1 else upper_band.iloc[i]
+
+    return supertrend, direction
+
+
 def compute_channel_breakout_close(df, period=CB50_PERIOD):
     """Close-based channel breakout (Trend Following Ch.45).
 

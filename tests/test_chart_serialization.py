@@ -32,6 +32,11 @@ def test_compute_all_trend_flips_uses_backtest_strategy_inventory(monkeypatch, s
     )
     monkeypatch.setattr(
         chart_serialization,
+        "compute_supertrend_i",
+        lambda d, period, multiplier: (None, _series(1)),
+    )
+    monkeypatch.setattr(
+        chart_serialization,
         "_weekly_core_overlay_direction",
         lambda d, ticker: _series(-1),
     )
@@ -67,6 +72,7 @@ def test_compute_all_trend_flips_uses_backtest_strategy_inventory(monkeypatch, s
         "ribbon",
         "corpus_trend",
         "corpus_trend_layered",
+        "supertrend_i",
         "weekly_core_overlay_v1",
         "bb_breakout",
         "ema_crossover",
@@ -94,6 +100,7 @@ def test_compute_all_trend_flips_only_includes_polymarket_for_btc(monkeypatch, s
         "compute_corpus_trend_signal",
         lambda d: (None, None, None, None, pd.Series([1] * len(d), index=d.index, dtype=int)),
     )
+    monkeypatch.setattr(chart_serialization, "compute_supertrend_i", lambda d, period, multiplier: (None, pd.Series([1] * len(d), index=d.index, dtype=int)))
     monkeypatch.setattr(chart_serialization, "_weekly_core_overlay_direction", lambda d, ticker: pd.Series([1] * len(d), index=d.index, dtype=int))
     monkeypatch.setattr(chart_serialization, "compute_bollinger_breakout", lambda d, period, std: (None, None, None, pd.Series([1] * len(d), index=d.index, dtype=int)))
     monkeypatch.setattr(chart_serialization, "compute_ema_crossover", lambda d, fast, slow: (None, None, pd.Series([1] * len(d), index=d.index, dtype=int)))

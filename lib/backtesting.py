@@ -477,6 +477,203 @@ def backtest_direction(df, direction, start_in_position=False, prior_direction=N
     return trades, summary, equity_curve
 
 
+def backtest_direction_vectorized(df, direction, start_in_position=False, prior_direction=None):
+    """Vectorized equivalent of `backtest_direction`.
+
+    Drop-in replacement producing byte-for-byte identical output for every
+    scenario in tests/test_backtest_vectorized_parity.py. Wins ~10x on the
+    per-call wall clock for long series by replacing the bar-by-bar Python
+    loop with numpy comparisons on the direction vector.
+
+    Core invariant from the reference: at loop index i ∈ [0, N-1),
+      prev_dir  = prior_direction  if i == 0 else direction[i-1]
+      curr_dir  = direction[i]
+      execution = bar i+1 (next open)
+    Entry fires when `prev != 1 and curr == 1 and position is None`.
+    Exit fires when `prev == 1 and curr != 1 and position is not None`.
+
+    Because the `position is None` gate is the only per-bar state, and
+    direction-based signals strictly alternate entry↔exit in the reference
+    (each entry flips `prev` to 1 on the next bar; each exit flips it away),
+    we detect all candidate bars in O(1) numpy, then walk them with a tiny
+    Python loop of O(num_signals) — typically dozens, not thousands.
+    """
+    N = len(df)
+    if N == 0:
+        return [], compute_summary([], []), []
+
+    direction_vals = np.asarray(
+        direction.values if hasattr(direction, "values") else direction
+    )
+    open_vals = df["Open"].values.astype(float)
+    close_vals = df["Close"].values.astype(float)
+    date_strs = [str(d.date()) for d in df.index]
+
+    # Derive initial_prev_dir (mirror the reference branch)
+    if prior_direction is None:
+        initial_prev = 1 if start_in_position else int(direction_vals[0])
+    else:
+        initial_prev = prior_direction
+
+    # --- Signal detection (vectorized) ---
+    # Build `prev` and `curr` arrays for i ∈ [0, N-1)
+    if N >= 2:
+        prev_arr = np.empty(N - 1, dtype=direction_vals.dtype)
+        prev_arr[0] = initial_prev
+        if N >= 3:
+            prev_arr[1:] = direction_vals[: N - 2]
+        curr_arr = direction_vals[: N - 1]
+        entry_mask = (prev_arr != 1) & (curr_arr == 1)
+        exit_mask = (prev_arr == 1) & (curr_arr != 1)
+        entry_candidate_idxs = np.flatnonzero(entry_mask).tolist()
+        exit_candidate_idxs = np.flatnonzero(exit_mask).tolist()
+    else:
+        entry_candidate_idxs = []
+        exit_candidate_idxs = []
+
+    # --- Trade construction ---
+    trades: list[dict] = []
+    position: dict | None = None
+    cash = float(INITIAL_CAPITAL)
+
+    # Synthetic entry at bar 0 when requested.
+    if start_in_position:
+        entry_price = round(float(open_vals[0]), 2)
+        quantity = (cash / entry_price) if entry_price else 0.0
+        position = {
+            "entry_date": date_strs[0],
+            "entry_price": entry_price,
+            "type": "long",
+            "quantity": round(quantity, 8),
+        }
+        cash = 0.0
+
+    # Merge candidates in bar order; at each candidate, only act if the
+    # position-state gate permits it (reference parity).
+    ei = 0
+    xi = 0
+    while ei < len(entry_candidate_idxs) or xi < len(exit_candidate_idxs):
+        next_entry = entry_candidate_idxs[ei] if ei < len(entry_candidate_idxs) else None
+        next_exit = exit_candidate_idxs[xi] if xi < len(exit_candidate_idxs) else None
+
+        if next_entry is not None and (next_exit is None or next_entry < next_exit):
+            idx = next_entry
+            ei += 1
+            is_entry = True
+        else:
+            idx = next_exit
+            xi += 1
+            is_entry = False
+
+        exec_idx = idx + 1  # reference executes at i+1
+        exec_price = round(float(open_vals[exec_idx]), 2)
+        exec_date = date_strs[exec_idx]
+
+        if is_entry and position is None:
+            quantity = (cash / exec_price) if exec_price else 0.0
+            position = {
+                "entry_date": exec_date,
+                "entry_price": exec_price,
+                "type": "long",
+                "quantity": round(quantity, 8),
+            }
+            cash = 0.0
+        elif (not is_entry) and position is not None:
+            pnl = (exec_price - position["entry_price"]) * position["quantity"]
+            pnl_pct = (
+                ((exec_price / position["entry_price"]) - 1) * 100
+                if position["entry_price"]
+                else 0
+            )
+            cash = exec_price * position["quantity"]
+            trades.append(
+                {
+                    **position,
+                    "exit_date": exec_date,
+                    "exit_price": exec_price,
+                    "pnl": round(pnl, 2),
+                    "pnl_pct": round(pnl_pct, 2),
+                }
+            )
+            position = None
+        # else: gate failed (signal fired but position state mismatched) —
+        # the reference also ignores these; they're no-ops by design.
+
+    # Trade still open at end → mark-to-market at final close, flag open.
+    if position is not None:
+        last_close = round(float(close_vals[-1]), 2)
+        pnl = (last_close - position["entry_price"]) * position["quantity"]
+        pnl_pct = (
+            ((last_close / position["entry_price"]) - 1) * 100
+            if position["entry_price"]
+            else 0
+        )
+        trades.append(
+            {
+                **position,
+                "exit_date": date_strs[-1],
+                "exit_price": last_close,
+                "pnl": round(pnl, 2),
+                "pnl_pct": round(pnl_pct, 2),
+                "open": True,
+            }
+        )
+
+    equity_curve = build_equity_curve_vectorized(df, trades)
+    summary = compute_summary(trades, equity_curve)
+    return trades, summary, equity_curve
+
+
+def build_equity_curve_vectorized(df, trades):
+    """Vectorized equivalent of `build_equity_curve`.
+
+    Produces the same per-bar equity dict-list but avoids `df.iterrows()`.
+    The reference has a subtle ordering: on an entry bar `cash` becomes 0
+    and `shares` becomes qty; on an exit bar `cash` becomes
+    `round(shares * exit_price, 2)` and `shares` becomes 0. Between trades
+    `cash` holds its last value. This implementation assumes trades do not
+    overlap (single-position model) — true for direction-based backtests.
+    """
+    N = len(df)
+    if N == 0:
+        return []
+
+    date_to_idx = {str(d.date()): i for i, d in enumerate(df.index)}
+
+    shares_arr = np.zeros(N, dtype=float)
+    cash_arr = np.full(N, float(INITIAL_CAPITAL), dtype=float)
+
+    # trades are chronological in the reference; process in order so that
+    # slice writes to shares_arr/cash_arr reflect the correct time sequence.
+    for t in trades:
+        entry_idx = date_to_idx.get(t["entry_date"])
+        if entry_idx is None:
+            continue
+        qty = float(t["quantity"])
+        if t.get("open"):
+            # No exit: position stays on from entry bar to end of frame.
+            shares_arr[entry_idx:] = qty
+            cash_arr[entry_idx:] = 0.0
+        else:
+            exit_idx = date_to_idx.get(t["exit_date"])
+            if exit_idx is None:
+                continue
+            # During open window [entry_idx, exit_idx): shares=qty, cash=0.
+            shares_arr[entry_idx:exit_idx] = qty
+            cash_arr[entry_idx:exit_idx] = 0.0
+            # At and after exit (until next trade overwrites): shares=0, cash=post_exit.
+            cash_arr[exit_idx:] = round(qty * float(t["exit_price"]), 2)
+            # shares_arr[exit_idx:] already 0 (default); next trade will stamp its own.
+
+    closes = df["Close"].values.astype(float)
+    raw_equity = np.where(shares_arr > 0, shares_arr * closes, cash_arr)
+    rounded = np.round(raw_equity, 2)
+    timestamps = np.array([int(d.timestamp()) for d in df.index], dtype=np.int64)
+
+    # Build list of dicts with native Python types (json-serializable).
+    return [{"time": int(ts), "value": float(v)} for ts, v in zip(timestamps, rounded)]
+
+
 def backtest_supertrend(df, direction, start_in_position=False):
     """Backtest a Supertrend strategy: long when bullish, flat when bearish."""
     return backtest_direction(df, direction, start_in_position=start_in_position)

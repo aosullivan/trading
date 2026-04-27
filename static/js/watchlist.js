@@ -508,20 +508,25 @@ function queueWatchlistTrendPreload(delayMs=1500){
 let wlChartPreloadTimer=null;
 let wlChartPreloadController=null;
 
+function cancelWatchlistChartPreload(){
+  if(wlChartPreloadTimer)clearTimeout(wlChartPreloadTimer);
+  wlChartPreloadTimer=null;
+  if(wlChartPreloadController){
+    try{wlChartPreloadController.abort();}catch(_e){}
+    wlChartPreloadController=null;
+  }
+}
+
 function queueWatchlistChartPreload(delayMs=3000){
   if(!wlRefreshAllowed())return;
   // Respect data-saver / metered connections.
   if(typeof navigator!=='undefined'&&navigator.connection&&navigator.connection.saveData)return;
   if(!Array.isArray(wlList)||wlList.length<2)return;
-  if(wlChartPreloadTimer)clearTimeout(wlChartPreloadTimer);
-  // Abort any in-flight preloads from a previous ticker switch.
-  if(wlChartPreloadController){
-    try{wlChartPreloadController.abort();}catch(_e){}
-    wlChartPreloadController=null;
-  }
+  cancelWatchlistChartPreload();
   wlChartPreloadTimer=setTimeout(()=>{
     wlChartPreloadTimer=null;
     if(!wlRefreshAllowed())return;
+    if(document.getElementById('loading')?.classList.contains('on'))return;
     const cur=(document.getElementById('ticker')?.value||'').toUpperCase();
     if(!cur)return;
     const idx=wlList.findIndex(t=>String(t).toUpperCase()===cur);
@@ -537,14 +542,23 @@ function queueWatchlistChartPreload(delayMs=3000){
     const end=(typeof chartEnd!=='undefined'&&chartEnd)||'';
     const controller=(typeof AbortController!=='undefined')?new AbortController():null;
     wlChartPreloadController=controller;
-    neighbours.forEach(t=>{
-      try{
-        const url=(typeof buildChartRequestUrl==='function')
-          ? buildChartRequestUrl(String(t).toUpperCase(),interval,start,end,period,mult,{candlesOnly:false,includeMM:true})
-          : `/api/chart?ticker=${encodeURIComponent(String(t).toUpperCase())}&interval=${encodeURIComponent(interval)}&start=${encodeURIComponent(start)}&period=${encodeURIComponent(period)}&multiplier=${encodeURIComponent(mult)}${end?`&end=${encodeURIComponent(end)}`:''}`;
-        fetch(url,controller?{signal:controller.signal}:undefined).catch(()=>{});
-      }catch(_e){}
-    });
+    const selectedStrategy=document.getElementById('strategy-select')?.value||activeBacktestStrat||'ribbon';
+	    neighbours.forEach(t=>{
+	      try{
+	        const ticker=String(t).toUpperCase();
+	        const fallbackBase=`/api/chart?ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}&start=${encodeURIComponent(start)}&period=${encodeURIComponent(period)}&multiplier=${encodeURIComponent(mult)}${end?`&end=${encodeURIComponent(end)}`:''}`;
+	        const urls=(typeof buildChartRequestUrl==='function')
+	          ? [
+	            buildChartRequestUrl(ticker,interval,start,end,period,mult,{candlesOnly:true,includeMM:false})+'&cache_only=1&prewarm=1',
+	            buildChartRequestUrl(ticker,interval,start,end,period,mult,{strategyOnly:true,strategy:selectedStrategy,includeMM:true,includeShared:true})+'&cache_only=1&prewarm=1',
+	          ]
+	          : [
+	            `${fallbackBase}&candles_only=1&cache_only=1&prewarm=1`,
+	            `${fallbackBase}&strategy_only=1&include_shared=1&strategy=${encodeURIComponent(selectedStrategy)}&cache_only=1&prewarm=1`,
+	          ];
+	        urls.forEach(url=>fetch(url,controller?{signal:controller.signal}:undefined).catch(()=>{}));
+	      }catch(_e){}
+	    });
   },delayMs);
 }
 
@@ -756,7 +770,7 @@ function wlTrendRowHtml(row,cur){
   return `<div class="wl-trend-row${row.ticker===cur?' active':''}">
     <div class="wl-tk wl-trend-symbol" onclick="event.stopPropagation();pickTicker('${row.ticker}')"><span>${row.ticker}</span></div>
     <div class="wl-trend-cell" onclick="event.stopPropagation();openTrendPulse('${row.ticker}')">${wlTrendCellHtml(flip,row.preferredStrategy)}</div>
-    <div class="wl-v wl-trend-score ${cls}" onclick="event.stopPropagation();openTrendPulse('${row.ticker}')">${strength}</div>
+    <div class="wl-v wl-trend-score ${cls}" onclick="event.stopPropagation();openWatchlistActionStrength('${row.ticker}')">${strength}</div>
     <div class="wl-v wl-trend-score ${cls}" onclick="event.stopPropagation();openWatchlistTradeScore('${row.ticker}')">${score}</div>
   </div>`;
 }

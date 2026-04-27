@@ -1,5 +1,6 @@
 let chart,candleSeries,stUpFill,stDownFill,stUpMid,stDownMid,volumeSeries,btEquityChart,btPriceSeries,btEquitySeries,btHoldSeries;
 let stUpSeries=[],stDownSeries=[];
+let stIUpSeries=[],stIDownSeries=[];
 let sma50Series,sma100Series,sma180Series,sma200Series,sma50wSeries,sma100wSeries,sma200wSeries,ema9Series,ema21Series;
 // Indicator overlay series — price overlays
 let donchUpperSeries,donchLowerSeries;
@@ -154,6 +155,13 @@ function clearSupertrendSegments(){
   stDownSeries.forEach(s=>chart.removeSeries(s));
   stUpSeries=[];
   stDownSeries=[];
+}
+
+function clearSupertrendISegments(){
+  stIUpSeries.forEach(s=>chart.removeSeries(s));
+  stIDownSeries.forEach(s=>chart.removeSeries(s));
+  stIUpSeries=[];
+  stIDownSeries=[];
 }
 
 function buildSupertrendSegments(points,color){

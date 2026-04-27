@@ -1,6 +1,9 @@
+import concurrent.futures
 import hashlib
 import json
 import os
+import pickle
+import threading
 import time
 from datetime import timedelta
 
@@ -17,6 +20,7 @@ from lib.cache import (
 )
 from lib.data_fetching import (
     _disk_cache_path,
+    _meta_path,
     cached_download,
     normalize_ticker,
     is_treasury_price_ticker,
@@ -40,6 +44,7 @@ from lib.technical_indicators import (
     SUPERTREND_MULTIPLIER,
     SUPERTREND_PERIOD,
     compute_supertrend,
+    compute_supertrend_i,
     compute_ema_crossover,
     compute_macd_crossover,
     compute_donchian_breakout,
@@ -64,6 +69,7 @@ from lib.backtesting import (
     backtest_corpus_trend,
     backtest_corpus_trend_layered,
     backtest_direction,
+    backtest_direction_vectorized,
     backtest_managed,
     backtest_weekly_core_daily_overlay,
     build_weekly_confirmed_ribbon_direction,
@@ -98,7 +104,22 @@ from lib.trend_sr_macro_strategy import (
 from lib.paths import get_user_data_path
 
 bp = Blueprint("chart", __name__)
-_CHART_PAYLOAD_CACHE_VERSION = 1
+_CHART_PAYLOAD_CACHE_VERSION = 2
+_CHART_INTERACTIVE_IDLE_SECONDS = 30
+_chart_activity_lock = threading.Lock()
+_last_interactive_chart_request_at = 0.0
+
+
+def _mark_interactive_chart_request() -> None:
+    global _last_interactive_chart_request_at
+    with _chart_activity_lock:
+        _last_interactive_chart_request_at = time.monotonic()
+
+
+def chart_interactive_recently(window_seconds: int = _CHART_INTERACTIVE_IDLE_SECONDS) -> bool:
+    with _chart_activity_lock:
+        last_seen = _last_interactive_chart_request_at
+    return bool(last_seen and (time.monotonic() - last_seen) < window_seconds)
 
 CONFIRMATION_PRESETS = {
     "layered_30_70": {
@@ -158,6 +179,7 @@ WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
     {
         "ribbon",
         "corpus_trend",
+        "supertrend_i",
         "bb_breakout",
         "ema_crossover",
         EMA_9_26_KEY,
@@ -199,12 +221,20 @@ def _chart_payload_cache_scope(end: str) -> dict[str, str]:
 def _source_data_token(ticker: str, interval: str) -> str:
     """Freshness fingerprint for a ticker's source-data CSV cache.
 
-    Cheap — one stat() call. The token changes whenever `cached_download`
-    touches the file (a real Yahoo refresh that appends a new bar), so it
-    can safely live in a chart-cache key without requiring a full DataFrame
-    read on every request. Replaces the old calendar-day-based scope which
-    invalidated everything at local midnight.
+    Cheap — one metadata JSON read. The token changes when the cached source
+    frame's content signature changes, not merely when another path rewrites
+    the same CSV. That keeps prebuilt chart payloads valid across harmless
+    quote refreshes while still invalidating them when a new/changed bar lands.
     """
+    try:
+        meta_path = _meta_path(ticker, interval)
+        with open(meta_path) as handle:
+            meta = json.load(handle)
+        signature = meta.get("data_signature")
+        if signature:
+            return f"sig:{signature}"
+    except Exception:
+        pass
     try:
         path = _disk_cache_path(ticker, interval)
     except Exception:
@@ -291,6 +321,84 @@ def _write_chart_payload_cache(kind: str, cache_key: str, end: str, payload: dic
     # Best-effort garbage collection so the directory doesn't grow forever now
     # that entries aren't auto-invalidated by calendar-day changes.
     _prune_chart_payload_cache_dir()
+
+
+# ---------------------------------------------------------------------------
+# Intermediate-bundle disk cache
+# ---------------------------------------------------------------------------
+# `_get_indicator_bundle`, `_get_weekly_bundle`, and `_get_sr_and_trade_setup`
+# memoize their results in `_cache` (in-memory, 5-min TTL). That's enough
+# within a session, but `_cache` is empty after a restart, so any request
+# that doesn't exactly match a disk-cached chart payload (e.g. user toggled
+# an MM setting, or changed the ST period) re-pays the full compute cost.
+#
+# These helpers add a second tier: a pickle-based on-disk spill. Pickle is
+# used because the bundles contain `pd.Series` objects — round-tripping
+# through JSON would cost more than the compute we're trying to skip.
+# `_BUNDLE_DISK_CACHE_VERSION` is baked into the file digest so a bump
+# invalidates stale files across Python/pandas ABI changes.
+_BUNDLE_DISK_CACHE_VERSION = "bundle-v2"
+
+
+def _bundle_disk_cache_dir() -> str:
+    path = get_user_data_path("data_cache", "bundle_cache")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _bundle_disk_cache_path(cache_key: str) -> str:
+    digest = hashlib.sha256(
+        f"{_BUNDLE_DISK_CACHE_VERSION}:{cache_key}".encode("utf-8")
+    ).hexdigest()
+    return os.path.join(_bundle_disk_cache_dir(), f"{digest}.pkl")
+
+
+def _read_bundle_disk_cache(cache_key: str):
+    path = _bundle_disk_cache_path(cache_key)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "rb") as handle:
+            return pickle.load(handle)
+    except Exception:
+        # Corrupt file, pickle-protocol mismatch, or pandas ABI change.
+        # Treat as a cache miss; the next write will overwrite it cleanly.
+        return None
+
+
+def _write_bundle_disk_cache(cache_key: str, bundle) -> None:
+    path = _bundle_disk_cache_path(cache_key)
+    tmp_path = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}"
+    try:
+        with open(tmp_path, "wb") as handle:
+            pickle.dump(bundle, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except OSError:
+            pass
+    _prune_bundle_disk_cache_dir()
+
+
+def _prune_bundle_disk_cache_dir(
+    max_age_seconds: int = _CHART_PAYLOAD_CACHE_MAX_AGE_SECONDS,
+) -> None:
+    """Delete bundle-cache files untouched for ``max_age_seconds`` (default: 7d)."""
+    try:
+        cutoff = time.time() - max_age_seconds
+        with os.scandir(_bundle_disk_cache_dir()) as it:
+            for entry in it:
+                if not entry.is_file():
+                    continue
+                try:
+                    if entry.stat().st_mtime < cutoff:
+                        os.remove(entry.path)
+                except OSError:
+                    continue
+    except OSError:
+        return
 
 
 # ---------------------------------------------------------------------------
@@ -504,6 +612,55 @@ def _strategy_payload(
     return payload
 
 
+_STRATEGY_TASK_KEYS = {
+    "ribbon": "ribbon",
+    "corpus_trend": "corpus_trend",
+    "corpus_trend_layered": "corpus_trend_layered",
+    "weekly_core_overlay_v1": "weekly_core_overlay",
+    "supertrend_i": "supertrend_i",
+    "bb_breakout": "bb",
+    "ema_crossover": "ema",
+    EMA_9_26_KEY: "ema_9_26",
+    "cci_trend": "cci",
+    "cci_hysteresis": "cci_hyst",
+    SEMIS_PERSIST_KEY: "semis_persist",
+    TREND_SR_MACRO_KEY: "trend_sr_macro",
+    "polymarket": "poly",
+}
+
+
+def _normalize_requested_strategy(strategy: str | None) -> str:
+    key = (strategy or "ribbon").strip()
+    return key if key in _STRATEGY_TASK_KEYS else "ribbon"
+
+
+def _supertrend_segments_for_view(
+    df_view: pd.DataFrame,
+    supertrend: pd.Series,
+    direction: pd.Series,
+) -> tuple[list[dict], list[dict]]:
+    up = []
+    down = []
+    supertrend_view = supertrend.loc[df_view.index]
+    direction_view = direction.loc[df_view.index]
+    for i in range(len(df_view)):
+        if pd.isna(supertrend_view.iloc[i]):
+            continue
+        ts = int(df_view.index[i].timestamp())
+        val = round(float(supertrend_view.iloc[i]), 2)
+        body_mid = round(
+            float((df_view["Open"].iloc[i] + df_view["Close"].iloc[i]) / 2),
+            2,
+        )
+        if direction_view.iloc[i] == 1:
+            up.append({"time": ts, "value": val, "mid": body_mid})
+            down.append({"time": ts})
+        else:
+            up.append({"time": ts})
+            down.append({"time": ts, "value": val, "mid": body_mid})
+    return up, down
+
+
 def _core_overlay_profile(ticker: str) -> dict[str, float | str]:
     profile = dict(DEFAULT_CORE_OVERLAY_PROFILE)
     profile.update(CORE_OVERLAY_STRATEGY_PROFILES.get(ticker, {}))
@@ -536,8 +693,9 @@ def _run_direction_backtest(
                 "weekly_nonbull_exit_bars", 1
             ),
         )
-    if mm_config is None:
-        mm_config = _parse_mm_config()
+    # mm_config is always passed explicitly by chart_data; no request-context
+    # fallback here because this helper can be invoked from a ThreadPoolExecutor
+    # worker where `request` is not bound.
     if mm_config is not None:
         managed_kwargs = _managed_backtest_kwargs(prior_direction, mm_config)
         return backtest_managed(
@@ -546,7 +704,10 @@ def _run_direction_backtest(
             config=mm_config,
             **managed_kwargs,
         )
-    return backtest_direction(
+    # Default path (no MM, no confirmation): use the vectorized backtest.
+    # Parity with the iterative `backtest_direction` is verified by
+    # tests/test_backtest_vectorized_parity.py.
+    return backtest_direction_vectorized(
         df_view,
         direction.loc[view_index],
         start_in_position=prior_direction == 1,
@@ -562,8 +723,9 @@ def _run_ribbon_regime_backtest(
     mm_config=None,
 ):
     prior_direction = _prior_direction(confirmed_direction, full_index, view_index)
-    if mm_config is None:
-        mm_config = _parse_mm_config()
+    # mm_config is always passed explicitly by chart_data; no request-context
+    # fallback here because this helper can be invoked from a ThreadPoolExecutor
+    # worker where `request` is not bound.
     if mm_config is not None:
         managed_kwargs = _managed_backtest_kwargs(prior_direction, mm_config)
         return backtest_managed(
@@ -606,8 +768,9 @@ def _run_corpus_trend_backtest(
                 "weekly_nonbull_exit_bars", 1
             ),
         )
-    if mm_config is None:
-        mm_config = _parse_mm_config()
+    # mm_config is always passed explicitly by chart_data; no request-context
+    # fallback here because this helper can be invoked from a ThreadPoolExecutor
+    # worker where `request` is not bound.
     if mm_config is not None:
         managed_kwargs = _managed_backtest_kwargs(prior_direction, mm_config)
         return backtest_managed(
@@ -727,8 +890,17 @@ def _get_indicator_bundle(
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached, True
+    disk_cached = _read_bundle_disk_cache(cache_key)
+    if disk_cached is not None:
+        _cache_set(cache_key, disk_cached, ttl=_CHART_CACHE_TTL)
+        return disk_cached, True
 
     supertrend, direction = compute_supertrend(df, period_val, multiplier_val)
+    supertrend_i, supertrend_i_direction = compute_supertrend_i(
+        df,
+        period_val,
+        multiplier_val,
+    )
     ema_fast, ema_slow, ema_direction = compute_ema_crossover(
         df,
         EMA_FAST_PERIOD,
@@ -782,6 +954,7 @@ def _get_indicator_bundle(
         "ema_trend": ema_trend_direction,
         "yearly_ma": yearly_ma_direction,
         "supertrend": direction,
+        "supertrend_i": supertrend_i_direction,
         "ema_crossover": ema_direction,
         EMA_9_26_KEY: ema_9_26_bundle["daily_direction"],
         "macd": macd_direction,
@@ -799,6 +972,8 @@ def _get_indicator_bundle(
     bundle = {
         "supertrend": supertrend,
         "direction": direction,
+        "supertrend_i": supertrend_i,
+        "supertrend_i_direction": supertrend_i_direction,
         "ema_fast": ema_fast,
         "ema_slow": ema_slow,
         "ema_direction": ema_direction,
@@ -862,6 +1037,7 @@ def _get_indicator_bundle(
         ),
     }
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
+    _write_bundle_disk_cache(cache_key, bundle)
     return bundle, False
 
 
@@ -878,8 +1054,17 @@ def _get_weekly_bundle(
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached, True
+    disk_cached = _read_bundle_disk_cache(cache_key)
+    if disk_cached is not None:
+        _cache_set(cache_key, disk_cached, ttl=_CHART_CACHE_TTL)
+        return disk_cached, True
 
     _supertrend, supertrend_direction = compute_supertrend(
+        df_w,
+        period_val,
+        multiplier_val,
+    )
+    _supertrend_i, supertrend_i_direction = compute_supertrend_i(
         df_w,
         period_val,
         multiplier_val,
@@ -946,6 +1131,7 @@ def _get_weekly_bundle(
         "ema_trend": ema_trend_direction,
         "yearly_ma": yearly_ma_direction,
         "supertrend": supertrend_direction,
+        "supertrend_i": supertrend_i_direction,
         "ema_crossover": ema_direction,
         EMA_9_26_KEY: ema_9_26_direction,
         "macd": macd_direction,
@@ -974,6 +1160,7 @@ def _get_weekly_bundle(
         ),
     }
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
+    _write_bundle_disk_cache(cache_key, bundle)
     return bundle, False
 
 
@@ -997,6 +1184,10 @@ def _get_sr_and_trade_setup(
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached, True
+    disk_cached = _read_bundle_disk_cache(cache_key)
+    if disk_cached is not None:
+        _cache_set(cache_key, disk_cached, ttl=_CHART_CACHE_TTL)
+        return disk_cached, True
 
     sr_levels = compute_support_resistance(df, max_levels=20)
     trade_setup = compute_trade_setup(
@@ -1009,6 +1200,7 @@ def _get_sr_and_trade_setup(
     )
     bundle = {"sr_levels": sr_levels, "trade_setup": trade_setup}
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
+    _write_bundle_disk_cache(cache_key, bundle)
     return bundle, False
 
 
@@ -1089,6 +1281,13 @@ def chart_data():
         )
     )
     candles_only = request.args.get("candles_only", "").lower() in ("1", "true", "yes")
+    strategy_only = request.args.get("strategy_only", "").lower() in ("1", "true", "yes")
+    include_shared = request.args.get("include_shared", "").lower() in ("1", "true", "yes")
+    requested_strategy = _normalize_requested_strategy(request.args.get("strategy"))
+    is_prewarm = request.args.get("prewarm", "").lower() in ("1", "true", "yes")
+    cache_only = request.args.get("cache_only", "").lower() in ("1", "true", "yes")
+    if not is_prewarm:
+        _mark_interactive_chart_request()
 
     # Resolved ticker-name: cheap lookup against in-memory info cache; any
     # network fetch happens in a background thread.
@@ -1106,9 +1305,23 @@ def chart_data():
         f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
         f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}:{source_token}"
     )
+    strategy_cache_kind = "strategy_shared" if include_shared else "strategy"
+    strategy_cache_key = (
+        f"chart:{strategy_cache_kind}:{ticker}:{interval}:{start}:{end}:"
+        f"{period_val}:{multiplier_val}:{trend_ribbon_profile_signature(ticker)}:"
+        f"{mm_sig}:{requested_strategy}:{source_token}"
+    )
+    strategy_shared_cache_key = (
+        f"chart:strategy_shared:{ticker}:{interval}:{start}:{end}:"
+        f"{period_val}:{multiplier_val}:{trend_ribbon_profile_signature(ticker)}:"
+        f"{mm_sig}:{requested_strategy}:{source_token}"
+    )
     if candles_only:
         cached_candles = _cache_get(candles_cache_key)
         if cached_candles is not None:
+            if not cached_candles.get("ticker_name") and ticker_name:
+                cached_candles = {**cached_candles, "ticker_name": ticker_name}
+                _cache_set(candles_cache_key, cached_candles, ttl=_CHART_CACHE_TTL)
             current_app.logger.info(
                 "chart_data candles_only_cache_hit ticker=%s interval=%s range=%s..%s total_ms=%s",
                 ticker,
@@ -1124,6 +1337,9 @@ def chart_data():
             end,
         )
         if disk_cached_candles is not None:
+            if not disk_cached_candles.get("ticker_name") and ticker_name:
+                disk_cached_candles = {**disk_cached_candles, "ticker_name": ticker_name}
+                _write_chart_payload_cache("candles", candles_cache_key, end, disk_cached_candles)
             _cache_set(candles_cache_key, disk_cached_candles, ttl=_CHART_CACHE_TTL)
             current_app.logger.info(
                 "chart_data candles_only_disk_cache_hit ticker=%s interval=%s range=%s..%s total_ms=%s",
@@ -1134,7 +1350,72 @@ def chart_data():
                 _elapsed_ms(request_started_at),
             )
             return jsonify(disk_cached_candles)
-    else:
+    elif strategy_only:
+        strategy_cache_candidates = [(strategy_cache_kind, strategy_cache_key)]
+        if not include_shared:
+            # A warmed `strategy_shared` payload contains the selected strategy
+            # plus chart overlays. It is bigger than a plain strategy payload,
+            # but it is still a local cache hit and avoids recomputing a
+            # backtest when the user explores the strategy dropdown.
+            strategy_cache_candidates.append(("strategy_shared", strategy_shared_cache_key))
+
+        cached_strategy = None
+        cached_strategy_kind = strategy_cache_kind
+        for candidate_kind, candidate_key in strategy_cache_candidates:
+            cached_strategy = _cache_get(candidate_key)
+            if cached_strategy is not None:
+                cached_strategy_kind = candidate_kind
+                break
+        if cached_strategy is not None:
+            if not cached_strategy.get("ticker_name") and ticker_name:
+                cached_strategy = {**cached_strategy, "ticker_name": ticker_name}
+                _cache_set(strategy_cache_key, cached_strategy, ttl=_CHART_CACHE_TTL)
+            current_app.logger.info(
+                "chart_data %s_cache_hit ticker=%s interval=%s strategy=%s range=%s..%s total_ms=%s",
+                cached_strategy_kind,
+                ticker,
+                interval,
+                requested_strategy,
+                start,
+                end or "latest",
+                _elapsed_ms(request_started_at),
+            )
+            return jsonify(cached_strategy)
+        disk_cached_strategy = None
+        disk_cached_strategy_kind = strategy_cache_kind
+        disk_cached_strategy_key = strategy_cache_key
+        for candidate_kind, candidate_key in strategy_cache_candidates:
+            disk_cached_strategy = _read_chart_payload_cache(
+                candidate_kind,
+                candidate_key,
+                end,
+            )
+            if disk_cached_strategy is not None:
+                disk_cached_strategy_kind = candidate_kind
+                disk_cached_strategy_key = candidate_key
+                break
+        if disk_cached_strategy is not None:
+            if not disk_cached_strategy.get("ticker_name") and ticker_name:
+                disk_cached_strategy = {**disk_cached_strategy, "ticker_name": ticker_name}
+                _write_chart_payload_cache(
+                    disk_cached_strategy_kind,
+                    disk_cached_strategy_key,
+                    end,
+                    disk_cached_strategy,
+                )
+            _cache_set(strategy_cache_key, disk_cached_strategy, ttl=_CHART_CACHE_TTL)
+            current_app.logger.info(
+                "chart_data %s_disk_cache_hit ticker=%s interval=%s strategy=%s range=%s..%s total_ms=%s",
+                disk_cached_strategy_kind,
+                ticker,
+                interval,
+                requested_strategy,
+                start,
+                end or "latest",
+                _elapsed_ms(request_started_at),
+            )
+            return jsonify(disk_cached_strategy)
+    elif not strategy_only:
         cached_chart = _cache_get(chart_cache_key)
         if cached_chart is not None:
             if not cached_chart.get("ticker_name"):
@@ -1170,6 +1451,18 @@ def chart_data():
                 _elapsed_ms(request_started_at),
             )
             return jsonify(disk_cached_chart)
+
+    if cache_only:
+        current_app.logger.info(
+            "chart_data cache_only_miss ticker=%s interval=%s strategy=%s range=%s..%s total_ms=%s",
+            ticker,
+            interval,
+            requested_strategy if strategy_only else "",
+            start,
+            end or "latest",
+            _elapsed_ms(request_started_at),
+        )
+        return jsonify({"cache_miss": True})
     mark_phase("cache_lookup_ms")
 
     # Cache miss: fetch the source frame. `cached_download` already has its
@@ -1244,6 +1537,11 @@ def chart_data():
             f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
             f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}:{post_fetch_token}"
         )
+        strategy_cache_key = (
+            f"chart:{strategy_cache_kind}:{ticker}:{interval}:{start}:{end}:"
+            f"{period_val}:{multiplier_val}:{trend_ribbon_profile_signature(ticker)}:"
+            f"{mm_sig}:{requested_strategy}:{post_fetch_token}"
+        )
 
     if candles_only:
         candles = _ohlcv_df_to_candles(df_view)
@@ -1317,6 +1615,9 @@ def chart_data():
     supertrend_weekly_direction = _weekly_direction_for_strategy(
         weekly_bundle, "supertrend", df.index
     )
+    supertrend_i_weekly_direction = _weekly_direction_for_strategy(
+        weekly_bundle, "supertrend_i", df.index
+    )
     ema_crossover_weekly_direction = _weekly_direction_for_strategy(
         weekly_bundle, "ema_crossover", df.index
     )
@@ -1363,169 +1664,85 @@ def chart_data():
             ),
         )
     )
+    # --- Extract indicator series + other serialization inputs ---
+    # These are plain dict lookups off `indicator_bundle`; cheap, needed by
+    # both the backtest dispatch and later payload serialization.
     supertrend = indicator_bundle["supertrend"]
     direction = indicator_bundle["direction"]
-    direction_view = direction.loc[df_view.index]
-    supertrend_view = supertrend.loc[df_view.index]
+    supertrend_i = indicator_bundle["supertrend_i"]
+    supertrend_i_direction = indicator_bundle["supertrend_i_direction"]
 
     ema_fast = indicator_bundle["ema_fast"]
     ema_slow = indicator_bundle["ema_slow"]
     ema_direction = indicator_bundle["ema_direction"]
-    ema_trades, ema_summary, ema_equity_curve = _run_direction_backtest(
-        df_view,
-        ema_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=ema_crossover_weekly_direction,
-        confirmation_config=strategy_confirmation_config("ema_crossover"),
-    )
     ema_9_26_direction = indicator_bundle["ema_9_26_direction"]
-    ema_9_26_trades, ema_9_26_summary, ema_9_26_equity_curve = _run_direction_backtest(
-        df_view,
-        ema_9_26_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=ema_9_26_weekly_direction,
-        confirmation_config=strategy_confirmation_config(EMA_9_26_KEY),
-    )
-
     macd_line = indicator_bundle["macd_line"]
     signal_line = indicator_bundle["signal_line"]
     macd_hist = indicator_bundle["macd_hist"]
     macd_direction = indicator_bundle["macd_direction"]
-    macd_trades, macd_summary, macd_equity_curve = _run_direction_backtest(
-        df_view,
-        macd_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=macd_weekly_direction,
-        confirmation_config=strategy_confirmation_config("macd"),
-    )
-
     donch_upper = indicator_bundle["donch_upper"]
     donch_lower = indicator_bundle["donch_lower"]
     donch_direction = indicator_bundle["donch_direction"]
-    donch_trades, donch_summary, donch_equity_curve = _run_direction_backtest(
-        df_view,
-        donch_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=donchian_weekly_direction,
-        confirmation_config=strategy_confirmation_config("donchian"),
-    )
     corpus_stop_line = indicator_bundle["corpus_stop_line"]
     corpus_direction = indicator_bundle["corpus_direction"]
-    corpus_trend_trades, corpus_trend_summary, corpus_trend_equity_curve = _run_corpus_trend_backtest(
-        df_view,
-        corpus_direction,
-        corpus_stop_line,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=corpus_weekly_direction,
-        confirmation_config=strategy_confirmation_config("corpus_trend"),
-    )
-    corpus_trend_layered_trades, corpus_trend_layered_summary, corpus_trend_layered_equity_curve = _run_corpus_trend_layered_backtest(
-        df_view, corpus_direction, corpus_stop_line, df.index, df_view.index
-    )
-
     cb50_direction = indicator_bundle["cb50_direction"]
-    cb50_trades, cb50_summary, cb50_equity_curve = _run_direction_backtest(
-        df_view,
-        cb50_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=cb50_weekly_direction,
-        confirmation_config=strategy_confirmation_config("cb50"),
-    )
-
     cb150_direction = indicator_bundle["cb150_direction"]
-    cb150_trades, cb150_summary, cb150_equity_curve = _run_direction_backtest(
-        df_view,
-        cb150_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=cb150_weekly_direction,
-        confirmation_config=strategy_confirmation_config("cb150"),
-    )
-
     sma_10_100_direction = indicator_bundle["sma_10_100_direction"]
-    sma_10_100_trades, sma_10_100_summary, sma_10_100_equity_curve = _run_direction_backtest(
-        df_view,
-        sma_10_100_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=sma_10_100_weekly_direction,
-        confirmation_config=strategy_confirmation_config("sma_10_100"),
-    )
-
     sma_10_200_direction = indicator_bundle["sma_10_200_direction"]
-    sma_10_200_trades, sma_10_200_summary, sma_10_200_equity_curve = _run_direction_backtest(
-        df_view,
-        sma_10_200_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=sma_10_200_weekly_direction,
-        confirmation_config=strategy_confirmation_config("sma_10_200"),
-    )
-
     ema_trend_direction = indicator_bundle["ema_trend_direction"]
-    ema_trend_trades, ema_trend_summary, ema_trend_equity_curve = _run_direction_backtest(
-        df_view,
-        ema_trend_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=ema_trend_weekly_direction,
-        confirmation_config=strategy_confirmation_config("ema_trend"),
-    )
-
     yearly_ma_direction = indicator_bundle["yearly_ma_direction"]
-    yearly_ma_trades, yearly_ma_summary, yearly_ma_equity_curve = _run_direction_backtest(
-        df_view,
-        yearly_ma_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=yearly_ma_weekly_direction,
-        confirmation_config=strategy_confirmation_config("yearly_ma"),
-    )
-
     bb_upper = indicator_bundle["bb_upper"]
     bb_mid = indicator_bundle["bb_mid"]
     bb_lower = indicator_bundle["bb_lower"]
     bb_direction = indicator_bundle["bb_direction"]
-    bb_trades, bb_summary, bb_equity_curve = _run_direction_backtest(
-        df_view,
-        bb_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=bb_weekly_direction,
-        confirmation_config=strategy_confirmation_config("bb_breakout"),
-    )
-
     kelt_upper = indicator_bundle["kelt_upper"]
     kelt_mid = indicator_bundle["kelt_mid"]
     kelt_lower = indicator_bundle["kelt_lower"]
     kelt_direction = indicator_bundle["kelt_direction"]
-    kelt_trades, kelt_summary, kelt_equity_curve = _run_direction_backtest(
-        df_view,
-        kelt_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=keltner_weekly_direction,
-        confirmation_config=strategy_confirmation_config("keltner"),
-    )
+    psar_line = indicator_bundle["psar_line"]
+    psar_direction = indicator_bundle["psar_direction"]
+    cci_val = indicator_bundle["cci_val"]
+    cci_direction = indicator_bundle["cci_direction"]
+    cci_hyst_direction = indicator_bundle["cci_hyst_direction"]
+    semis_persist_direction = indicator_bundle["semis_persist_direction"]
+    orb_range_high = indicator_bundle["orb_range_high"]
+    orb_range_low = indicator_bundle["orb_range_low"]
+    orb_range_mid = indicator_bundle["orb_range_mid"]
+    orb_trend_ema = indicator_bundle["orb_trend_ema"]
+    orb_direction = indicator_bundle["orb_direction"]
+    ribbon_center = indicator_bundle["ribbon_center"]
+    ribbon_upper = indicator_bundle["ribbon_upper"]
+    ribbon_lower = indicator_bundle["ribbon_lower"]
+    ribbon_strength = indicator_bundle["ribbon_strength"]
+    ribbon_dir = indicator_bundle["ribbon_dir"]
+    ribbon_backtest_direction = _carry_neutral_direction(ribbon_dir)
+
+    # --- Pre-dispatch compute that can't be parallelized ---
+    # In strategy-only mode, skip expensive side strategies unless they are the
+    # requested strategy. The full payload path still computes every strategy.
+    needs_all_strategies = not strategy_only
+    needs_trend_sr_macro = needs_all_strategies or requested_strategy == TREND_SR_MACRO_KEY
+    needs_polymarket = needs_all_strategies or requested_strategy == "polymarket"
+
+    trend_sr_macro_bundle = None
+    trend_sr_macro_direction = pd.Series(0, index=df.index)
+    trend_sr_macro_weekly_direction = None
+    trend_sr_macro_confirm_cfg = None
+    if needs_trend_sr_macro:
+        trend_sr_macro_bundle = compute_trend_sr_macro_strategy(df)
+        trend_sr_macro_direction = trend_sr_macro_bundle["daily_direction"]
+        trend_sr_macro_weekly_direction = trend_sr_macro_bundle["weekly_direction"]
+        trend_sr_macro_confirm_cfg = trend_sr_macro_confirmation_config()
+
+    poly_direction = pd.Series(0, index=df.index)
+    if needs_polymarket:
+        from lib.polymarket import (
+            compute_polymarket_direction_series,
+            load_probability_history,
+        )
+        poly_history = load_probability_history(auto_seed=True)
+        poly_direction = compute_polymarket_direction_series(df, poly_history)
+
     weekly_core_overlay_profile = _core_overlay_profile(ticker)
     weekly_core_overlay_core_key = weekly_core_overlay_profile["core"]
     weekly_core_overlay_overlay_key = weekly_core_overlay_profile["overlay"]
@@ -1544,110 +1761,548 @@ def chart_data():
         "donchian": donch_direction,
         "keltner": kelt_direction,
     }.get(weekly_core_overlay_overlay_key, donch_direction)
-    weekly_core_overlay_trades, weekly_core_overlay_summary, weekly_core_overlay_equity_curve = _run_weekly_core_overlay_backtest(
-        df_view,
-        weekly_core_overlay_core_direction,
-        weekly_core_overlay_overlay_direction,
-        df.index,
-        df_view.index,
-        core_fraction=weekly_core_overlay_core_fraction,
-        overlay_fraction=weekly_core_overlay_overlay_fraction,
-    )
 
-    psar_line = indicator_bundle["psar_line"]
-    psar_direction = indicator_bundle["psar_direction"]
-    psar_trades, psar_summary, psar_equity_curve = _run_direction_backtest(
-        df_view,
-        psar_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=psar_weekly_direction,
-        confirmation_config=strategy_confirmation_config("parabolic_sar"),
-    )
+    # --- Parallel backtest dispatch ---
+    # The 22 calls below are independent: each reads the immutable
+    # df_view/indicator/direction inputs and produces a (trades, summary,
+    # equity_curve) tuple. `active_mm_config` and `confirmation_config` are
+    # treated as read-only by the backtest helpers. Running them via a
+    # ThreadPoolExecutor cuts wall-clock time by ~1.5-2x on the cold path.
+    def _bt(direction_series, weekly_direction=None, confirmation_config=None,
+            strategy_key=None, mm_config=active_mm_config):
+        return _run_direction_backtest(
+            df_view,
+            direction_series,
+            df.index,
+            df_view.index,
+            mm_config,
+            weekly_direction=weekly_direction,
+            confirmation_config=confirmation_config,
+            strategy_key=strategy_key,
+        )
 
-    cci_val = indicator_bundle["cci_val"]
-    cci_direction = indicator_bundle["cci_direction"]
-    cci_trades, cci_summary, cci_equity_curve = _run_direction_backtest(
-        df_view,
-        cci_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=cci_weekly_direction,
-        confirmation_config=strategy_confirmation_config("cci_trend"),
-    )
-    cci_hyst_direction = indicator_bundle["cci_hyst_direction"]
-    cci_hyst_trades, cci_hyst_summary, cci_hyst_equity_curve = _run_direction_backtest(
-        df_view,
-        cci_hyst_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        strategy_key="cci_hysteresis",
-    )
-    semis_persist_direction = indicator_bundle["semis_persist_direction"]
-    semis_persist_trades, semis_persist_summary, semis_persist_equity_curve = _run_direction_backtest(
-        df_view,
-        semis_persist_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        strategy_key=SEMIS_PERSIST_KEY,
-    )
-    trend_sr_macro_bundle = compute_trend_sr_macro_strategy(df)
-    trend_sr_macro_direction = trend_sr_macro_bundle["daily_direction"]
-    trend_sr_macro_weekly_direction = trend_sr_macro_bundle["weekly_direction"]
-    trend_sr_macro_trades, trend_sr_macro_summary, trend_sr_macro_equity_curve = _run_direction_backtest(
-        df_view,
-        trend_sr_macro_direction,
-        df.index,
-        df_view.index,
-        mm_config=None,
-        weekly_direction=trend_sr_macro_weekly_direction,
-        confirmation_config=trend_sr_macro_confirmation_config(),
-    )
+    def _bt_corpus():
+        return _run_corpus_trend_backtest(
+            df_view,
+            corpus_direction,
+            corpus_stop_line,
+            df.index,
+            df_view.index,
+            active_mm_config,
+            weekly_direction=corpus_weekly_direction,
+            confirmation_config=strategy_confirmation_config("corpus_trend"),
+        )
 
-    orb_range_high = indicator_bundle["orb_range_high"]
-    orb_range_low = indicator_bundle["orb_range_low"]
-    orb_range_mid = indicator_bundle["orb_range_mid"]
-    orb_trend_ema = indicator_bundle["orb_trend_ema"]
-    orb_direction = indicator_bundle["orb_direction"]
-    orb_trades, orb_summary, orb_equity_curve = _run_direction_backtest(
-        df_view,
-        orb_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=orb_weekly_direction,
-        confirmation_config=strategy_confirmation_config("orb_breakout"),
-    )
+    def _bt_corpus_layered():
+        return _run_corpus_trend_layered_backtest(
+            df_view, corpus_direction, corpus_stop_line, df.index, df_view.index,
+        )
 
-    # Polymarket prediction-market signal
-    from lib.polymarket import compute_polymarket_direction_series, load_probability_history
-    poly_history = load_probability_history(auto_seed=True)
-    poly_direction = compute_polymarket_direction_series(df, poly_history)
-    poly_trades, poly_summary, poly_equity_curve = _run_direction_backtest(
-        df_view, poly_direction, df.index, df_view.index, active_mm_config
-    )
+    def _bt_weekly_core_overlay():
+        return _run_weekly_core_overlay_backtest(
+            df_view,
+            weekly_core_overlay_core_direction,
+            weekly_core_overlay_overlay_direction,
+            df.index,
+            df_view.index,
+            core_fraction=weekly_core_overlay_core_fraction,
+            overlay_fraction=weekly_core_overlay_overlay_fraction,
+        )
 
-    ribbon_center = indicator_bundle["ribbon_center"]
-    ribbon_upper = indicator_bundle["ribbon_upper"]
-    ribbon_lower = indicator_bundle["ribbon_lower"]
-    ribbon_strength = indicator_bundle["ribbon_strength"]
-    ribbon_dir = indicator_bundle["ribbon_dir"]
-    ribbon_backtest_direction = _carry_neutral_direction(ribbon_dir)
-    ribbon_trades, ribbon_summary, ribbon_equity_curve = _run_direction_backtest(
-        df_view,
-        ribbon_backtest_direction,
-        df.index,
-        df_view.index,
-        active_mm_config,
-        weekly_direction=ribbon_weekly_direction,
-        confirmation_config=strategy_confirmation_config("ribbon"),
-    )
+    backtest_tasks = {
+        "ema": lambda: _bt(ema_direction, ema_crossover_weekly_direction,
+                           strategy_confirmation_config("ema_crossover")),
+        "ema_9_26": lambda: _bt(ema_9_26_direction, ema_9_26_weekly_direction,
+                                strategy_confirmation_config(EMA_9_26_KEY)),
+        "macd": lambda: _bt(macd_direction, macd_weekly_direction,
+                            strategy_confirmation_config("macd")),
+        "donchian": lambda: _bt(donch_direction, donchian_weekly_direction,
+                                strategy_confirmation_config("donchian")),
+        "corpus_trend": _bt_corpus,
+        "corpus_trend_layered": _bt_corpus_layered,
+        "cb50": lambda: _bt(cb50_direction, cb50_weekly_direction,
+                            strategy_confirmation_config("cb50")),
+        "cb150": lambda: _bt(cb150_direction, cb150_weekly_direction,
+                             strategy_confirmation_config("cb150")),
+        "sma_10_100": lambda: _bt(sma_10_100_direction, sma_10_100_weekly_direction,
+                                  strategy_confirmation_config("sma_10_100")),
+        "sma_10_200": lambda: _bt(sma_10_200_direction, sma_10_200_weekly_direction,
+                                  strategy_confirmation_config("sma_10_200")),
+        "ema_trend": lambda: _bt(ema_trend_direction, ema_trend_weekly_direction,
+                                 strategy_confirmation_config("ema_trend")),
+        "yearly_ma": lambda: _bt(yearly_ma_direction, yearly_ma_weekly_direction,
+                                 strategy_confirmation_config("yearly_ma")),
+        "supertrend_i": lambda: _bt(supertrend_i_direction, supertrend_i_weekly_direction,
+                                    strategy_confirmation_config("supertrend_i")),
+        "bb": lambda: _bt(bb_direction, bb_weekly_direction,
+                          strategy_confirmation_config("bb_breakout")),
+        "kelt": lambda: _bt(kelt_direction, keltner_weekly_direction,
+                            strategy_confirmation_config("keltner")),
+        "weekly_core_overlay": _bt_weekly_core_overlay,
+        "psar": lambda: _bt(psar_direction, psar_weekly_direction,
+                            strategy_confirmation_config("parabolic_sar")),
+        "cci": lambda: _bt(cci_direction, cci_weekly_direction,
+                           strategy_confirmation_config("cci_trend")),
+        "cci_hyst": lambda: _bt(cci_hyst_direction, strategy_key="cci_hysteresis"),
+        "semis_persist": lambda: _bt(semis_persist_direction, strategy_key=SEMIS_PERSIST_KEY),
+        # Pass active_mm_config (not None) so the worker thread does NOT
+        # re-enter `_parse_mm_config()` which reads from request.args and
+        # would fail with "Working outside of request context". active_mm_config
+        # is semantically identical since it was parsed from the same request.
+        "trend_sr_macro": lambda: _bt(trend_sr_macro_direction,
+                                      weekly_direction=trend_sr_macro_weekly_direction,
+                                      confirmation_config=trend_sr_macro_confirm_cfg,
+                                      mm_config=active_mm_config),
+        "orb": lambda: _bt(orb_direction, orb_weekly_direction,
+                           strategy_confirmation_config("orb_breakout")),
+        "poly": lambda: _bt(poly_direction),
+        "ribbon": lambda: _bt(ribbon_backtest_direction, ribbon_weekly_direction,
+                              strategy_confirmation_config("ribbon")),
+    }
+
+    def _selected_strategy_response(strategy_key: str):
+        task_key = _STRATEGY_TASK_KEYS[strategy_key]
+        selected_trades, selected_summary, selected_equity_curve = backtest_tasks[task_key]()
+        selected_direction = {
+            "ribbon": ribbon_backtest_direction,
+            "corpus_trend": corpus_direction,
+            "corpus_trend_layered": corpus_direction,
+            "weekly_core_overlay_v1": weekly_core_overlay_overlay_direction,
+            "supertrend_i": supertrend_i_direction,
+            "bb_breakout": bb_direction,
+            "ema_crossover": ema_direction,
+            EMA_9_26_KEY: ema_9_26_direction,
+            "cci_trend": cci_direction,
+            "cci_hysteresis": cci_hyst_direction,
+            SEMIS_PERSIST_KEY: semis_persist_direction,
+            TREND_SR_MACRO_KEY: trend_sr_macro_direction,
+            "polymarket": poly_direction,
+        }.get(strategy_key, ribbon_backtest_direction)
+        buy_hold = build_buy_hold_equity_curve(df_view)
+        selected_buy_hold = None
+        backtest_meta = {}
+        window_meta_config = None if confirmation_config else active_mm_config
+
+        if strategy_key == "ribbon":
+            if (
+                interval == "1d"
+                and weekly_bundle is not None
+                and not strategy_confirmation_config("ribbon")
+            ):
+                daily_ribbon_direction = _carry_neutral_direction(ribbon_dir)
+                weekly_ribbon_direction = _align_weekly_direction_to_daily(
+                    weekly_bundle["ribbon_dir"],
+                    df.index,
+                )
+                ribbon_regime_kwargs = trend_ribbon_regime_kwargs(ticker)
+                selected_direction = build_weekly_confirmed_ribbon_direction(
+                    daily_ribbon_direction,
+                    weekly_ribbon_direction,
+                    reentry_cooldown_bars=ribbon_regime_kwargs["reentry_cooldown_bars"],
+                    reentry_cooldown_ratio=ribbon_regime_kwargs["reentry_cooldown_ratio"],
+                    weekly_nonbull_confirm_bars=ribbon_regime_kwargs[
+                        "weekly_nonbull_confirm_bars"
+                    ],
+                    asymmetric_exit=ribbon_regime_kwargs.get("asymmetric_exit", False),
+                )
+                selected_trades, selected_summary, selected_equity_curve = (
+                    _run_ribbon_regime_backtest(
+                        df_view,
+                        selected_direction,
+                        df.index,
+                        df_view.index,
+                        active_mm_config,
+                    )
+                )
+            selected_buy_hold = buy_hold
+            backtest_meta = _merge_backtest_meta(
+                _managed_window_metadata(selected_direction, df.index, df_view.index, window_meta_config),
+                strategy_confirmation_meta("ribbon"),
+            )
+        elif strategy_key == "corpus_trend":
+            selected_buy_hold = buy_hold
+            backtest_meta = _merge_backtest_meta(
+                _managed_window_metadata(corpus_direction, df.index, df_view.index, window_meta_config),
+                strategy_confirmation_meta("corpus_trend"),
+            )
+        elif strategy_key == "corpus_trend_layered":
+            selected_buy_hold = buy_hold
+            backtest_meta = _confirmation_meta(confirmation_config, supported=False)
+        elif strategy_key == "supertrend_i":
+            selected_buy_hold = buy_hold
+            backtest_meta = _merge_backtest_meta(
+                _managed_window_metadata(supertrend_i_direction, df.index, df_view.index, window_meta_config),
+                strategy_confirmation_meta("supertrend_i"),
+                {
+                    "architecture_label": "Supertrend-I",
+                    "architecture_hint": "ATR Supertrend ratchet that flips on an intrabar touch of the active band rather than waiting for the close to cross it.",
+                },
+            )
+        elif strategy_key == "weekly_core_overlay_v1":
+            selected_buy_hold = buy_hold
+            backtest_meta = {
+                "confirmation_supported": False,
+                "architecture_label": "Weekly Core + Daily Overlay",
+                "architecture_core_strategy": f"{weekly_core_overlay_core_key}_weekly",
+                "architecture_overlay_strategy": f"{weekly_core_overlay_overlay_key}_daily",
+                "architecture_core_fraction": weekly_core_overlay_core_fraction,
+                "architecture_overlay_fraction": weekly_core_overlay_overlay_fraction,
+                "architecture_hint": _weekly_core_overlay_hint(
+                    weekly_core_overlay_core_key,
+                    weekly_core_overlay_overlay_key,
+                    weekly_core_overlay_core_fraction,
+                    weekly_core_overlay_overlay_fraction,
+                ),
+            }
+        elif strategy_key == "bb_breakout":
+            backtest_meta = _merge_backtest_meta(
+                _managed_window_metadata(bb_direction, df.index, df_view.index, window_meta_config),
+                strategy_confirmation_meta("bb_breakout"),
+            )
+        elif strategy_key == "ema_crossover":
+            backtest_meta = _merge_backtest_meta(
+                _managed_window_metadata(ema_direction, df.index, df_view.index, window_meta_config),
+                strategy_confirmation_meta("ema_crossover"),
+            )
+        elif strategy_key == EMA_9_26_KEY:
+            backtest_meta = _merge_backtest_meta(
+                _managed_window_metadata(ema_9_26_direction, df.index, df_view.index, window_meta_config),
+                strategy_confirmation_meta(EMA_9_26_KEY),
+                specialized_strategy_backtest_meta(EMA_9_26_KEY),
+            )
+        elif strategy_key == "cci_trend":
+            backtest_meta = _merge_backtest_meta(
+                _managed_window_metadata(cci_direction, df.index, df_view.index, window_meta_config),
+                strategy_confirmation_meta("cci_trend"),
+            )
+        elif strategy_key == "cci_hysteresis":
+            selected_buy_hold = buy_hold
+            backtest_meta = _confirmation_meta(confirmation_config, supported=False)
+        elif strategy_key == SEMIS_PERSIST_KEY:
+            backtest_meta = _merge_backtest_meta(
+                _managed_window_metadata(semis_persist_direction, df.index, df_view.index, window_meta_config),
+                specialized_strategy_backtest_meta(SEMIS_PERSIST_KEY),
+            )
+        elif strategy_key == TREND_SR_MACRO_KEY:
+            selected_buy_hold = buy_hold
+            backtest_meta = trend_sr_macro_backtest_meta(trend_sr_macro_bundle or {})
+        elif strategy_key == "polymarket":
+            backtest_meta = _merge_backtest_meta(
+                _managed_window_metadata(poly_direction, df.index, df_view.index, window_meta_config),
+                _confirmation_meta(confirmation_config, supported=False),
+            )
+
+        payload = _strategy_payload(
+            selected_trades,
+            selected_summary,
+            selected_equity_curve,
+            buy_hold_equity_curve=selected_buy_hold,
+            backtest_meta=backtest_meta,
+        )
+        return {
+            "strategy_only": True,
+            "strategy": strategy_key,
+            "ticker_name": ticker_name,
+            "buy_hold_equity_curve": buy_hold,
+            "strategies": {strategy_key: payload},
+        }
+
+    def _build_strategy_shared_payload() -> dict:
+        if interval == "1d":
+            local_daily_flips = indicator_bundle["daily_flips"]
+        else:
+            try:
+                kwargs_d = {"start": _warmup_start(start, "1d"), "interval": "1d", "progress": False}
+                if end:
+                    kwargs_d["end"] = end
+                df_d = cached_download(data_ticker, **kwargs_d)
+                if isinstance(df_d.columns, pd.MultiIndex):
+                    df_d.columns = df_d.columns.get_level_values(0)
+                if df_d.index.duplicated().any():
+                    df_d = df_d[~df_d.index.duplicated(keep="last")]
+                local_daily_flips = compute_all_trend_flips(
+                    df_d,
+                    period_val=period_val,
+                    multiplier_val=multiplier_val,
+                    ribbon_kwargs=_trend_ribbon_kwargs(ticker),
+                    ticker=ticker,
+                )
+            except Exception:
+                local_daily_flips = {}
+
+        candles = _ohlcv_df_to_candles(df_view)
+        st_up, st_down = _supertrend_segments_for_view(df_view, supertrend, direction)
+        st_i_up, st_i_down = _supertrend_segments_for_view(
+            df_view,
+            supertrend_i,
+            supertrend_i_direction,
+        )
+
+        local_smas = {}
+        for sma_period in [50, 100, 180, 200]:
+            sma = df["Close"].rolling(window=sma_period).mean()
+            sma_view = sma.loc[df_view.index]
+            sma_data = []
+            for i in range(len(df_view)):
+                if pd.isna(sma_view.iloc[i]):
+                    continue
+                sma_data.append(
+                    {
+                        "time": int(df_view.index[i].timestamp()),
+                        "value": round(float(sma_view.iloc[i]), 2),
+                    }
+                )
+            local_smas[f"sma_{sma_period}"] = sma_data
+
+        local_sma_50w = []
+        local_sma_100w = []
+        local_sma_200w = []
+        local_weekly_flips = {}
+        df_w = pd.DataFrame()
+        try:
+            if source_interval == "1wk":
+                df_w = source_df.copy()
+            else:
+                df_w = _resample_ohlcv(source_df, "W-FRI")
+            if not df_w.empty:
+                if isinstance(df_w.columns, pd.MultiIndex):
+                    df_w.columns = df_w.columns.get_level_values(0)
+                if df_w.index.duplicated().any():
+                    df_w = df_w[~df_w.index.duplicated(keep="last")]
+                df_w_view = df_w.loc[_visible_mask(df_w.index, start, end)]
+                weekly_bundle_local, _ = _get_weekly_bundle(
+                    ticker,
+                    df_w,
+                    period_val,
+                    multiplier_val,
+                )
+                sma_w50 = weekly_bundle_local["sma_w50"]
+                sma_w100 = weekly_bundle_local["sma_w100"]
+                sma_w200 = weekly_bundle_local["sma_w200"]
+                sma_w50_view = sma_w50.loc[df_w_view.index]
+                sma_w100_view = sma_w100.loc[df_w_view.index]
+                sma_w200_view = sma_w200.loc[df_w_view.index]
+                for i in range(len(df_w_view)):
+                    ts = int(df_w_view.index[i].timestamp())
+                    if not pd.isna(sma_w50_view.iloc[i]):
+                        local_sma_50w.append({"time": ts, "value": round(float(sma_w50_view.iloc[i]), 2)})
+                    if not pd.isna(sma_w100_view.iloc[i]):
+                        local_sma_100w.append({"time": ts, "value": round(float(sma_w100_view.iloc[i]), 2)})
+                    if not pd.isna(sma_w200_view.iloc[i]):
+                        local_sma_200w.append({"time": ts, "value": round(float(sma_w200_view.iloc[i]), 2)})
+                if interval == "1wk":
+                    local_weekly_flips = indicator_bundle["daily_flips"]
+                else:
+                    local_weekly_flips = weekly_bundle_local["weekly_flips"]
+        except Exception:
+            current_app.logger.exception(
+                "chart_data include_shared weekly payload failed ticker=%s interval=%s",
+                ticker,
+                interval,
+            )
+
+        sr_setup_bundle, _ = _get_sr_and_trade_setup(
+            ticker, df, df_w, local_daily_flips, local_weekly_flips
+        )
+        local_sr_levels = sr_setup_bundle["sr_levels"]
+        local_trade_setup = sr_setup_bundle["trade_setup"]
+
+        volumes = []
+        for i in range(len(df_view)):
+            ts = int(df_view.index[i].timestamp())
+            c = df_view["Close"].iloc[i]
+            o = df_view["Open"].iloc[i]
+            volumes.append(
+                {
+                    "time": ts,
+                    "value": int(df_view["Volume"].iloc[i]),
+                    "color": "rgba(38,166,154,0.5)" if c >= o else "rgba(239,83,80,0.5)",
+                }
+            )
+
+        ema9_data = []
+        ema21_data = []
+        ema_fast_view = ema_fast.loc[df_view.index]
+        ema_slow_view = ema_slow.loc[df_view.index]
+        for i in range(len(df_view)):
+            ts = int(df_view.index[i].timestamp())
+            if not pd.isna(ema_fast_view.iloc[i]):
+                ema9_data.append({"time": ts, "value": round(float(ema_fast_view.iloc[i]), 2)})
+            if not pd.isna(ema_slow_view.iloc[i]):
+                ema21_data.append({"time": ts, "value": round(float(ema_slow_view.iloc[i]), 2)})
+
+        macd_line_data = []
+        signal_line_data = []
+        macd_hist_data = []
+        macd_line_view = macd_line.loc[df_view.index]
+        signal_line_view = signal_line.loc[df_view.index]
+        macd_hist_view = macd_hist.loc[df_view.index]
+        for i in range(len(df_view)):
+            ts = int(df_view.index[i].timestamp())
+            if not pd.isna(macd_line_view.iloc[i]):
+                macd_line_data.append({"time": ts, "value": round(float(macd_line_view.iloc[i]), 2)})
+            if not pd.isna(signal_line_view.iloc[i]):
+                signal_line_data.append({"time": ts, "value": round(float(signal_line_view.iloc[i]), 2)})
+            if not pd.isna(macd_hist_view.iloc[i]):
+                macd_hist_data.append(
+                    {
+                        "time": ts,
+                        "value": round(float(macd_hist_view.iloc[i]), 2),
+                        "color": "rgba(38,166,154,0.7)" if macd_hist_view.iloc[i] >= 0 else "rgba(239,83,80,0.7)",
+                    }
+                )
+
+        donch_upper_data = series_to_json(donch_upper, df_view.index)
+        donch_lower_data = series_to_json(donch_lower, df_view.index)
+        bb_upper_data = series_to_json(bb_upper, df_view.index)
+        bb_mid_data = series_to_json(bb_mid, df_view.index)
+        bb_lower_data = series_to_json(bb_lower, df_view.index)
+        kelt_upper_data = series_to_json(kelt_upper, df_view.index)
+        kelt_mid_data = series_to_json(kelt_mid, df_view.index)
+        kelt_lower_data = series_to_json(kelt_lower, df_view.index)
+
+        psar_bull_data = []
+        psar_bear_data = []
+        psar_view = psar_line.loc[df_view.index]
+        psar_dir_view = psar_direction.loc[df_view.index]
+        for i in range(len(df_view)):
+            v = psar_view.iloc[i]
+            if pd.isna(v):
+                continue
+            pt = {"time": int(df_view.index[i].timestamp()), "value": round(float(v), 2)}
+            if psar_dir_view.iloc[i] == 1:
+                psar_bull_data.append(pt)
+            else:
+                psar_bear_data.append(pt)
+
+        cci_data = series_to_json(cci_val, df_view.index)
+        orb_high_data = series_to_json(orb_range_high, df_view.index)
+        orb_low_data = series_to_json(orb_range_low, df_view.index)
+        orb_mid_data = series_to_json(orb_range_mid, df_view.index)
+
+        ribbon_upper_data = []
+        ribbon_lower_data = []
+        r_upper_view = ribbon_upper.loc[df_view.index]
+        r_lower_view = ribbon_lower.loc[df_view.index]
+        r_dir_view = ribbon_dir.loc[df_view.index]
+        r_strength_view = ribbon_strength.loc[df_view.index]
+        for i in range(len(df_view)):
+            ts = int(df_view.index[i].timestamp())
+            u, lo, d, s = r_upper_view.iloc[i], r_lower_view.iloc[i], r_dir_view.iloc[i], r_strength_view.iloc[i]
+            if pd.isna(u) or pd.isna(lo):
+                continue
+            alpha = max(0.15, min(0.6, float(s) * 0.7))
+            if d >= 0:
+                color = f"rgba(0,230,138,{alpha:.2f})"
+                line_color = "rgba(0,230,138,0.8)"
+            else:
+                color = f"rgba(255,82,116,{alpha:.2f})"
+                line_color = "rgba(255,82,116,0.8)"
+            ribbon_upper_data.append({"time": ts, "value": round(float(u), 2), "color": color, "lineColor": line_color})
+            ribbon_lower_data.append({"time": ts, "value": round(float(lo), 2), "color": color, "lineColor": line_color})
+
+        ribbon_center_data = series_to_json(ribbon_center, df_view.index)
+
+        return {
+            "ticker_name": ticker_name,
+            "candles": candles,
+            "supertrend_up": st_up,
+            "supertrend_down": st_down,
+            "supertrend_i_up": st_i_up,
+            "supertrend_i_down": st_i_down,
+            "volumes": volumes,
+            **local_smas,
+            "sma_50w": local_sma_50w,
+            "sma_100w": local_sma_100w,
+            "sma_200w": local_sma_200w,
+            "ema9": ema9_data,
+            "ema21": ema21_data,
+            "macd_line": macd_line_data,
+            "signal_line": signal_line_data,
+            "macd_hist": macd_hist_data,
+            "sr_levels": local_sr_levels,
+            "overlays": {
+                "donchian": {"upper": donch_upper_data, "lower": donch_lower_data},
+                "bb": {"upper": bb_upper_data, "mid": bb_mid_data, "lower": bb_lower_data},
+                "keltner": {"upper": kelt_upper_data, "mid": kelt_mid_data, "lower": kelt_lower_data},
+                "psar": {"bull": psar_bull_data, "bear": psar_bear_data},
+                "cci": {"cci": cci_data},
+                "orb": {"upper": orb_high_data, "lower": orb_low_data, "mid": orb_mid_data},
+                "ribbon": {"upper": ribbon_upper_data, "lower": ribbon_lower_data, "center": ribbon_center_data},
+            },
+            "vol_profile": build_volume_profile(df_view),
+            "trend_flips": {"daily": local_daily_flips, "weekly": local_weekly_flips},
+            "trade_setup": local_trade_setup,
+        }
+
+    if strategy_only and not include_shared:
+        payload = _selected_strategy_response(requested_strategy)
+        _cache_set(strategy_cache_key, payload, ttl=_CHART_CACHE_TTL)
+        _write_chart_payload_cache(strategy_cache_kind, strategy_cache_key, end, payload)
+        current_app.logger.info(
+            "chart_data strategy_only ticker=%s interval=%s strategy=%s range=%s..%s total_ms=%s",
+            ticker,
+            interval,
+            requested_strategy,
+            start,
+            end or "latest",
+            _elapsed_ms(request_started_at),
+        )
+        return jsonify(payload)
+
+    if strategy_only:
+        payload = {
+            **_build_strategy_shared_payload(),
+            **_selected_strategy_response(requested_strategy),
+        }
+        _cache_set(strategy_cache_key, payload, ttl=_CHART_CACHE_TTL)
+        _write_chart_payload_cache(strategy_cache_kind, strategy_cache_key, end, payload)
+        current_app.logger.info(
+            "chart_data strategy_only_shared ticker=%s interval=%s strategy=%s range=%s..%s total_ms=%s",
+            ticker,
+            interval,
+            requested_strategy,
+            start,
+            end or "latest",
+            _elapsed_ms(request_started_at),
+        )
+        return jsonify(payload)
+
+    # max_workers cap: more threads beyond ~8 gives diminishing returns under
+    # the GIL for pure-Python backtest loops.
+    _max_workers = min(8, len(backtest_tasks))
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=_max_workers, thread_name_prefix="bt"
+    ) as executor:
+        futures = {name: executor.submit(fn) for name, fn in backtest_tasks.items()}
+        bt_results = {name: fut.result() for name, fut in futures.items()}
+
+    ema_trades, ema_summary, ema_equity_curve = bt_results["ema"]
+    ema_9_26_trades, ema_9_26_summary, ema_9_26_equity_curve = bt_results["ema_9_26"]
+    macd_trades, macd_summary, macd_equity_curve = bt_results["macd"]
+    donch_trades, donch_summary, donch_equity_curve = bt_results["donchian"]
+    corpus_trend_trades, corpus_trend_summary, corpus_trend_equity_curve = bt_results["corpus_trend"]
+    corpus_trend_layered_trades, corpus_trend_layered_summary, corpus_trend_layered_equity_curve = bt_results["corpus_trend_layered"]
+    cb50_trades, cb50_summary, cb50_equity_curve = bt_results["cb50"]
+    cb150_trades, cb150_summary, cb150_equity_curve = bt_results["cb150"]
+    sma_10_100_trades, sma_10_100_summary, sma_10_100_equity_curve = bt_results["sma_10_100"]
+    sma_10_200_trades, sma_10_200_summary, sma_10_200_equity_curve = bt_results["sma_10_200"]
+    ema_trend_trades, ema_trend_summary, ema_trend_equity_curve = bt_results["ema_trend"]
+    yearly_ma_trades, yearly_ma_summary, yearly_ma_equity_curve = bt_results["yearly_ma"]
+    supertrend_i_trades, supertrend_i_summary, supertrend_i_equity_curve = bt_results["supertrend_i"]
+    bb_trades, bb_summary, bb_equity_curve = bt_results["bb"]
+    kelt_trades, kelt_summary, kelt_equity_curve = bt_results["kelt"]
+    weekly_core_overlay_trades, weekly_core_overlay_summary, weekly_core_overlay_equity_curve = bt_results["weekly_core_overlay"]
+    psar_trades, psar_summary, psar_equity_curve = bt_results["psar"]
+    cci_trades, cci_summary, cci_equity_curve = bt_results["cci"]
+    cci_hyst_trades, cci_hyst_summary, cci_hyst_equity_curve = bt_results["cci_hyst"]
+    semis_persist_trades, semis_persist_summary, semis_persist_equity_curve = bt_results["semis_persist"]
+    trend_sr_macro_trades, trend_sr_macro_summary, trend_sr_macro_equity_curve = bt_results["trend_sr_macro"]
+    orb_trades, orb_summary, orb_equity_curve = bt_results["orb"]
+    poly_trades, poly_summary, poly_equity_curve = bt_results["poly"]
+    ribbon_trades, ribbon_summary, ribbon_equity_curve = bt_results["ribbon"]
     ribbon_hold_equity_curve = None
-    mark_phase("indicators_ms")
+    mark_phase("strategy_backtests_ms")
 
     # --- Daily flips ---
     if interval == "1d":
@@ -1677,20 +2332,12 @@ def chart_data():
     candles = _ohlcv_df_to_candles(df_view)
 
     # --- Supertrend lines ---
-    st_up = []
-    st_down = []
-    for i in range(len(df_view)):
-        if pd.isna(supertrend_view.iloc[i]):
-            continue
-        ts = int(df_view.index[i].timestamp())
-        val = round(float(supertrend_view.iloc[i]), 2)
-        body_mid = round(float((df_view["Open"].iloc[i] + df_view["Close"].iloc[i]) / 2), 2)
-        if direction_view.iloc[i] == 1:
-            st_up.append({"time": ts, "value": val, "mid": body_mid})
-            st_down.append({"time": ts})
-        else:
-            st_up.append({"time": ts})
-            st_down.append({"time": ts, "value": val, "mid": body_mid})
+    st_up, st_down = _supertrend_segments_for_view(df_view, supertrend, direction)
+    st_i_up, st_i_down = _supertrend_segments_for_view(
+        df_view,
+        supertrend_i,
+        supertrend_i_direction,
+    )
 
     # --- Supertrend backtest ---
     trades, summary, equity_curve = _run_direction_backtest(
@@ -1947,6 +2594,8 @@ def chart_data():
         "candles": candles,
         "supertrend_up": st_up,
         "supertrend_down": st_down,
+        "supertrend_i_up": st_i_up,
+        "supertrend_i_down": st_i_down,
         "volumes": volumes,
         "markers": markers,
         "trades": trades,
@@ -1990,6 +2639,22 @@ def chart_data():
                 backtest_meta=_confirmation_meta(
                     confirmation_config,
                     supported=False,
+                ),
+            ),
+            "supertrend_i": _strategy_payload(
+                supertrend_i_trades,
+                supertrend_i_summary,
+                supertrend_i_equity_curve,
+                buy_hold_equity_curve=buy_hold_equity_curve,
+                backtest_meta=_merge_backtest_meta(
+                    _managed_window_metadata(
+                        supertrend_i_direction, df.index, df_view.index, window_meta_config
+                    ),
+                    strategy_confirmation_meta("supertrend_i"),
+                    {
+                        "architecture_label": "Supertrend-I",
+                        "architecture_hint": "ATR Supertrend ratchet that flips on an intrabar touch of the active band rather than waiting for the close to cross it.",
+                    },
                 ),
             ),
             "weekly_core_overlay_v1": _strategy_payload(
@@ -2125,7 +2790,7 @@ def chart_data():
     _cache_set(chart_cache_key, payload, ttl=_CHART_CACHE_TTL)
     _write_chart_payload_cache("chart", chart_cache_key, end, payload)
     current_app.logger.info(
-        "chart_data timings ticker=%s interval=%s range=%s..%s rows=%s view_rows=%s indicator_bundle_hit=%s weekly_bundle_hit=%s metadata_ms=%s fetch_ms=%s frame_ms=%s indicators_ms=%s daily_flips_ms=%s weekly_ms=%s support_resistance_ms=%s payload_ms=%s total_ms=%s",
+        "chart_data timings ticker=%s interval=%s range=%s..%s rows=%s view_rows=%s indicator_bundle_hit=%s weekly_bundle_hit=%s metadata_ms=%s fetch_ms=%s frame_ms=%s strategy_backtests_ms=%s daily_flips_ms=%s weekly_ms=%s sr_setup_ms=%s payload_ms=%s total_ms=%s",
         ticker,
         interval,
         start,
@@ -2137,10 +2802,10 @@ def chart_data():
         timings_ms.get("metadata_ms", 0),
         timings_ms.get("fetch_ms", 0),
         timings_ms.get("frame_ms", 0),
-        timings_ms.get("indicators_ms", 0),
+        timings_ms.get("strategy_backtests_ms", 0),
         timings_ms.get("daily_flips_ms", 0),
         timings_ms.get("weekly_ms", 0),
-        timings_ms.get("support_resistance_ms", 0),
+        timings_ms.get("sr_setup_ms", 0),
         timings_ms.get("payload_ms", 0),
         _elapsed_ms(request_started_at),
     )

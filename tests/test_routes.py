@@ -1293,6 +1293,230 @@ class TestChartAPI:
         assert "supertrend_up" not in data
 
     @patch("lib.cache.yf.download")
+    def test_chart_candles_only_cache_hit_refreshes_late_ticker_name(
+        self, mock_download, client
+    ):
+        n = 100
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 140, n)
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        url = "/api/chart?ticker=LATEINFO&start=2023-01-01&candles_only=1&period=10&multiplier=3"
+
+        with patch("routes.chart._resolve_cached_ticker_name", return_value=""):
+            first = client.get(url)
+        assert first.status_code == 200
+        assert first.get_json()["ticker_name"] == ""
+
+        with patch(
+            "routes.chart._resolve_cached_ticker_name",
+            return_value="Late Info Corp",
+        ), patch(
+            "routes.chart.cached_download",
+            side_effect=AssertionError("candle cache should avoid refetch"),
+        ):
+            second = client.get(url)
+
+        assert second.status_code == 200
+        assert second.get_json()["ticker_name"] == "Late Info Corp"
+
+    def test_chart_source_token_uses_content_signature_not_csv_mtime(self, tmp_path, monkeypatch):
+        import lib.data_fetching as data_fetching
+
+        monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+        ticker = "AAPL"
+        interval = "1d"
+        cached_df = pd.DataFrame(
+            {
+                "Open": [99.0, 100.0],
+                "High": [101.0, 102.0],
+                "Low": [98.0, 99.0],
+                "Close": [100.0, 101.0],
+                "Volume": [1_000_000, 1_100_000],
+            },
+            index=pd.to_datetime(["2026-01-02", "2026-01-05"]),
+        )
+        csv_path = data_fetching._disk_cache_path(ticker, interval)
+        cached_df.to_csv(csv_path)
+        data_fetching._write_meta(data_fetching._meta_path(ticker, interval), time.time(), cached_df)
+
+        first = chart_module._source_data_token(ticker, interval)
+        os.utime(csv_path, None)
+        second = chart_module._source_data_token(ticker, interval)
+
+        assert first == second
+        assert first.startswith("sig:")
+
+    @patch("lib.cache.yf.download")
+    def test_chart_cache_only_miss_does_not_fetch_source_data(self, mock_download, client):
+        mock_download.side_effect = AssertionError("cache-only miss should not fetch")
+
+        resp = client.get(
+            "/api/chart?ticker=CACHEONLYMISS&start=2023-01-01"
+            "&candles_only=1&cache_only=1&period=10&multiplier=3"
+        )
+
+        assert resp.status_code == 200
+        assert resp.get_json() == {"cache_miss": True}
+
+    @patch("lib.cache.yf.download")
+    def test_chart_strategy_only_returns_requested_strategy_without_parallel_dispatch(
+        self, mock_download, client
+    ):
+        n = 120
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 140, n)
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+
+        with patch(
+            "routes.chart.concurrent.futures.ThreadPoolExecutor",
+            side_effect=AssertionError("strategy-only should not dispatch all strategies"),
+        ):
+            resp = client.get(
+                "/api/chart?ticker=STRATONLY&start=2023-01-01&period=10&multiplier=3"
+                "&strategy_only=1&strategy=ema_crossover"
+            )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["strategy_only"] is True
+        assert data["strategy"] == "ema_crossover"
+        assert list(data["strategies"].keys()) == ["ema_crossover"]
+        assert "summary" in data["strategies"]["ema_crossover"]
+        assert "buy_hold_equity_curve" in data
+        assert "supertrend_up" not in data
+
+    @patch("lib.cache.yf.download")
+    def test_chart_strategy_only_with_shared_payload_skips_parallel_dispatch_and_returns_chart_data(
+        self, mock_download, client
+    ):
+        n = 120
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 140, n)
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+
+        with patch(
+            "routes.chart.concurrent.futures.ThreadPoolExecutor",
+            side_effect=AssertionError("strategy-only shared should not dispatch all strategies"),
+        ):
+            resp = client.get(
+                "/api/chart?ticker=STRATONLY&start=2023-01-01&period=10&multiplier=3"
+                "&strategy_only=1&include_shared=1&strategy=ema_crossover"
+            )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["strategy_only"] is True
+        assert data["strategy"] == "ema_crossover"
+        assert list(data["strategies"].keys()) == ["ema_crossover"]
+        assert "candles" in data
+        assert "supertrend_up" in data
+        assert "overlays" in data
+        assert "trend_flips" in data
+        assert "trade_setup" in data
+
+    @patch("lib.cache.yf.download")
+    def test_chart_strategy_only_shared_reuses_payload_cache_before_fetching(
+        self, mock_download, client
+    ):
+        n = 120
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 140, n)
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        url = (
+            "/api/chart?ticker=STRATCACHE&start=2023-01-01&period=10&multiplier=3"
+            "&strategy_only=1&include_shared=1&strategy=ema_crossover"
+        )
+
+        first = client.get(url)
+        assert first.status_code == 200
+
+        with patch(
+            "routes.chart.cached_download",
+            side_effect=AssertionError("strategy payload cache should avoid fetch"),
+        ):
+            second = client.get(url)
+
+        assert second.status_code == 200
+        assert second.get_json()["strategy"] == "ema_crossover"
+
+    @patch("lib.cache.yf.download")
+    def test_plain_strategy_request_can_reuse_shared_strategy_payload_cache(
+        self, mock_download, client
+    ):
+        n = 120
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 140, n)
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        shared_url = (
+            "/api/chart?ticker=STRATSHAREDREUSE&start=2023-01-01&period=10&multiplier=3"
+            "&strategy_only=1&include_shared=1&strategy=ema_crossover"
+        )
+        plain_url = (
+            "/api/chart?ticker=STRATSHAREDREUSE&start=2023-01-01&period=10&multiplier=3"
+            "&strategy_only=1&strategy=ema_crossover"
+        )
+
+        first = client.get(shared_url)
+        assert first.status_code == 200
+        cache_module._cache.clear()
+
+        with patch(
+            "routes.chart.cached_download",
+            side_effect=AssertionError("plain strategy request should reuse shared payload cache"),
+        ):
+            second = client.get(plain_url)
+
+        assert second.status_code == 200
+        data = second.get_json()
+        assert data["strategy"] == "ema_crossover"
+        assert "candles" in data
+
+    @patch("lib.cache.yf.download")
     def test_chart_reuses_disk_cached_payload_after_memory_cache_is_cleared(
         self, mock_download, client
     ):
@@ -1387,6 +1611,163 @@ class TestChartAPI:
             assert t2 != t1
 
     @patch("lib.cache.yf.download")
+    def test_indicator_bundle_survives_memory_cache_clear(self, mock_download, client, tmp_path):
+        """After a memory-cache clear (simulating a restart), the second
+        request should pull the indicator bundle from the on-disk spill
+        instead of recomputing `compute_supertrend` et al."""
+        from routes import chart as chart_module
+
+        n = 120
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(5)
+        close = 100 + np.cumsum(np.random.randn(n) * 0.3)
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 0.5,
+                "Low": close - 0.5,
+                "Close": close,
+                "Volume": np.full(n, 1_000_000),
+            },
+            index=dates,
+        )
+
+        bundle_dir = tmp_path / "bundle_cache"
+        bundle_dir.mkdir()
+        with patch(
+            "routes.chart._bundle_disk_cache_dir",
+            return_value=str(bundle_dir),
+        ):
+            url = "/api/chart?ticker=DISKBUN&start=2023-01-01&period=10&multiplier=3"
+            first = client.get(url)
+            assert first.status_code == 200
+            # Nuke memory caches (chart payload + bundles).
+            cache_module._cache.clear()
+            # Confirm a pickle file landed on disk.
+            disk_files = list(bundle_dir.iterdir())
+            assert disk_files, "expected at least one .pkl bundle on disk"
+
+            # Any compute call should NOT happen on the second request.
+            with (
+                patch(
+                    "routes.chart.compute_supertrend",
+                    side_effect=AssertionError("indicator bundle should hydrate from disk"),
+                ),
+                patch(
+                    "routes.chart.compute_support_resistance",
+                    side_effect=AssertionError("sr bundle should hydrate from disk"),
+                ),
+            ):
+                second = client.get(url)
+            assert second.status_code == 200
+
+    def test_bundle_disk_cache_quarantines_corrupt_pickle(self, tmp_path):
+        """A corrupt pickle must not crash the request path; it should
+        be treated as a cache miss."""
+        from routes import chart as chart_module
+
+        bundle_dir = tmp_path / "bundle_cache"
+        bundle_dir.mkdir()
+        with patch(
+            "routes.chart._bundle_disk_cache_dir",
+            return_value=str(bundle_dir),
+        ):
+            key = "test:corrupt"
+            path = chart_module._bundle_disk_cache_path(key)
+            with open(path, "wb") as fh:
+                fh.write(b"\x00\x01not a pickle\x00")
+            assert chart_module._read_bundle_disk_cache(key) is None
+
+    @patch("lib.cache.yf.download")
+    def test_chart_parallel_backtests_match_serial(self, mock_download, client):
+        """The ThreadPoolExecutor dispatch must produce bit-identical
+        strategy results to the previous serial path. We verify by forcing
+        `max_workers=1` and comparing against a cached reference run."""
+        n = 150
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        np.random.seed(11)
+        close = 100 + np.cumsum(np.random.randn(n) * 0.4)
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 0.8,
+                "Low": close - 0.8,
+                "Close": close,
+                "Volume": np.full(n, 800_000),
+            },
+            index=dates,
+        )
+
+        url = "/api/chart?ticker=PARALLEL&start=2023-01-01&period=10&multiplier=2"
+        parallel = client.get(url).get_json()
+        cache_module._cache.clear()
+
+        # Re-run forcing serial execution via a patched ThreadPoolExecutor.
+        class _SerialExecutor:
+            def __init__(self, *a, **kw):
+                pass
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+            def submit(self, fn, *a, **kw):
+                class _F:
+                    def __init__(self, v):
+                        self._v = v
+                    def result(self):
+                        return self._v
+                return _F(fn(*a, **kw))
+
+        with patch(
+            "routes.chart.concurrent.futures.ThreadPoolExecutor",
+            _SerialExecutor,
+        ):
+            serial = client.get(url).get_json()
+
+        assert parallel.keys() == serial.keys()
+        assert parallel["strategies"].keys() == serial["strategies"].keys()
+        for key in parallel["strategies"]:
+            assert parallel["strategies"][key]["summary"] == serial["strategies"][key]["summary"], (
+                f"serial/parallel summary mismatch for {key}"
+            )
+            assert parallel["strategies"][key]["equity_curve"] == serial["strategies"][key]["equity_curve"], (
+                f"serial/parallel equity_curve mismatch for {key}"
+            )
+
+    def test_cache_get_set_thread_safe(self):
+        """Hammer _cache_set/_cache_get from many threads; must not raise."""
+        import concurrent.futures as _cf
+
+        import lib.cache as _lc
+
+        def _worker(tid: int):
+            for i in range(200):
+                _lc._cache_set(f"t{tid}:{i}", i, ttl=60)
+                assert _lc._cache_get(f"t{tid}:{i}") == i
+            return tid
+
+        with _cf.ThreadPoolExecutor(max_workers=16) as ex:
+            results = [f.result() for f in [ex.submit(_worker, t) for t in range(16)]]
+        assert sorted(results) == list(range(16))
+
+    def test_yfinance_rate_limiter_enters_cooldown_after_429(self, monkeypatch):
+        import lib.cache as _lc
+
+        monkeypatch.setattr(_lc, "_yf_cooldown_until", 0.0)
+        monkeypatch.setattr(_lc, "_yf_cooldown_reason", "")
+        monkeypatch.setattr(_lc, "_YF_RATE_DELAY", 0)
+
+        def fail(*args, **kwargs):
+            raise RuntimeError("429 Too Many Requests")
+
+        monkeypatch.setattr(_lc.yf, "download", fail)
+
+        with pytest.raises(RuntimeError):
+            _lc._yf_rate_limited_download("AAPL", period="5d")
+
+        assert _lc._yf_cooldown_active()
+
+    @patch("lib.cache.yf.download")
     def test_supertrend_payload_includes_whitespace_breaks(self, mock_download, client):
         close = [10, 11, 12, 13, 14, 15, 5, 4, 3, 2, 6, 7, 8]
         dates = pd.bdate_range("2024-01-01", periods=len(close))
@@ -1446,6 +1827,7 @@ class TestChartAPI:
             "corpus_trend",
             "corpus_trend_layered",
             "weekly_core_overlay_v1",
+            "supertrend_i",
             "ema_9_26",
             "semis_persist_v1",
             "bb_breakout",
@@ -1463,6 +1845,7 @@ class TestChartAPI:
         assert "buy_hold_equity_curve" in strategies["corpus_trend"]
         assert "buy_hold_equity_curve" in strategies["corpus_trend_layered"]
         assert "buy_hold_equity_curve" in strategies["weekly_core_overlay_v1"]
+        assert "buy_hold_equity_curve" in strategies["supertrend_i"]
         assert "buy_hold_equity_curve" in strategies["cci_hysteresis"]
 
     @patch("lib.cache.yf.download")
@@ -1492,6 +1875,7 @@ class TestChartAPI:
         corpus = data["strategies"]["corpus_trend"]
         layered = data["strategies"]["corpus_trend_layered"]
         weekly_core_overlay = data["strategies"]["weekly_core_overlay_v1"]
+        supertrend_i = data["strategies"]["supertrend_i"]
         ema_9_26 = data["strategies"]["ema_9_26"]
         semis_persist = data["strategies"]["semis_persist_v1"]
         bb_breakout = data["strategies"]["bb_breakout"]
@@ -1508,6 +1892,8 @@ class TestChartAPI:
         assert corpus["confirmation_supported"] is True
         assert layered["confirmation_supported"] is False
         assert weekly_core_overlay["confirmation_supported"] is False
+        assert supertrend_i["confirmation_mode"] == "layered_30_70"
+        assert supertrend_i["confirmation_supported"] is True
         assert ema_9_26["confirmation_supported"] is True
         assert semis_persist["confirmation_supported"] is False
         assert bb_breakout["confirmation_supported"] is True
@@ -1541,6 +1927,7 @@ class TestChartAPI:
 
         ribbon = data["strategies"]["ribbon"]
         corpus = data["strategies"]["corpus_trend"]
+        supertrend_i = data["strategies"]["supertrend_i"]
         ema_9_26 = data["strategies"]["ema_9_26"]
         ema_crossover = data["strategies"]["ema_crossover"]
         bb_breakout = data["strategies"]["bb_breakout"]
@@ -1551,6 +1938,7 @@ class TestChartAPI:
         assert ribbon["confirmation_confirmed_fraction"] == pytest.approx(0.50)
         assert "base 50%" in ribbon["confirmation_hint"].lower()
         assert corpus["confirmation_supported"] is True
+        assert supertrend_i["confirmation_supported"] is True
         assert ema_9_26["confirmation_supported"] is True
         assert ema_crossover["confirmation_supported"] is True
         assert bb_breakout["confirmation_supported"] is True

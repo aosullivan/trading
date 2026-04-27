@@ -44,6 +44,14 @@ def test_compute_trade_setup_reports_nearest_levels_and_trade_scores(sample_df):
     assert payload["daily"]["breakdown"]["components"][0]["label"] == "Trend bias"
     assert payload["daily"]["breakdown"]["bonus"] is not None
     assert payload["daily"]["breakdown"]["highlights"]
+    assert [item["key"] for item in payload["daily"]["action_strength"]["items"]] == [
+        "direction_confidence",
+        "entry_location_quality",
+        "risk_reward_room",
+        "strategy_agreement",
+    ]
+    assert payload["daily"]["action_strength"]["items"][0]["score"] == 100
+    assert payload["daily"]["action_strength"]["items"][3]["score"] == 100
     assert payload["weekly"]["side"] == "bearish"
     assert payload["weekly"]["score"] < 0
     assert payload["weekly"]["breakdown"]["components"][1]["label"] == "Support / resistance"
@@ -67,6 +75,8 @@ def test_compute_trade_setup_returns_mixed_score_when_bias_is_neutral(sample_df)
     assert payload["weekly"]["score"] == 0
     assert payload["daily"]["breakdown"]["summary"] == "Trade score stays muted because weighted strategy bias is mixed."
     assert payload["daily"]["breakdown"]["bonus"] is None
+    assert payload["daily"]["action_strength"]["items"][1]["score"] == 0.0
+    assert payload["daily"]["action_strength"]["items"][3]["score"] == 0.0
     assert payload["shared"]["nearest_ma"] is not None
 
 

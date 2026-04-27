@@ -1,6 +1,8 @@
 import io
 import json
+import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import pandas as pd
@@ -131,7 +133,7 @@ def test_cached_download_reuses_same_day_latest_interval_cache_without_refetch(t
     monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
     ticker = "AAPL"
     interval = "1d"
-    dates = pd.bdate_range(end=pd.Timestamp.now().normalize(), periods=3)
+    dates = pd.to_datetime(["2026-04-21", "2026-04-22", "2026-04-23"])
     cached_df = pd.DataFrame(
         {"Close": [100.0, 101.0, 102.0]},
         index=dates,
@@ -158,7 +160,7 @@ def test_cached_download_returns_stale_latest_interval_cache_and_schedules_refre
     monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
     ticker = "AAPL"
     interval = "1d"
-    dates = pd.bdate_range(end=pd.Timestamp.now().normalize(), periods=3)
+    dates = pd.to_datetime(["2026-04-21", "2026-04-22", "2026-04-23"])
     cached_df = pd.DataFrame(
         {"Close": [100.0, 101.0, 102.0]},
         index=dates,
@@ -194,3 +196,123 @@ def test_cached_download_returns_stale_latest_interval_cache_and_schedules_refre
             },
         )
     ]
+
+
+def test_cached_download_does_not_rewrite_csv_when_refresh_returns_no_new_bars(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+    ticker = "AAPL"
+    interval = "1d"
+    cached_df = pd.DataFrame(
+        {"Close": [100.0, 101.0, 102.0]},
+        index=pd.to_datetime(["2026-01-02", "2026-01-05", "2026-01-06"]),
+    )
+    csv_path = data_fetching._disk_cache_path(ticker, interval)
+    cached_df.to_csv(csv_path)
+    with open(data_fetching._meta_path(ticker, interval), "w") as handle:
+        json.dump({"last_fetch": 0}, handle)
+    original_mtime = os.path.getmtime(csv_path)
+
+    monkeypatch.setattr(
+        data_fetching,
+        "_yf_rate_limited_download",
+        lambda *args, **kwargs: pd.DataFrame(),
+    )
+
+    result = data_fetching.cached_download(
+        ticker,
+        start="2026-01-02",
+        end="2026-01-10",
+        interval=interval,
+        allow_stale_latest=False,
+    )
+
+    assert result["Close"].tolist() == [100.0, 101.0, 102.0]
+    assert os.path.getmtime(csv_path) == original_mtime
+    with open(data_fetching._meta_path(ticker, interval)) as handle:
+        meta = json.load(handle)
+    assert meta["data_signature"] == data_fetching._frame_cache_signature(cached_df)
+
+
+def test_cached_download_coalesces_concurrent_identical_period_requests(monkeypatch):
+    ticker = "SINGLEFLIGHT"
+    calls = []
+    df = pd.DataFrame(
+        {"Close": [100.0, 101.0]},
+        index=pd.to_datetime(["2026-01-02", "2026-01-05"]),
+    )
+
+    def fake_download(*args, **kwargs):
+        calls.append((args, kwargs))
+        time.sleep(0.05)
+        return df
+
+    monkeypatch.setattr(data_fetching, "_yf_rate_limited_download", fake_download)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(
+                lambda _: data_fetching.cached_download(
+                    ticker,
+                    period="5d",
+                    interval="1d",
+                    progress=False,
+                ),
+                range(2),
+            )
+        )
+
+    assert len(calls) == 1
+    assert all(result.equals(df) for result in results)
+
+
+def test_cached_download_serves_stale_disk_cache_during_yf_cooldown(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr(data_fetching, "_yf_cooldown_active", lambda: True)
+    ticker = "AAPL"
+    interval = "1d"
+    cached_df = pd.DataFrame(
+        {"Close": [100.0, 101.0, 102.0]},
+        index=pd.to_datetime(["2022-01-03", "2022-01-04", "2022-01-05"]),
+    )
+    cached_df.to_csv(data_fetching._disk_cache_path(ticker, interval))
+    with open(data_fetching._meta_path(ticker, interval), "w") as handle:
+        json.dump({"last_fetch": 0}, handle)
+
+    def unexpected_download(*args, **kwargs):
+        raise AssertionError("cooldown should not call Yahoo")
+
+    monkeypatch.setattr(data_fetching, "_yf_rate_limited_download", unexpected_download)
+
+    result = data_fetching.cached_download(
+        ticker,
+        start="2022-01-04",
+        interval=interval,
+    )
+
+    assert list(result.index.strftime("%Y-%m-%d")) == ["2022-01-04", "2022-01-05"]
+
+
+def test_cached_download_returns_stale_disk_cache_after_rate_limit_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+    ticker = "AAPL"
+    interval = "1d"
+    cached_df = pd.DataFrame(
+        {"Close": [100.0, 101.0]},
+        index=pd.to_datetime(["2022-01-03", "2022-01-04"]),
+    )
+    cached_df.to_csv(data_fetching._disk_cache_path(ticker, interval))
+    with open(data_fetching._meta_path(ticker, interval), "w") as handle:
+        json.dump({"last_fetch": 0}, handle)
+
+    def rate_limited(*args, **kwargs):
+        raise RuntimeError("429 Too Many Requests")
+
+    monkeypatch.setattr(data_fetching, "_yf_rate_limited_download", rate_limited)
+
+    result = data_fetching.cached_download(
+        ticker,
+        start="2022-01-03",
+        interval=interval,
+    )
+
+    assert result["Close"].tolist() == [100.0, 101.0]

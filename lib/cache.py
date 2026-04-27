@@ -4,6 +4,7 @@ import time as _time
 import threading
 
 import yfinance as yf
+from yfinance.exceptions import YFRateLimitError
 
 from lib.paths import get_resource_path, get_user_data_path
 
@@ -27,6 +28,7 @@ _configure_yfinance_cache()
 # In-memory TTL cache (for quotes and short-lived data)
 # ---------------------------------------------------------------------------
 _cache: dict[str, tuple[float, object]] = {}
+_cache_lock = threading.RLock()  # guards _cache against concurrent threads
 _CACHE_TTL = 300  # seconds (5 minutes)
 _CHART_CACHE_TTL = 300  # seconds (5 minutes)
 _TICKER_INFO_CACHE_TTL = 3600  # seconds (1 hour)
@@ -37,9 +39,12 @@ _WATCHLIST_QUOTES_REFRESH_TTL = 300  # seconds (5 minutes)
 _WATCHLIST_QUOTES_STALE_TTL = 1800  # seconds (30 minutes)
 _WATCHLIST_TRENDS_REFRESH_TTL = 300  # seconds (5 minutes)
 _WATCHLIST_TRENDS_STALE_TTL = 3600  # seconds (1 hour)
-_yf_lock = threading.Lock()
+_yf_lock = threading.RLock()
 _yf_last_call = 0.0
+_yf_cooldown_until = 0.0
+_yf_cooldown_reason = ""
 _YF_RATE_DELAY = 1.5
+_YF_RATE_LIMIT_COOLDOWN = 600  # seconds (10 minutes)
 _watchlist_quotes_cache: dict[str, dict[str, object]] = {}
 _watchlist_quotes_lock = threading.Lock()
 _watchlist_quote_refreshing: set[str] = set()
@@ -52,16 +57,40 @@ _ticker_info_refreshing: set[str] = set()
 
 def _cache_get(key: str):
     """Return cached value if still fresh, else None."""
-    entry = _cache.get(key)
-    if entry and _time.time() < entry[0]:
-        return entry[1]
-    if entry:
-        _cache.pop(key, None)
-    return None
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and _time.time() < entry[0]:
+            return entry[1]
+        if entry:
+            _cache.pop(key, None)
+        return None
 
 
 def _cache_set(key: str, value, ttl: int = _CACHE_TTL):
-    _cache[key] = (_time.time() + ttl, value)
+    with _cache_lock:
+        _cache[key] = (_time.time() + ttl, value)
+
+
+def _is_yf_rate_limit_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return isinstance(exc, YFRateLimitError) or "429" in text or "too many requests" in text
+
+
+def _set_yf_cooldown(exc: BaseException | str, cooldown: int = _YF_RATE_LIMIT_COOLDOWN) -> None:
+    global _yf_cooldown_until, _yf_cooldown_reason
+    with _yf_lock:
+        _yf_cooldown_until = max(_yf_cooldown_until, _time.time() + cooldown)
+        _yf_cooldown_reason = str(exc)
+
+
+def _yf_cooldown_active() -> bool:
+    return _time.time() < _yf_cooldown_until
+
+
+def _raise_if_yf_cooldown_active() -> None:
+    if _yf_cooldown_active():
+        reason = _yf_cooldown_reason or "Yahoo Finance cooldown active"
+        raise YFRateLimitError(reason)
 
 
 def _ticker_info_cache_path(ticker: str) -> str:
@@ -97,11 +126,18 @@ def _yf_rate_limited_download(tickers, **kwargs):
     """Call yf.download with rate limiting to avoid 429s from Yahoo Finance."""
     global _yf_last_call
     with _yf_lock:
+        _raise_if_yf_cooldown_active()
         elapsed = _time.time() - _yf_last_call
         if elapsed < _YF_RATE_DELAY:
             _time.sleep(_YF_RATE_DELAY - elapsed)
-        result = yf.download(tickers, **kwargs)
-        _yf_last_call = _time.time()
+        try:
+            result = yf.download(tickers, **kwargs)
+        except Exception as exc:
+            if _is_yf_rate_limit_error(exc):
+                _set_yf_cooldown(exc)
+            raise
+        finally:
+            _yf_last_call = _time.time()
     return result
 
 
@@ -109,11 +145,18 @@ def _yf_rate_limited_info(ticker: str):
     """Fetch yf.Ticker(...).info with the same rate limiting as downloads."""
     global _yf_last_call
     with _yf_lock:
+        _raise_if_yf_cooldown_active()
         elapsed = _time.time() - _yf_last_call
         if elapsed < _YF_RATE_DELAY:
             _time.sleep(_YF_RATE_DELAY - elapsed)
-        result = yf.Ticker(ticker).info
-        _yf_last_call = _time.time()
+        try:
+            result = yf.Ticker(ticker).info
+        except Exception as exc:
+            if _is_yf_rate_limit_error(exc):
+                _set_yf_cooldown(exc)
+            raise
+        finally:
+            _yf_last_call = _time.time()
     return result
 
 

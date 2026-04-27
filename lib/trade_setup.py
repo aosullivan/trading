@@ -176,22 +176,69 @@ def _frame_side(trend_bias: int) -> str:
 
 
 def _trend_bias(frame_flips: dict) -> int:
+    return int(_strategy_agreement(frame_flips)["net_bias"])
+
+
+def _strategy_agreement(frame_flips: dict) -> dict:
     if not isinstance(frame_flips, dict) or not frame_flips:
-        return 0
+        return {
+            "net_bias": 0,
+            "agreement_pct": 0.0,
+            "coverage_pct": 0.0,
+            "bullish_weight": 0,
+            "bearish_weight": 0,
+            "observed_weight": 0,
+            "possible_weight": sum(TRADE_STRATEGY_WEIGHTS.values()),
+            "dominant_side": "mixed",
+        }
     available_keys = [key for key in TRADE_STRATEGY_WEIGHTS if key in frame_flips]
     if not available_keys:
-        return 0
+        return _strategy_agreement({})
     possible_total = sum(TRADE_STRATEGY_WEIGHTS[key] for key in available_keys)
     if possible_total <= 0:
-        return 0
-    weighted_sum = 0.0
+        return _strategy_agreement({})
+    bullish_weight = 0.0
+    bearish_weight = 0.0
     for key in available_keys:
         direction = (frame_flips.get(key) or {}).get("current_dir") or (frame_flips.get(key) or {}).get("dir")
         if direction == "bullish":
-            weighted_sum += TRADE_STRATEGY_WEIGHTS[key]
+            bullish_weight += TRADE_STRATEGY_WEIGHTS[key]
         elif direction == "bearish":
-            weighted_sum -= TRADE_STRATEGY_WEIGHTS[key]
-    return int(round((weighted_sum / possible_total) * 100.0))
+            bearish_weight += TRADE_STRATEGY_WEIGHTS[key]
+    observed_weight = bullish_weight + bearish_weight
+    weighted_sum = bullish_weight - bearish_weight
+    all_possible = sum(TRADE_STRATEGY_WEIGHTS.values())
+    if observed_weight <= 0:
+        agreement_pct = 0.0
+        dominant_side = "mixed"
+    else:
+        agreement_pct = round((max(bullish_weight, bearish_weight) / observed_weight) * 100.0, 2)
+        dominant_side = "bullish" if bullish_weight > bearish_weight else "bearish" if bearish_weight > bullish_weight else "mixed"
+    return {
+        "net_bias": int(round((weighted_sum / possible_total) * 100.0)),
+        "agreement_pct": agreement_pct,
+        "coverage_pct": round((observed_weight / all_possible) * 100.0, 2) if all_possible else 0.0,
+        "bullish_weight": int(round(bullish_weight)),
+        "bearish_weight": int(round(bearish_weight)),
+        "observed_weight": int(round(observed_weight)),
+        "possible_weight": int(round(all_possible)),
+        "dominant_side": dominant_side,
+    }
+
+
+def _preferred_strategy_agreement(direction: str | None) -> dict:
+    if direction not in {"bullish", "bearish"}:
+        return _strategy_agreement({})
+    return {
+        "net_bias": 100 if direction == "bullish" else -100,
+        "agreement_pct": 100.0,
+        "coverage_pct": 100.0,
+        "bullish_weight": 1 if direction == "bullish" else 0,
+        "bearish_weight": 1 if direction == "bearish" else 0,
+        "observed_weight": 1,
+        "possible_weight": 1,
+        "dominant_side": direction,
+    }
 
 
 def _strategy_direction(frame_flips: dict, strategy_key: str | None) -> str | None:
@@ -268,6 +315,59 @@ def _component_payload(label: str, component_score: float, weight: float, detail
         "weight_pct": int(round(weight * 100)),
         "weighted_contribution": round(float(component_score) * weight, 2),
         "detail": detail,
+    }
+
+
+def _action_strength_payload(
+    side: str,
+    trend_bias: int,
+    level_component: float,
+    ma_component: float,
+    room_component: float,
+    signal_context: dict | None,
+) -> dict:
+    context = signal_context or _strategy_agreement({})
+    location_score = 0.0
+    if side != "mixed":
+        location_score = ((float(level_component) * 0.20) + (float(ma_component) * 0.15)) / 0.35
+    agreement_pct = float(context.get("agreement_pct") or 0.0)
+    coverage_pct = float(context.get("coverage_pct") or 0.0)
+    dominant_side = context.get("dominant_side") or "mixed"
+    bullish_weight = context.get("bullish_weight", 0)
+    bearish_weight = context.get("bearish_weight", 0)
+    return {
+        "label": "Action Strength",
+        "items": [
+            {
+                "key": "direction_confidence",
+                "label": "Direction",
+                "score": round(abs(float(trend_bias)), 2),
+                "detail": f"Net directional pressure is {_format_signed(trend_bias)} after bullish and bearish signals offset each other.",
+            },
+            {
+                "key": "entry_location_quality",
+                "label": "Location",
+                "score": round(location_score, 2),
+                "detail": "Blends the nearest support/resistance and moving-average components after the setup has a clear side."
+                if side != "mixed"
+                else "Location is held at zero while the setup is mixed, so structure cannot overpower an unclear regime.",
+            },
+            {
+                "key": "risk_reward_room",
+                "label": "Room",
+                "score": round(float(room_component), 2),
+                "detail": "Compares available room in the setup direction against room on the adverse side.",
+            },
+            {
+                "key": "strategy_agreement",
+                "label": "Agreement",
+                "score": round(agreement_pct, 2),
+                "detail": (
+                    f"{dominant_side.capitalize()} signals carry {agreement_pct:.0f}% of observed weight "
+                    f"({bullish_weight} bull / {bearish_weight} bear), with {coverage_pct:.0f}% signal coverage."
+                ),
+            },
+        ],
     }
 
 
@@ -454,6 +554,7 @@ def _frame_setup(
     structure: dict,
     *,
     trend_source_label: str = "Weighted strategy bias",
+    signal_context: dict | None = None,
 ) -> dict:
     side = _frame_side(trend_bias)
     if side == "mixed":
@@ -468,6 +569,14 @@ def _frame_setup(
             "room_component": 50.0,
             "trend_source_label": trend_source_label,
         }
+        payload["action_strength"] = _action_strength_payload(
+            side,
+            trend_bias,
+            0.0,
+            0.0,
+            50.0,
+            signal_context,
+        )
         payload["breakdown"] = _build_breakdown(
             side,
             trend_bias,
@@ -517,6 +626,14 @@ def _frame_setup(
         "room_component": round(room_component, 2),
         "trend_source_label": trend_source_label,
     }
+    payload["action_strength"] = _action_strength_payload(
+        side,
+        trend_bias,
+        payload["level_component"],
+        payload["ma_component"],
+        payload["room_component"],
+        signal_context,
+    )
     payload["breakdown"] = _build_breakdown(
         side,
         trend_bias,
@@ -579,28 +696,52 @@ def compute_trade_setup(
     if preferred_meta:
         structure["preferred_strategy"] = preferred_meta
         strategy_key = preferred_meta["strategy_key"]
+        daily_preferred_direction = _strategy_direction(daily_flips, strategy_key)
+        weekly_preferred_direction = _strategy_direction(weekly_flips, strategy_key)
         daily_has_preferred = _has_strategy_signal(daily_flips, strategy_key)
         weekly_has_preferred = _has_strategy_signal(weekly_flips, strategy_key)
+        daily_signal_context = (
+            _preferred_strategy_agreement(daily_preferred_direction)
+            if daily_has_preferred
+            else _strategy_agreement(daily_flips)
+        )
+        weekly_signal_context = (
+            _preferred_strategy_agreement(weekly_preferred_direction)
+            if weekly_has_preferred
+            else _strategy_agreement(weekly_flips)
+        )
         daily_bias = (
             _preferred_strategy_bias(daily_flips, strategy_key)
             if daily_has_preferred
-            else _trend_bias(daily_flips)
+            else int(daily_signal_context["net_bias"])
         )
         weekly_bias = (
             _preferred_strategy_bias(weekly_flips, strategy_key)
             if weekly_has_preferred
-            else _trend_bias(weekly_flips)
+            else int(weekly_signal_context["net_bias"])
         )
         if daily_has_preferred and weekly_has_preferred:
             trend_source_label = f"Preferred strategy bias ({preferred_meta['strategy_label']})"
         else:
             trend_source_label = f"Weighted strategy bias ({preferred_meta['strategy_label']} fallback)"
     else:
-        daily_bias = _trend_bias(daily_flips)
-        weekly_bias = _trend_bias(weekly_flips)
+        daily_signal_context = _strategy_agreement(daily_flips)
+        weekly_signal_context = _strategy_agreement(weekly_flips)
+        daily_bias = int(daily_signal_context["net_bias"])
+        weekly_bias = int(weekly_signal_context["net_bias"])
         trend_source_label = "Weighted strategy bias"
     return {
-        "daily": _frame_setup(daily_bias, structure, trend_source_label=trend_source_label),
-        "weekly": _frame_setup(weekly_bias, structure, trend_source_label=trend_source_label),
+        "daily": _frame_setup(
+            daily_bias,
+            structure,
+            trend_source_label=trend_source_label,
+            signal_context=daily_signal_context,
+        ),
+        "weekly": _frame_setup(
+            weekly_bias,
+            structure,
+            trend_source_label=trend_source_label,
+            signal_context=weekly_signal_context,
+        ),
         "shared": structure,
     }
