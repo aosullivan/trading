@@ -118,6 +118,73 @@ class TestSupportResistanceDetection:
         assert nearest_support["price"] > 95
         assert nearest_support["price"] < 110
 
+    def test_recent_body_cluster_can_mark_weak_support_after_breakout(self):
+        """Recent consolidation near prior resistance should survive as weak support."""
+        dates = pd.date_range("2023-01-06", periods=140, freq="W-FRI")
+        rows = []
+
+        for i in range(100):
+            base = 100 + i * 0.9 + np.sin(i / 4) * 2
+            rows.append(
+                {
+                    "Open": base - 1,
+                    "High": base + 3,
+                    "Low": base - 3,
+                    "Close": base + 1,
+                    "Volume": 1_000_000,
+                }
+            )
+
+        for open_price, close_price in [
+            (238, 248),
+            (250, 244),
+            (243, 251),
+            (252, 246),
+            (245, 250),
+            (249, 245),
+            (246, 252),
+            (253, 249),
+        ]:
+            rows.append(
+                {
+                    "Open": open_price,
+                    "High": max(open_price, close_price) + 4,
+                    "Low": min(open_price, close_price) - 4,
+                    "Close": close_price,
+                    "Volume": 1_200_000,
+                }
+            )
+
+        for j, close_price in enumerate([260, 272, 285, 294, 292, 296, 294]):
+            open_price = close_price - 5 if j % 2 == 0 else close_price + 4
+            rows.append(
+                {
+                    "Open": open_price,
+                    "High": max(open_price, close_price) + 5,
+                    "Low": min(open_price, close_price) - 5,
+                    "Close": close_price,
+                    "Volume": 1_300_000,
+                }
+            )
+
+        while len(rows) < len(dates):
+            close_price = 294 + np.sin(len(rows)) * 2
+            rows.append(
+                {
+                    "Open": close_price - 1,
+                    "High": close_price + 3,
+                    "Low": close_price - 3,
+                    "Close": close_price,
+                    "Volume": 900_000,
+                }
+            )
+
+        df = pd.DataFrame(rows, index=dates)
+        levels = compute_support_resistance(df, max_levels=8)
+        supports = [level for level in levels if level["type"] == "support"]
+
+        assert any(245 <= level["price"] <= 255 for level in supports)
+
 
 class TestSupportResistanceRoutePayload:
     @patch("lib.cache.yf.download")

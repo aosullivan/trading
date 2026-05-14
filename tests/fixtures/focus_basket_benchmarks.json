@@ -1,5 +1,5 @@
 {
-  "_comment": "Pinned focus-basket baseline plus approved promotion-policy contract. Regenerate CSVs with: python scripts/regen_focus_basket_benchmark_fixtures.py. Move the ratchet only when you intentionally update this JSON, docs/focus-basket-ratchet-benchmark.md, and the related planning decision artifacts together.",
+  "_comment": "Pinned focus-basket baseline plus approved promotion-policy contract. Regenerate CSVs with: python scripts/regen_focus_basket_benchmark_fixtures.py. Move the ratchet only when you intentionally update this JSON, docs/backtesting-status.md, and the related planning decision artifacts together.",
   "tickers": [
     "BTC-USD",
     "ETH-USD",

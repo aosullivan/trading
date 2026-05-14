@@ -250,6 +250,16 @@ def test_watchlist_quotes_retry_and_show_syncing_until_prices_arrive():
     assert "if((!quotes.length&&wlList.length)||hasMissingQuote||(!hasAnyQuote&&wlList.length)){" in watchlist_source
 
 
+def test_watchlist_quotes_show_treasury_rate_badges():
+    watchlist_source = WATCHLIST_JS_PATH.read_text()
+    style_source = (ROOT / "static" / "styles.css").read_text()
+
+    assert "function wlTreasuryRateBadge(t,q){" in watchlist_source
+    assert "q?.treasury_rate_label" in watchlist_source
+    assert "${wlTreasuryRateBadge(t,q)}" in watchlist_source
+    assert ".wl-rate" in style_source
+
+
 def test_watchlist_trend_side_filter_supports_all_mode():
     watchlist_source = WATCHLIST_JS_PATH.read_text()
 

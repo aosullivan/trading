@@ -104,10 +104,10 @@ resume, and export workflow for `scripts/optimize_trend_ribbon.py`.
 
 ## Benchmark backtests (CI)
 
-The maintained strategy contract is now guarded by the promoted focus-basket
-baseline in [docs/focus-basket-ratchet-benchmark.md](docs/focus-basket-ratchet-benchmark.md)
-plus the dedicated Polymarket benchmark in
-[`tests/test_polymarket_benchmark_backtests.py`](tests/test_polymarket_benchmark_backtests.py).
+The maintained backtesting contract is summarized in
+[docs/backtesting-status.md](docs/backtesting-status.md). The machine-readable
+ratchets live in `tests/fixtures/` and are enforced by the benchmark and
+contract tests.
 
 
 ## Features

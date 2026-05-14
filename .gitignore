@@ -13,6 +13,11 @@ __pycache__/
 .codexc/
 build/
 data_cache/
+positions.json
+positions*.json
+posn*.html
+posn_files/
+yahoo-positions*.html
 dist/
 *.spec
 audio/

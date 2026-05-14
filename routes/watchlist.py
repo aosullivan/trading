@@ -27,8 +27,10 @@ from lib.data_fetching import (
     cached_download,
     normalize_ticker,
     _quote_from_frame,
+    _fetch_treasury_yield_history,
     _fetch_market_quote_frame,
     _fetch_market_quote,
+    is_treasury_yield_ticker,
     resolve_treasury_price_proxy_ticker,
 )
 from lib.paths import get_resource_path, get_user_data_path
@@ -60,6 +62,34 @@ def _empty_trend_row(ticker: str) -> dict:
 
 def _empty_quote_row(ticker: str) -> dict:
     return {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
+
+
+def _treasury_rate_payload(ticker: str) -> dict:
+    if not is_treasury_yield_ticker(ticker):
+        return {}
+    try:
+        df = _fetch_treasury_yield_history(ticker)
+        if df.empty or "Close" not in df:
+            return {}
+        close = df.dropna(subset=["Close"])
+        if close.empty:
+            return {}
+        rate = round(float(close["Close"].iloc[-1]), 2)
+        return {
+            "treasury_rate": rate,
+            "treasury_rate_label": f"{rate:.2f}%",
+            "treasury_rate_date": pd.Timestamp(close.index[-1]).strftime("%Y-%m-%d"),
+        }
+    except Exception:
+        return {}
+
+
+def _with_treasury_rate(row: dict) -> dict:
+    ticker = str(row.get("ticker") or "").upper().strip()
+    payload = _treasury_rate_payload(ticker)
+    if not payload:
+        return row
+    return {**row, **payload}
 
 
 def _normalize_trend_row(ticker: str, row: dict | None) -> dict:
@@ -278,6 +308,7 @@ def _build_watchlist_quotes(tickers: list[str]) -> list[dict]:
                     if isinstance(tdf.columns, pd.MultiIndex):
                         tdf.columns = tdf.columns.get_level_values(0)
                     quote = _quote_from_frame(display_ticker, tdf)
+                    quote = _with_treasury_rate(quote)
                     if quote["last"] is None:
                         needs_retry.append((display_ticker, yf_ticker))
                     else:
@@ -295,19 +326,18 @@ def _build_watchlist_quotes(tickers: list[str]) -> list[dict]:
         for display_ticker, yf_ticker in needs_retry:
             try:
                 quote = _fetch_market_quote(display_ticker, yf_ticker)
+                quote = _with_treasury_rate(quote)
                 if quote["last"] is not None:
                     _cache_set(f"quote:{display_ticker}", quote)
                 results_by_ticker[display_ticker] = quote
             except Exception:
-                results_by_ticker[display_ticker] = _empty_quote_row(display_ticker)
+                results_by_ticker[display_ticker] = _with_treasury_rate(_empty_quote_row(display_ticker))
 
-    return [
-        results_by_ticker.get(
-            ticker,
-            _empty_quote_row(ticker),
-        )
-        for ticker in tickers
-    ]
+    results = []
+    for ticker in tickers:
+        row = results_by_ticker.get(ticker)
+        results.append(row if row is not None else _with_treasury_rate(_empty_quote_row(ticker)))
+    return results
 
 
 def _refresh_watchlist_quotes_cache(cache_key: str, tickers: list[str]):
@@ -336,7 +366,8 @@ def _load_watchlist_quote_snapshot_rows(tickers: list[str]) -> list[dict]:
     rows: list[dict] = []
     for ticker in tickers:
         cached = _cache_get(f"quote:{ticker}")
-        rows.append(cached if isinstance(cached, dict) else _empty_quote_row(ticker))
+        row = cached if isinstance(cached, dict) else _empty_quote_row(ticker)
+        rows.append(_with_treasury_rate(row))
     return rows
 
 
@@ -594,13 +625,14 @@ def watchlist_quote(ticker):
     cache_key = f"quote:{ticker}"
     cached = _cache_get(cache_key)
     if cached is not None:
-        return jsonify(cached)
+        return jsonify(_with_treasury_rate(cached))
 
     try:
         df = _fetch_market_quote_frame(yf_ticker)
         result = _quote_from_frame(ticker, df)
     except Exception:
         result = {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
+    result = _with_treasury_rate(result)
 
     if result["last"] is not None:
         _cache_set(cache_key, result)

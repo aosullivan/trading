@@ -1,9 +1,13 @@
-flask
-flask-compress
-pyinstaller
-pywebview
-yfinance
-pandas
-numpy
-scipy
-requests
+flask==3.1.3
+flask-compress==1.24
+pyinstaller==6.19.0
+pywebview==6.1
+yfinance==1.3.0
+pandas==3.0.2
+numpy==2.4.4
+scipy==1.17.1
+requests==2.33.1
+# Pinned for CVE-2026-44431 / CVE-2026-44432
+urllib3>=2.7.0
+# Pinned for CVE-2026-33752
+curl-cffi>=0.15.0

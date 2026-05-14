@@ -69,6 +69,151 @@ class TestIndexRoute:
         assert b"Side-By-Side Comparison" in resp.data
         assert b"Gap Vs Buy &amp; Hold" in resp.data
 
+    def test_positions_page_reads_local_user_data_file(self, client, tmp_path):
+        import lib.positions as positions_module
+
+        Path(positions_module.POSITIONS_FILE).write_text(json.dumps([
+            {
+                "symbol": "LOCAL",
+                "name": "Local Only Holding",
+                "account": "Local Brokerage",
+                "cost_basis": 90,
+                "market_value": 100,
+                "day_change": 1,
+                "unrealized_gain_loss": 10,
+                "account_positions": [
+                    {
+                        "account": "Local Brokerage",
+                        "cost_basis": 40,
+                        "market_value": 45,
+                        "day_change": 0.5,
+                        "unrealized_gain_loss": 5,
+                    },
+                    {
+                        "account": "Second Brokerage",
+                        "cost_basis": 50,
+                        "market_value": 55,
+                        "day_change": 0.5,
+                        "unrealized_gain_loss": 5,
+                    },
+                ],
+            },
+            {
+                "symbol": "SPAXX",
+                "name": "Fidelity Government Money Market",
+                "account": "Local Brokerage",
+                "cost_basis": 50,
+                "market_value": 50,
+                "day_change": 0,
+                "unrealized_gain_loss": 0,
+            }
+        ]))
+
+        resp = client.get("/positions")
+
+        assert resp.status_code == 200
+        assert b"Position Management" in resp.data
+        assert b"LOCAL" in resp.data
+        assert b"Local Brokerage" in resp.data
+        assert b"Unrealized" in resp.data
+        assert b"Cash & Equivalents" in resp.data
+        assert b"pos-section-row" in resp.data
+        assert b"By Asset" in resp.data
+        assert b"By Account" in resp.data
+        assert b"data-expand-asset" in resp.data
+        assert b"Second Brokerage" in resp.data
+
+    def test_positions_page_falls_back_to_cached_account_positions(self, client, tmp_path):
+        import lib.positions as positions_module
+
+        Path(positions_module.ACCOUNTS_FILE).write_text(json.dumps({
+            "accounts": [
+                {
+                    "id": "acct-1",
+                    "name": "Cached Brokerage",
+                }
+            ]
+        }))
+        Path(positions_module.POSITIONS_CACHE_FILE).write_text(json.dumps({
+            "acct-1": {
+                "positions": [
+                    {
+                        "symbol": "CACHE",
+                        "quantity": 4,
+                        "market_value": 120,
+                        "current_price": 30,
+                        "account_id": "acct-1",
+                        "cost_basis": 100,
+                        "unrealized_pnl": 20,
+                    }
+                ],
+                "fetched_at": 1776102822.9564989,
+            }
+        }))
+
+        resp = client.get("/positions")
+
+        assert resp.status_code == 200
+        assert b"CACHE" in resp.data
+        assert b"Cached Brokerage" in resp.data
+        assert b"120.0" in resp.data
+
+    def test_positions_page_reads_yahoo_export_when_json_is_absent(self, client):
+        import lib.positions as positions_module
+
+        Path(positions_module.POSITIONS_EXPORT_FILE).write_text("""
+            <fin-streamer data-symbol="all" data-field="currentMarketValue" data-value="2000.5"></fin-streamer>
+            <fin-streamer data-symbol="all" data-field="dailyGain" data-value="25.5"></fin-streamer>
+            <fin-streamer data-symbol="all" data-field="totalGain" data-value="250.5"></fin-streamer>
+            <a data-testid="portfolio-row-container">
+              <span class="name">Fidelity Investments : ROLLOVER_IRA -1234</span>
+            </a>
+            <a data-testid="ticker-list-item">
+              <span class="symbol">YHOO</span>
+            </a>
+            <table data-testid="table-container">
+              <tr>
+                <th>Symbol</th><th>Exposure</th><th>Cost Basis</th>
+                <th>Market Value</th><th>Day Change</th>
+                <th>Unrealized Gain/Loss</th><th>Realized Gain/Loss</th>
+              </tr>
+              <tr>
+                <td>
+                  <span class="symbol">YHOO</span>
+                  <span class="longName">Yahoo Export Holding</span>
+                </td>
+                <td>4.20%</td><td>$1,000.00</td><td>$1,250.50</td>
+                <td>+$25.50 +2.08%</td><td>+$250.50 +25.05%</td><td>--</td>
+              </tr>
+            </table>
+        """)
+
+        resp = client.get("/positions")
+
+        assert resp.status_code == 200
+        assert b"YHOO" in resp.data
+        assert b"Yahoo Export Holding" in resp.data
+        assert b"Fidelity Investments : ROLLOVER_IRA -1234" in resp.data
+        assert b"1250.5" in resp.data
+        assert b"2,000.50" in resp.data
+        assert b'data-sort="market_value"' in resp.data
+        assert b"Other Holdings" in resp.data
+
+    def test_position_quotes_returns_empty_quotes_during_tests(self, client):
+        import lib.positions as positions_module
+
+        Path(positions_module.POSITIONS_FILE).write_text(json.dumps([
+            {"symbol": "LOCAL", "market_value": 100},
+            {"symbol": "INTERNAL FUND", "market_value": 100},
+        ]))
+
+        resp = client.get("/api/positions/quotes")
+
+        assert resp.status_code == 200
+        assert resp.get_json() == {
+            "quotes": [{"ticker": "LOCAL", "last": None, "chg": None, "chg_pct": None}]
+        }
+
 
 class TestChartHelpers:
     def test_carry_neutral_direction_holds_last_nonzero_state(self):
@@ -181,18 +326,40 @@ class TestWatchlistAPI:
             },
             index=dates,
         )
+        yield_df = pd.DataFrame(
+            {
+                "Open": [4.37, 4.42],
+                "High": [4.37, 4.42],
+                "Low": [4.37, 4.42],
+                "Close": [4.37, 4.42],
+                "Volume": [0, 0],
+            },
+            index=dates[-2:],
+        )
+        expected = [
+            {
+                "ticker": "UST10Y",
+                "last": 92.8,
+                "chg": 0.4,
+                "chg_pct": 0.43,
+                "treasury_rate": 4.42,
+                "treasury_rate_label": "4.42%",
+                "treasury_rate_date": "2024-01-05",
+            }
+        ]
 
-        data = []
-        for _ in range(30):
-            resp = client.get("/api/watchlist/quotes")
-            assert resp.status_code == 200
-            data = resp.get_json()
-            if data == [{"ticker": "UST10Y", "last": 92.8, "chg": 0.4, "chg_pct": 0.43}]:
-                break
-            time.sleep(0.01)
+        with patch("routes.watchlist._fetch_treasury_yield_history", return_value=yield_df):
+            data = []
+            for _ in range(30):
+                resp = client.get("/api/watchlist/quotes")
+                assert resp.status_code == 200
+                data = resp.get_json()
+                if data == expected:
+                    break
+                time.sleep(0.01)
         mock_download.assert_called_once()
         assert mock_download.call_args.args[0] == ["IEF"]
-        assert data == [{"ticker": "UST10Y", "last": 92.8, "chg": 0.4, "chg_pct": 0.43}]
+        assert data == expected
 
     @patch("lib.cache.yf.download")
     def test_watchlist_quotes_fall_back_to_single_ticker_fetches_when_bulk_download_fails(

@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Position Management</title>
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body class="pos-page">
+{% include 'partials/nav.html' %}
+
+<main class="pos-wrap">
+  <section class="pos-head">
+    <div>
+      <h1>Position Management</h1>
+      <div class="pos-sub">Local imported holdings with live quote enrichment and stop-loss planning.</div>
+    </div>
+    <div class="pos-quote-state" id="pos-quote-state">Quotes pending</div>
+  </section>
+
+  <section class="pos-stats" aria-label="Position summary">
+    <div class="pos-stat">
+      <span class="pos-stat-label">Market Value</span>
+      <strong>{{ "${:,.2f}".format(summary.market_value) }}</strong>
+    </div>
+    <div class="pos-stat">
+      <span class="pos-stat-label">Cost Basis</span>
+      <strong>{{ "${:,.2f}".format(summary.cost_basis) }}</strong>
+    </div>
+    <div class="pos-stat">
+      <span class="pos-stat-label">Daily PnL</span>
+      <strong class="{{ 'vg' if summary.day_change >= 0 else 'vr' }}">{{ "${:,.2f}".format(summary.day_change) }}</strong>
+    </div>
+    <div class="pos-stat">
+      <span class="pos-stat-label">Total PnL</span>
+      <strong class="{{ 'vg' if summary.unrealized_gain_loss >= 0 else 'vr' }}">{{ "${:,.2f}".format(summary.unrealized_gain_loss) }}</strong>
+    </div>
+    <div class="pos-stat">
+      <span class="pos-stat-label">Coverage</span>
+      <strong>{{ summary.position_count }} positions</strong>
+      <span>{{ summary.account_count }} accounts, {{ summary.symbol_count }} symbols</span>
+    </div>
+  </section>
+
+  {% if regime and not regime.error %}
+  <section class="pos-regime" id="pos-regime" aria-label="Market regime detection">
+    <div class="pos-regime-head">
+      <div>
+        <span class="pos-regime-tag pos-regime-tag-{{ regime.tag }}" id="pos-regime-tag">{{ regime.regime }}</span>
+        <span class="pos-regime-score" id="pos-regime-score">Composite score {{ "{:+d}".format(regime.score) }}</span>
+      </div>
+      <div class="pos-regime-actions">
+        <span class="pos-regime-guidance" id="pos-regime-guidance">{{ regime.guidance }}</span>
+        <div class="pos-regime-refresh-group">
+          <span class="pos-regime-updated" id="pos-regime-updated">Loaded at page load</span>
+          <button type="button" class="pos-regime-refresh" id="pos-regime-refresh">Refresh</button>
+        </div>
+      </div>
+    </div>
+    <table class="pos-regime-table">
+      <thead>
+        <tr>
+          <th>Signal</th>
+          <th>Value</th>
+          <th>Score</th>
+          <th>Verdict</th>
+        </tr>
+      </thead>
+      <tbody id="pos-regime-tbody">
+        {% for s in regime.signals %}
+        <tr>
+          <td>{{ s.name }}</td>
+          <td class="pos-num">{{ s.value }}</td>
+          <td class="pos-num">
+            <span class="pos-regime-pts {% if s.score > 0 %}vg{% elif s.score < 0 %}vr{% endif %}">{{ "{:+d}".format(s.score) }}</span>
+          </td>
+          <td>{{ s.verdict }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endif %}
+
+  <section class="pos-stats" aria-label="Account tax wrapper split">
+    <div class="pos-stat">
+      <span class="pos-stat-label">Retirement Accounts</span>
+      <strong>{{ "${:,.2f}".format(retirement.retirement_market_value) }}</strong>
+      <span>{{ "{:.1f}%".format(retirement.retirement_pct) }} of portfolio · IRA/401k/UK Pension</span>
+    </div>
+    <div class="pos-stat">
+      <span class="pos-stat-label">Taxable Accounts</span>
+      <strong>{{ "${:,.2f}".format(retirement.taxable_market_value) }}</strong>
+      <span>{{ "{:.1f}%".format(retirement.taxable_pct) }} of portfolio · Vanguard Brokerage / Robinhood</span>
+    </div>
+  </section>
+
+  <section class="pos-panel">
+    <div class="pos-panel-head">
+      <div>
+        <h2>Holdings</h2>
+        <span>Grouped Yahoo holdings with linked-account membership and category subtotals.</span>
+      </div>
+      <div class="pos-panel-tools">
+        <div class="pos-view-tabs" role="tablist" aria-label="Position perspective">
+          <button class="pos-view-tab active" data-view="asset" type="button" role="tab" aria-selected="true">By Asset</button>
+          <button class="pos-view-tab" data-view="account" type="button" role="tab" aria-selected="false">By Account</button>
+          <button class="pos-view-tab" data-view="allocation" type="button" role="tab" aria-selected="false">Allocation Plan</button>
+        </div>
+        <input id="pos-filter" class="inp pos-filter" type="search" placeholder="Filter symbol or account">
+      </div>
+    </div>
+
+    {% if positions %}
+    <div class="pos-table-wrap" id="pos-table-wrap">
+      <table class="ttbl pos-table">
+        <thead>
+          <tr>
+            <th><button class="pos-sort" data-sort="symbol" type="button">Symbol</button></th>
+            <th><button class="pos-sort" data-sort="exposure_pct" type="button">Exposure</button></th>
+            <th><button class="pos-sort" data-sort="cost_basis" type="button">Cost Basis</button></th>
+            <th><button class="pos-sort" data-sort="market_value" type="button">Market Value</button></th>
+            <th><button class="pos-sort" data-sort="day_change" type="button">Day Change</button></th>
+            <th><button class="pos-sort" data-sort="unrealized_gain_loss" type="button">Unrealized<br>Gain/Loss</button></th>
+          </tr>
+        </thead>
+        <tbody id="pos-tbody"></tbody>
+      </table>
+    </div>
+
+    <div class="pos-allocation-wrap" id="pos-allocation-wrap" hidden>
+      <div class="pos-allocation-header">
+        <h3>Strategic Allocation Plan</h3>
+        <ul class="pos-allocation-scenarios">
+          <li><strong>Max Conviction:</strong> High-conviction bull. 70% US equity, lean hedges. Use when regime is clear S1 and AI thesis remains intact.</li>
+          <li><strong>Confident Bull:</strong> Bullish but cautious. 62% US equity, modest hedge sleeve. Default when at ATH or signals are mixed.</li>
+          <li><strong>Bubble Pop (S3):</strong> Defensive rotation — 12% cash, 12% trend, 25% US equity. Trigger only when regime detector confirms.</li>
+        </ul>
+        <p class="pos-allocation-note">Each column shows the target % and the gap from today's allocation. Drift toward Max Conviction or Confident Bull via new contributions and within-account reallocations (e.g. the UK pension); only rotate to S3 if signals confirm.</p>
+      </div>
+      <table class="ttbl pos-table pos-allocation-table">
+        <thead>
+          <tr>
+            <th>Sleeve</th>
+            <th>Current</th>
+            <th>Max Conviction</th>
+            <th>Gap</th>
+            <th>Confident Bull</th>
+            <th>Gap</th>
+            <th>Bubble Pop (S3)</th>
+            <th>Gap</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in allocation %}
+          <tr>
+            <td>
+              <div class="pos-symbol">{{ row.label }}</div>
+              <div class="pos-name">{{ "${:,.0f}".format(row.current_market_value) }}</div>
+            </td>
+            <td class="pos-num">{{ "{:.1f}%".format(row.current_pct) }}</td>
+            <td class="pos-num">{% if row.s1_target_pct is not none %}{{ "{:.1f}%".format(row.s1_target_pct) }}{% else %}<span class="pos-muted-num">--</span>{% endif %}</td>
+            <td class="pos-num">
+              {% if row.s1_gap_pct is not none %}
+                <div class="pos-gain {% if row.s1_gap_pct > 0 %}vr{% elif row.s1_gap_pct < 0 %}vg{% endif %}">
+                  <strong>{{ "{:+.1f}".format(row.s1_gap_pct) }}%</strong>
+                  <span>{{ "${:+,.0f}".format(row.s1_gap_dollars) }}</span>
+                </div>
+              {% else %}<span class="pos-muted-num">--</span>{% endif %}
+            </td>
+            <td class="pos-num">{% if row.s2_target_pct is not none %}{{ "{:.1f}%".format(row.s2_target_pct) }}{% else %}<span class="pos-muted-num">--</span>{% endif %}</td>
+            <td class="pos-num">
+              {% if row.s2_gap_pct is not none %}
+                <div class="pos-gain {% if row.s2_gap_pct > 0 %}vr{% elif row.s2_gap_pct < 0 %}vg{% endif %}">
+                  <strong>{{ "{:+.1f}".format(row.s2_gap_pct) }}%</strong>
+                  <span>{{ "${:+,.0f}".format(row.s2_gap_dollars) }}</span>
+                </div>
+              {% else %}<span class="pos-muted-num">--</span>{% endif %}
+            </td>
+            <td class="pos-num">{% if row.s3_target_pct is not none %}{{ "{:.1f}%".format(row.s3_target_pct) }}{% else %}<span class="pos-muted-num">--</span>{% endif %}</td>
+            <td class="pos-num">
+              {% if row.s3_gap_pct is not none %}
+                <div class="pos-gain {% if row.s3_gap_pct > 0 %}vr{% elif row.s3_gap_pct < 0 %}vg{% endif %}">
+                  <strong>{{ "{:+.1f}".format(row.s3_gap_pct) }}%</strong>
+                  <span>{{ "${:+,.0f}".format(row.s3_gap_dollars) }}</span>
+                </div>
+              {% else %}<span class="pos-muted-num">--</span>{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="pf-empty">No local positions found. Add positions to the local user-data positions file to populate this screen.</div>
+    {% endif %}
+  </section>
+</main>
+
+<script>
+const POSITIONS = {{ positions|tojson }};
+const QUOTEABLE_SYMBOLS = {{ quoteable_symbols|tojson }};
+const moneyFmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+const priceFmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+const qtyFmt = new Intl.NumberFormat('en-US', { maximumFractionDigits: 4 });
+const percentFmt = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const GROUP_ORDER = ['cash', 'semis', 'etfs', 'software', 'tech', 'crypto', 'indexes', 'treasuries', 'misc'];
+const GROUP_LABELS = {
+  cash: 'Cash & Equivalents',
+  semis: 'Semiconductor Stocks',
+  etfs: 'ETFs',
+  software: 'Software',
+  tech: 'Tech Stocks',
+  crypto: 'Crypto & Crypto Adjacent',
+  indexes: 'Indexes',
+  treasuries: 'Rates',
+  misc: 'Other Holdings',
+};
+let quotesBySymbol = new Map();
+let sortState = { key: null, direction: 'asc' };
+let viewMode = 'asset';
+let expandedAssets = new Set();
+let expandedAccounts = new Set();
+
+function fmtMoney(value) {
+  return Number.isFinite(value) ? moneyFmt.format(value) : '--';
+}
+
+function fmtPrice(value) {
+  return Number.isFinite(value) && value > 0 ? priceFmt.format(value) : '--';
+}
+
+function fmtPercent(value) {
+  return Number.isFinite(value) ? `${value >= 0 ? '+' : ''}${percentFmt.format(value)}%` : '--';
+}
+
+function fmtExposure(value) {
+  return Number.isFinite(value) ? `${percentFmt.format(value)}%` : '--';
+}
+
+function fmtQty(value) {
+  return Number.isFinite(value) && value > 0 ? qtyFmt.format(value) : '--';
+}
+
+function pctOf(numerator, denominator) {
+  return Number.isFinite(numerator) && Number.isFinite(denominator) && denominator !== 0
+    ? (numerator / denominator) * 100
+    : null;
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+}
+
+function toneClass(value) {
+  if (!Number.isFinite(value) || value === 0) return '';
+  return value > 0 ? 'vg' : 'vr';
+}
+
+function fmtGain(value, pct) {
+  const tone = toneClass(value);
+  return `
+    <div class="pos-gain ${tone}">
+      <strong>${fmtMoney(value)}</strong>
+      <span>${fmtPercent(pct)}</span>
+    </div>
+  `;
+}
+
+function fmtMaybeGain(value, pct, exact) {
+  if (!exact) return '<div class="pos-muted-num">--</div>';
+  return fmtGain(value, pct);
+}
+
+function quoteFor(symbol) {
+  return quotesBySymbol.get(symbol) || {};
+}
+
+function enrichedPosition(row) {
+  const quote = quoteFor(row.symbol);
+  const currentPrice = Number.isFinite(quote.last) ? quote.last : row.current_price;
+  const holdings = Number.isFinite(row.quantity) && row.quantity > 0
+    ? row.quantity
+    : currentPrice && row.market_value > 0 ? row.market_value / currentPrice : null;
+  const entryPrice = holdings && row.cost_basis > 0 ? row.cost_basis / holdings : null;
+  return { ...row, currentPrice, holdings, entryPrice };
+}
+
+function sortValue(row, key) {
+  if (key === 'symbol') return `${row.symbol || row.account || ''} ${row.name || ''}`.toLowerCase();
+  if (key === 'account') return (row.account || '').toLowerCase();
+  const value = row[key];
+  return Number.isFinite(value) ? value : null;
+}
+
+function compareRows(a, b) {
+  if (!sortState.key) return a._index - b._index;
+  const left = sortValue(a, sortState.key);
+  const right = sortValue(b, sortState.key);
+  const direction = sortState.direction === 'asc' ? 1 : -1;
+  if (left === right) return a.symbol.localeCompare(b.symbol);
+  if (left === null) return 1;
+  if (right === null) return -1;
+  if (typeof left === 'string' || typeof right === 'string') {
+    return String(left).localeCompare(String(right)) * direction;
+  }
+  return (left - right) * direction;
+}
+
+function categoryKey(row) {
+  return row.category || 'misc';
+}
+
+function categoryLabel(key, rows) {
+  return rows.find((row) => row.category_label)?.category_label || GROUP_LABELS[key] || 'Other Holdings';
+}
+
+function groupRank(key) {
+  const index = GROUP_ORDER.indexOf(key);
+  return index === -1 ? GROUP_ORDER.length : index;
+}
+
+function groupRows(rows) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const key = categoryKey(row);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  });
+  return [...groups.entries()]
+    .sort(([leftKey, leftRows], [rightKey, rightRows]) => {
+      const rankDiff = groupRank(leftKey) - groupRank(rightKey);
+      if (rankDiff !== 0) return rankDiff;
+      return categoryLabel(leftKey, leftRows).localeCompare(categoryLabel(rightKey, rightRows));
+    })
+    .map(([key, groupedRows]) => [key, groupedRows.sort(compareRows)]);
+}
+
+function subtotalFor(rows) {
+  return rows.reduce((acc, row) => {
+    acc.exposure_pct += Number.isFinite(row.exposure_pct) ? row.exposure_pct : 0;
+    acc.cost_basis += Number.isFinite(row.cost_basis) ? row.cost_basis : 0;
+    acc.market_value += Number.isFinite(row.market_value) ? row.market_value : 0;
+    acc.day_change += Number.isFinite(row.day_change) ? row.day_change : 0;
+    acc.unrealized_gain_loss += Number.isFinite(row.unrealized_gain_loss) ? row.unrealized_gain_loss : 0;
+    return acc;
+  }, { exposure_pct: 0, cost_basis: 0, market_value: 0, day_change: 0, unrealized_gain_loss: 0 });
+}
+
+function accountsFor(row) {
+  if (Array.isArray(row.accounts) && row.accounts.length) return row.accounts;
+  return row.account ? [row.account] : [];
+}
+
+function childRowsForAsset(row) {
+  const provided = Array.isArray(row.account_positions) ? row.account_positions : [];
+  if (provided.length) {
+    return provided.map((child, index) => ({
+      ...row,
+      ...child,
+      account: child.account || child.name || `Account ${index + 1}`,
+      name: row.name,
+      symbol: row.symbol,
+      splitExact: true,
+    }));
+  }
+  const accounts = accountsFor(row);
+  if (accounts.length <= 1) return [];
+  return accounts.map((account) => ({
+    ...row,
+    account,
+    exposure_pct: null,
+    cost_basis: null,
+    market_value: null,
+    day_change: null,
+    day_change_pct: null,
+    unrealized_gain_loss: null,
+    unrealized_gain_loss_pct: null,
+    splitExact: false,
+  }));
+}
+
+function exactAccountRow(row) {
+  return {
+    ...row,
+    account: accountsFor(row)[0] || row.account || 'Unassigned',
+    splitExact: true,
+  };
+}
+
+function accountRowsForPosition(row) {
+  const children = childRowsForAsset(row);
+  if (children.length) return children;
+  return [exactAccountRow(row)];
+}
+
+function accountSummaries(rows) {
+  const accounts = new Map();
+  rows.forEach((row) => {
+    accountRowsForPosition(row).forEach((child) => {
+      const account = child.account || 'Unassigned';
+      if (!accounts.has(account)) accounts.set(account, { account, rows: [], unknownCount: 0 });
+      const bucket = accounts.get(account);
+      bucket.rows.push(child);
+      if (!child.splitExact) bucket.unknownCount += 1;
+    });
+  });
+  const sortedBuckets = [...accounts.values()].sort((a, b) => a.account.localeCompare(b.account));
+  return sortedBuckets.map((bucket, index) => {
+    const exactRows = bucket.rows.filter((row) => row.splitExact);
+    return {
+      ...subtotalFor(exactRows),
+      symbol: bucket.account,
+      account: bucket.account,
+      name: `${exactRows.length} exact ${exactRows.length === 1 ? 'asset' : 'assets'}${bucket.unknownCount ? `, ${bucket.unknownCount} split unavailable` : ''}`,
+      rows: bucket.rows.sort(compareRows),
+      unknownCount: bucket.unknownCount,
+      _index: index,
+    };
+  }).sort(compareRows);
+}
+
+function renderGroupHeader(key, rows) {
+  const subtotal = subtotalFor(rows);
+  const dayPct = pctOf(subtotal.day_change, subtotal.market_value - subtotal.day_change);
+  const unrealizedPct = pctOf(subtotal.unrealized_gain_loss, subtotal.cost_basis);
+  return `
+    <tr class="pos-section-row">
+      <td>
+        <div class="pos-section-title">${escapeHtml(categoryLabel(key, rows))}</div>
+        <div class="pos-section-meta">${rows.length} ${rows.length === 1 ? 'position' : 'positions'}</div>
+      </td>
+      <td class="pos-num">${fmtExposure(subtotal.exposure_pct)}</td>
+      <td class="pos-num">${fmtMoney(subtotal.cost_basis)}</td>
+      <td class="pos-num">${fmtMoney(subtotal.market_value)}</td>
+      <td>${fmtGain(subtotal.day_change, dayPct)}</td>
+      <td>${fmtGain(subtotal.unrealized_gain_loss, unrealizedPct)}</td>
+    </tr>
+  `;
+}
+
+function renderPositionRow(row, options = {}) {
+  const children = childRowsForAsset(row);
+  const canExpand = options.expandable && children.length > 0;
+  const expanded = expandedAssets.has(row.symbol);
+  return `
+    <tr class="${options.child ? 'pos-child-row' : ''}">
+      <td>
+        <div class="pos-symbol-line">
+          ${canExpand ? `<button class="pos-expand" data-expand-asset="${escapeHtml(row.symbol)}" type="button" aria-expanded="${expanded}">${expanded ? '-' : '+'}</button>` : '<span class="pos-expand-spacer"></span>'}
+          <div>
+            <div class="pos-symbol">${escapeHtml(options.accountLabel || row.symbol)}</div>
+            <div class="pos-name">${escapeHtml(options.nameLabel || row.name)}</div>
+            <div class="pos-account">${escapeHtml(options.accountText ?? row.account ?? '')}</div>
+          </div>
+        </div>
+      </td>
+      <td class="pos-num pos-exposure">${options.exact === false ? '<span class="pos-muted-num">--</span>' : fmtExposure(row.exposure_pct)}</td>
+      <td class="pos-num">${options.exact === false ? '<span class="pos-muted-num">--</span>' : fmtMoney(row.cost_basis)}</td>
+      <td class="pos-num">${options.exact === false ? '<span class="pos-muted-num">--</span>' : fmtMoney(row.market_value)}</td>
+      <td>${fmtMaybeGain(row.day_change, row.day_change_pct, options.exact !== false)}</td>
+      <td>${fmtMaybeGain(row.unrealized_gain_loss, row.unrealized_gain_loss_pct, options.exact !== false)}</td>
+    </tr>
+  `;
+}
+
+function renderAssetChildRow(row) {
+  return renderPositionRow(row, {
+    child: true,
+    exact: row.splitExact,
+    accountLabel: row.account,
+    nameLabel: row.splitExact ? row.symbol : 'Split unavailable in Yahoo aggregate export',
+    accountText: row.splitExact ? row.symbol : row.name,
+  });
+}
+
+function renderAssetView(rows) {
+  return groupRows(rows).map(([key, groupedRows]) => (
+    renderGroupHeader(key, groupedRows) + groupedRows.map((row) => {
+      const children = childRowsForAsset(row);
+      return renderPositionRow(row, { expandable: true }) + (
+        expandedAssets.has(row.symbol) ? children.map(renderAssetChildRow).join('') : ''
+      );
+    }).join('')
+  )).join('');
+}
+
+function renderAccountRow(account) {
+  const expanded = expandedAccounts.has(account.account);
+  const dayPct = pctOf(account.day_change, account.market_value - account.day_change);
+  const unrealizedPct = pctOf(account.unrealized_gain_loss, account.cost_basis);
+  return `
+    <tr class="pos-account-row">
+      <td>
+        <div class="pos-symbol-line">
+          <button class="pos-expand" data-expand-account="${escapeHtml(account.account)}" type="button" aria-expanded="${expanded}">${expanded ? '-' : '+'}</button>
+          <div>
+            <div class="pos-symbol">${escapeHtml(account.account)}</div>
+            <div class="pos-name">${escapeHtml(account.name)}</div>
+          </div>
+        </div>
+      </td>
+      <td class="pos-num">${fmtExposure(account.exposure_pct)}</td>
+      <td class="pos-num">${fmtMoney(account.cost_basis)}</td>
+      <td class="pos-num">${fmtMoney(account.market_value)}</td>
+      <td>${fmtGain(account.day_change, dayPct)}</td>
+      <td>${fmtGain(account.unrealized_gain_loss, unrealizedPct)}</td>
+    </tr>
+  `;
+}
+
+function renderAccountAssetRow(row) {
+  return renderPositionRow(row, {
+    child: true,
+    exact: row.splitExact,
+    accountLabel: row.symbol,
+    nameLabel: row.name,
+    accountText: row.splitExact ? row.account : 'Split unavailable in Yahoo aggregate export',
+  });
+}
+
+function renderAccountView(rows) {
+  return accountSummaries(rows).map((account) => (
+    renderAccountRow(account) + (
+      expandedAccounts.has(account.account)
+        ? account.rows.map(renderAccountAssetRow).join('')
+        : ''
+    )
+  )).join('');
+}
+
+function updateSortControls() {
+  document.querySelectorAll('.pos-sort').forEach((button) => {
+    const active = button.dataset.sort === sortState.key;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-sort', active ? sortState.direction : 'none');
+    button.dataset.direction = active ? sortState.direction : '';
+  });
+}
+
+function renderPositions() {
+  const tbody = document.getElementById('pos-tbody');
+  if (!tbody) return;
+  const filter = document.getElementById('pos-filter').value.trim().toLowerCase();
+  const rows = POSITIONS
+    .map((row, index) => ({ ...enrichedPosition(row), _index: index }))
+    .filter((row) => !filter || `${row.symbol} ${row.name} ${row.account} ${row.category_label}`.toLowerCase().includes(filter));
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="pos-empty-row">No positions match this filter.</td></tr>';
+    updateSortControls();
+    return;
+  }
+
+  tbody.innerHTML = viewMode === 'account' ? renderAccountView(rows) : renderAssetView(rows);
+  updateSortControls();
+}
+
+async function loadQuotes() {
+  const state = document.getElementById('pos-quote-state');
+  if (!QUOTEABLE_SYMBOLS.length) {
+    state.textContent = 'No live quotes';
+    return;
+  }
+  state.textContent = 'Loading quotes';
+  try {
+    const resp = await fetch('/api/positions/quotes');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const payload = await resp.json();
+    quotesBySymbol = new Map((payload.quotes || []).map((quote) => [quote.ticker, quote]));
+    const loaded = [...quotesBySymbol.values()].filter((quote) => Number.isFinite(quote.last)).length;
+    state.textContent = `${loaded}/${QUOTEABLE_SYMBOLS.length} quotes loaded`;
+  } catch (err) {
+    state.textContent = 'Quotes unavailable';
+  }
+  renderPositions();
+}
+
+const regimeRefreshBtn = document.getElementById('pos-regime-refresh');
+const regimeTagEl = document.getElementById('pos-regime-tag');
+const regimeScoreEl = document.getElementById('pos-regime-score');
+const regimeGuidanceEl = document.getElementById('pos-regime-guidance');
+const regimeTbody = document.getElementById('pos-regime-tbody');
+const regimeUpdatedEl = document.getElementById('pos-regime-updated');
+const regimePanelEl = document.getElementById('pos-regime');
+
+function fmtSignedInt(value) {
+  return (value >= 0 ? '+' : '') + value;
+}
+
+function fmtClockNow() {
+  const d = new Date();
+  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+
+function flashRefreshed() {
+  if (!regimePanelEl) return;
+  regimePanelEl.classList.remove('pos-regime-flash');
+  void regimePanelEl.offsetWidth;
+  regimePanelEl.classList.add('pos-regime-flash');
+}
+
+function renderRegime(data) {
+  if (!regimeTagEl || !data || data.error) return;
+  regimeTagEl.textContent = data.regime;
+  regimeTagEl.className = `pos-regime-tag pos-regime-tag-${data.tag}`;
+  regimeScoreEl.textContent = `Composite score ${fmtSignedInt(data.score)}`;
+  regimeGuidanceEl.textContent = data.guidance;
+  const rows = (data.signals || []).map((s) => {
+    const tone = s.score > 0 ? 'vg' : s.score < 0 ? 'vr' : '';
+    return `
+      <tr>
+        <td>${escapeHtml(s.name)}</td>
+        <td class="pos-num">${escapeHtml(s.value)}</td>
+        <td class="pos-num"><span class="pos-regime-pts ${tone}">${fmtSignedInt(s.score)}</span></td>
+        <td>${escapeHtml(s.verdict)}</td>
+      </tr>
+    `;
+  }).join('');
+  regimeTbody.innerHTML = rows;
+  if (regimeUpdatedEl) regimeUpdatedEl.textContent = `Updated ${fmtClockNow()}`;
+}
+
+regimeRefreshBtn?.addEventListener('click', async () => {
+  const originalLabel = regimeRefreshBtn.textContent;
+  regimeRefreshBtn.disabled = true;
+  regimeRefreshBtn.textContent = 'Refreshing…';
+  if (regimeUpdatedEl) regimeUpdatedEl.textContent = 'Fetching live signals…';
+  try {
+    const resp = await fetch('/api/regime?refresh=1', { cache: 'no-store' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    renderRegime(data);
+    flashRefreshed();
+    regimeRefreshBtn.textContent = '✓ Refreshed';
+    setTimeout(() => { regimeRefreshBtn.textContent = originalLabel; }, 1800);
+  } catch (err) {
+    regimeRefreshBtn.textContent = 'Failed — retry';
+    if (regimeUpdatedEl) regimeUpdatedEl.textContent = `Error: ${err.message || 'unknown'}`;
+    setTimeout(() => { regimeRefreshBtn.textContent = originalLabel; }, 2500);
+  } finally {
+    regimeRefreshBtn.disabled = false;
+  }
+});
+
+document.getElementById('pos-filter')?.addEventListener('input', renderPositions);
+document.querySelectorAll('.pos-sort').forEach((button) => {
+  button.addEventListener('click', () => {
+    const key = button.dataset.sort;
+    const firstDirection = key === 'symbol' ? 'asc' : 'desc';
+    sortState = {
+      key,
+      direction: sortState.key === key && sortState.direction === 'desc' ? 'asc' : firstDirection,
+    };
+    renderPositions();
+  });
+});
+document.querySelectorAll('.pos-view-tab').forEach((button) => {
+  button.addEventListener('click', () => {
+    viewMode = button.dataset.view;
+    document.querySelectorAll('.pos-view-tab').forEach((tab) => {
+      const active = tab.dataset.view === viewMode;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    const showAllocation = viewMode === 'allocation';
+    const tableWrap = document.getElementById('pos-table-wrap');
+    const allocWrap = document.getElementById('pos-allocation-wrap');
+    if (tableWrap) tableWrap.hidden = showAllocation;
+    if (allocWrap) allocWrap.hidden = !showAllocation;
+    if (!showAllocation) renderPositions();
+  });
+});
+document.getElementById('pos-tbody')?.addEventListener('click', (event) => {
+  const assetButton = event.target.closest('[data-expand-asset]');
+  if (assetButton) {
+    const symbol = assetButton.dataset.expandAsset;
+    expandedAssets.has(symbol) ? expandedAssets.delete(symbol) : expandedAssets.add(symbol);
+    renderPositions();
+    return;
+  }
+  const accountButton = event.target.closest('[data-expand-account]');
+  if (accountButton) {
+    const account = accountButton.dataset.expandAccount;
+    expandedAccounts.has(account) ? expandedAccounts.delete(account) : expandedAccounts.add(account);
+    renderPositions();
+  }
+});
+renderPositions();
+loadQuotes();
+</script>
+</body>
+</html>

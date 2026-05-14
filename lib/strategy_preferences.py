@@ -40,7 +40,23 @@ _TREASURY_SYMBOLS = set(_TREASURY_PRICE_PROXIES)
 _SEMI_SYMBOLS = {"ALAB", "AMD", "ARM", "ASML", "AVGO", "MRVL", "MU", "NVDA", "SNDK", "TSM"}
 _SOFTWARE_SYMBOLS = {"CRM", "CRWD", "NOW", "PLTR", "SNOW", "ZS"}
 _TECH_SYMBOLS = {"AAPL", "AMZN", "GOOG", "HIMS", "HOOD", "META", "MSFT", "RKLB", "TSLA"}
-_ETF_SYMBOLS = {"ARKK", "CPER", "IAU", "IGV", "MAGS", "SMH", "TLT", "USO", "VGT", "XLE"}
+_ETF_SYMBOLS = {
+    "AHLT",
+    "ARKK",
+    "CPER",
+    "FBTC",
+    "IAU",
+    "IBIT",
+    "IGV",
+    "MAGS",
+    "SMH",
+    "SPY",
+    "TLT",
+    "USO",
+    "VGT",
+    "VTI",
+    "XLE",
+}
 _CRYPTO_ADJACENT_SYMBOLS = {"COIN", "CRCL", "GLXY", "HUT", "MSTR"}
 
 _CATEGORY_LABELS = {

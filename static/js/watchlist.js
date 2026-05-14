@@ -271,6 +271,18 @@ function wlTreasuryDuration(t){
   return match?Number(match[1]):Number.POSITIVE_INFINITY;
 }
 
+function wlTreasuryShortLabel(t){
+  const years=wlTreasuryDuration(String(t||''));
+  return Number.isFinite(years)?`${years}YR`:'UST';
+}
+
+function wlTreasuryRateBadge(t,q){
+  const label=q?.treasury_rate_label;
+  if(!label||!Number.isFinite(wlTreasuryDuration(String(t||''))))return '';
+  const date=q?.treasury_rate_date?` as of ${escapeHtml(q.treasury_rate_date)}`:'';
+  return `<span class="wl-rate" title="Treasury yield${date}">${escapeHtml(wlTreasuryShortLabel(t))} ${escapeHtml(label)}</span>`;
+}
+
 function wlCompareSymbols(a,b){
   if(wlActiveTab==='treasuries'){
     const da=wlTreasuryDuration(a),db=wlTreasuryDuration(b);
@@ -812,7 +824,7 @@ function renderWL(list){
     return `<div class="wl-swipe-wrap" data-ticker="${t}">
       <div class="wl-del-bg" onclick="event.stopPropagation();rmWL('${t}')">DELETE</div>
       <div class="wl-row${t===cur?' active':''}" onclick="pickTicker('${t}')">
-        <div class="wl-tk"><span>${t}</span></div>
+        <div class="wl-tk"><span>${t}</span>${wlTreasuryRateBadge(t,q)}</div>
         <div class="wl-v last">${formatLastDisplay(t,q.last)}</div>
         <div class="wl-v ${q.chg!=null?cls:''}">${formatChangeDisplay(q.chg)}</div>
         <div class="wl-v ${q.chg_pct!=null?cls:''}">${q.chg_pct!=null?(up?'+':'')+q.chg_pct+'%':'--'}</div>

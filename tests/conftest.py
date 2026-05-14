@@ -21,13 +21,22 @@ def app(tmp_path):
     os.environ["TRIEDINGVIEW_USER_DATA_DIR"] = str(tmp_path)
     # Patch the watchlist file path
     import routes.watchlist as watchlist_module
+    import lib.positions as positions_module
     import lib.data_fetching as data_fetching_module
     import lib.cache as cache_module
     original_wl = watchlist_module.WATCHLIST_FILE
     original_trends_cache_dir = watchlist_module._TRENDS_CACHE_DIR
+    original_positions_file = positions_module.POSITIONS_FILE
+    original_positions_cache_file = positions_module.POSITIONS_CACHE_FILE
+    original_accounts_file = positions_module.ACCOUNTS_FILE
+    original_positions_export_file = positions_module.POSITIONS_EXPORT_FILE
     original_cache_dir = data_fetching_module._DATA_CACHE_DIR
     watchlist_module.WATCHLIST_FILE = str(wl_file)
     watchlist_module._TRENDS_CACHE_DIR = str(tmp_path / "watchlist_trends")
+    positions_module.POSITIONS_FILE = str(tmp_path / "positions.json")
+    positions_module.POSITIONS_CACHE_FILE = str(tmp_path / "positions_cache.json")
+    positions_module.ACCOUNTS_FILE = str(tmp_path / "accounts.json")
+    positions_module.POSITIONS_EXPORT_FILE = str(tmp_path / "posn.html")
     data_fetching_module._DATA_CACHE_DIR = str(tmp_path / "data_cache")
     os.makedirs(data_fetching_module._DATA_CACHE_DIR, exist_ok=True)
     cache_module._cache.clear()
@@ -42,6 +51,10 @@ def app(tmp_path):
         os.environ["TRIEDINGVIEW_USER_DATA_DIR"] = original_user_data_dir
     watchlist_module.WATCHLIST_FILE = original_wl
     watchlist_module._TRENDS_CACHE_DIR = original_trends_cache_dir
+    positions_module.POSITIONS_FILE = original_positions_file
+    positions_module.POSITIONS_CACHE_FILE = original_positions_cache_file
+    positions_module.ACCOUNTS_FILE = original_accounts_file
+    positions_module.POSITIONS_EXPORT_FILE = original_positions_export_file
     data_fetching_module._DATA_CACHE_DIR = original_cache_dir
 
 

@@ -22,6 +22,271 @@ def classify_level_type(level_price, current_price, zone_width, sup_bounces, res
     return "support" if level_price < current_price else "resistance"
 
 
+def _level_interactions(level_price, zone_width, body_highs, body_lows, opens, closes):
+    sup_bounces = []
+    res_bounces = []
+    breaks = 0
+    n = len(body_highs)
+
+    for i in range(1, n - 1):
+        in_zone_low = abs(body_lows[i] - level_price) < zone_width
+        in_zone_high = abs(body_highs[i] - level_price) < zone_width
+
+        if not (in_zone_low or in_zone_high):
+            continue
+
+        if in_zone_low and in_zone_high:
+            # Entire body inside zone; classify by candle direction.
+            if closes[i] >= opens[i]:
+                next_reversed = closes[i + 1] >= closes[i] or body_lows[i + 1] > body_lows[i]
+                if next_reversed:
+                    sup_bounces.append(i)
+                else:
+                    breaks += 1
+            else:
+                next_reversed = closes[i + 1] <= closes[i] or body_highs[i + 1] < body_highs[i]
+                if next_reversed:
+                    res_bounces.append(i)
+                else:
+                    breaks += 1
+        elif in_zone_low and closes[i] >= level_price - zone_width:
+            next_reversed = closes[i + 1] >= closes[i] or body_lows[i + 1] > body_lows[i]
+            if next_reversed:
+                sup_bounces.append(i)
+            else:
+                breaks += 1
+        elif in_zone_high and closes[i] <= level_price + zone_width:
+            next_reversed = closes[i + 1] <= closes[i] or body_highs[i + 1] < body_highs[i]
+            if next_reversed:
+                res_bounces.append(i)
+            else:
+                breaks += 1
+
+    return sup_bounces, res_bounces, breaks
+
+
+def _level_payload(
+    level_price,
+    current_price,
+    zone_width,
+    body_highs,
+    body_lows,
+    opens,
+    closes,
+    volumes,
+    avg_vol,
+    timestamps,
+    pivot_details,
+    *,
+    min_bounces=2,
+    score_boost=1.0,
+):
+    sup_bounces, res_bounces, breaks = _level_interactions(
+        level_price, zone_width, body_highs, body_lows, opens, closes
+    )
+    all_bounces = sorted(sup_bounces + res_bounces)
+    n_bounces = len(all_bounces)
+    if n_bounces < min_bounces:
+        return None
+
+    level_type = classify_level_type(
+        level_price, current_price, zone_width, sup_bounces, res_bounces
+    )
+
+    total_tests = n_bounces + breaks
+    respect = n_bounces / total_tests if total_tests > 0 else 0
+    if respect < 0.3:
+        return None
+
+    distance_pct = abs(level_price - current_price) / current_price
+    if distance_pct > 0.50:
+        return None
+
+    n = len(body_highs)
+    avg_recency = sum(b / n for b in all_bounces) / n_bounces
+    vol_weight = sum(volumes[b] for b in all_bounces) / (n_bounces * avg_vol)
+    vol_weight = min(vol_weight, 3.0)
+    score = n_bounces * (0.3 + avg_recency) * vol_weight * respect * score_boost
+
+    pivot_bar_indices = sorted(
+        [idx for p, idx in pivot_details if abs(p - level_price) < zone_width]
+    )
+    pivot_times = [timestamps[i] for i in pivot_bar_indices]
+    bounce_times = sorted(set(timestamps[b] for b in all_bounces))
+
+    return {
+        "price": round(float(level_price), 2),
+        "zone_low": round(float(level_price - zone_width), 2),
+        "zone_high": round(float(level_price + zone_width), 2),
+        "touches": n_bounces,
+        "type": level_type,
+        "touch_times": bounce_times,
+        "pivot_times": pivot_times,
+        "respect": round(respect, 2),
+        "_score": score,
+    }
+
+
+def _recent_swing_level_candidates(
+    current_price,
+    zone_width,
+    body_highs,
+    body_lows,
+    opens,
+    closes,
+    volumes,
+    avg_vol,
+    timestamps,
+    pivot_details,
+):
+    """Add weak but timely swing levels that global KDE can underweight."""
+    n = len(body_highs)
+    recent_start = max(0, n - min(n, max(90, min(252, n // 3))))
+    candidates = []
+
+    for level_price, idx in pivot_details:
+        if idx < recent_start:
+            continue
+        distance_pct = abs(level_price - current_price) / current_price
+        if distance_pct > 0.35:
+            continue
+
+        payload = _level_payload(
+            level_price,
+            current_price,
+            zone_width,
+            body_highs,
+            body_lows,
+            opens,
+            closes,
+            volumes,
+            avg_vol,
+            timestamps,
+            pivot_details,
+            min_bounces=1,
+            score_boost=2.5,
+        )
+        if payload is None:
+            continue
+
+        candidate_type = "support" if level_price < current_price else "resistance"
+        if candidate_type == "support" and payload["zone_high"] >= current_price:
+            continue
+        if candidate_type == "resistance" and payload["zone_low"] <= current_price:
+            continue
+        if payload["type"] != candidate_type:
+            payload["type"] = candidate_type
+
+        # A recent one-touch pivot is useful only if it is near enough to matter.
+        if payload["touches"] < 2 and distance_pct > 0.20:
+            continue
+
+        recency_boost = 1 + idx / n
+        proximity_boost = 1 + max(0, 0.25 - distance_pct) * 8
+        payload["_score"] *= recency_boost * proximity_boost
+        candidates.append(payload)
+
+    return candidates
+
+
+def _recent_body_cluster_candidates(
+    current_price,
+    zone_width,
+    body_highs,
+    body_lows,
+    opens,
+    closes,
+    volumes,
+    avg_vol,
+    timestamps,
+    pivot_details,
+):
+    n = len(body_highs)
+    recent_start = max(0, n - min(n, max(90, min(252, n // 3))))
+    values = np.concatenate((body_highs[recent_start:], body_lows[recent_start:]))
+    values = values[np.isfinite(values)]
+    values = values[np.abs(values - current_price) / current_price <= 0.35]
+    if len(values) < 4:
+        return []
+
+    clusters = []
+    for value in sorted(values):
+        if not clusters or value - clusters[-1][-1] > zone_width:
+            clusters.append([value])
+        else:
+            clusters[-1].append(value)
+
+    candidates = []
+    for cluster in clusters:
+        if len(cluster) < 4:
+            continue
+        span = cluster[-1] - cluster[0]
+        if span > zone_width * 3:
+            continue
+        level_price = float(np.median(cluster))
+        candidate_type = "support" if level_price < current_price else "resistance"
+
+        payload = _level_payload(
+            level_price,
+            current_price,
+            zone_width,
+            body_highs,
+            body_lows,
+            opens,
+            closes,
+            volumes,
+            avg_vol,
+            timestamps,
+            pivot_details,
+            min_bounces=2,
+            score_boost=1.8,
+        )
+        if payload is None:
+            continue
+        if candidate_type == "support" and payload["zone_high"] >= current_price:
+            continue
+        if candidate_type == "resistance" and payload["zone_low"] <= current_price:
+            continue
+        if payload["type"] != candidate_type:
+            payload["type"] = candidate_type
+
+        distance_pct = abs(level_price - current_price) / current_price
+        cluster_weight = min(len(cluster), 12) / 4
+        proximity_boost = 1 + max(0, 0.25 - distance_pct) * 6
+        payload["_score"] *= cluster_weight * proximity_boost
+        candidates.append(payload)
+
+    return candidates
+
+
+def _merge_nearby_levels(levels, zone_width):
+    merged = []
+    for level in sorted(levels, key=lambda lv: lv["_score"], reverse=True):
+        duplicate = next(
+            (
+                existing
+                for existing in merged
+                if existing["type"] == level["type"]
+                and abs(existing["price"] - level["price"]) < zone_width
+            ),
+            None,
+        )
+        if duplicate is None:
+            merged.append(level)
+            continue
+
+        duplicate["touches"] = max(duplicate["touches"], level["touches"])
+        duplicate["respect"] = max(duplicate["respect"], level["respect"])
+        duplicate["touch_times"] = sorted(
+            set(duplicate["touch_times"]) | set(level["touch_times"])
+        )
+        duplicate["pivot_times"] = sorted(
+            set(duplicate["pivot_times"]) | set(level["pivot_times"])
+        )
+        duplicate["_score"] = max(duplicate["_score"], level["_score"])
+    return merged
+
+
 def compute_support_resistance(df, max_levels=8):
     """Detect support/resistance levels using KDE on candle-body swing pivots."""
     body_highs, body_lows = body_extremes(df)
@@ -73,87 +338,52 @@ def compute_support_resistance(df, max_levels=8):
     avg_vol = float(np.mean(volumes)) if np.mean(volumes) > 0 else 1.0
 
     for level_price in sr_prices:
-        sup_bounces = []
-        res_bounces = []
-        breaks = 0
-
-        for i in range(1, n - 1):
-            in_zone_low = abs(body_lows[i] - level_price) < zone_width
-            in_zone_high = abs(body_highs[i] - level_price) < zone_width
-
-            if not (in_zone_low or in_zone_high):
-                continue
-
-            if in_zone_low and in_zone_high:
-                # Entire body inside zone — classify by candle direction
-                if closes[i] >= opens[i]:  # bullish = support test
-                    next_reversed = closes[i + 1] >= closes[i] or body_lows[i + 1] > body_lows[i]
-                    if next_reversed:
-                        sup_bounces.append(i)
-                    else:
-                        breaks += 1
-                else:  # bearish = resistance test
-                    next_reversed = closes[i + 1] <= closes[i] or body_highs[i + 1] < body_highs[i]
-                    if next_reversed:
-                        res_bounces.append(i)
-                    else:
-                        breaks += 1
-            elif in_zone_low and closes[i] >= level_price - zone_width:
-                next_reversed = closes[i + 1] >= closes[i] or body_lows[i + 1] > body_lows[i]
-                if next_reversed:
-                    sup_bounces.append(i)
-                else:
-                    breaks += 1
-            elif in_zone_high and closes[i] <= level_price + zone_width:
-                next_reversed = closes[i + 1] <= closes[i] or body_highs[i + 1] < body_highs[i]
-                if next_reversed:
-                    res_bounces.append(i)
-                else:
-                    breaks += 1
-
-        all_bounces = sorted(sup_bounces + res_bounces)
-        n_bounces = len(all_bounces)
-        if n_bounces < 2:
-            continue
-
-        level_type = classify_level_type(
-            level_price, current_price, zone_width, sup_bounces, res_bounces
+        payload = _level_payload(
+            level_price,
+            current_price,
+            zone_width,
+            body_highs,
+            body_lows,
+            opens,
+            closes,
+            volumes,
+            avg_vol,
+            timestamps,
+            pivot_details,
         )
+        if payload is not None:
+            levels.append(payload)
 
-        total_tests = n_bounces + breaks
-        respect = n_bounces / total_tests if total_tests > 0 else 0
-        if respect < 0.3:
-            continue
-
-        distance_pct = abs(level_price - current_price) / current_price
-        if distance_pct > 0.50:
-            continue
-
-        avg_recency = sum(b / n for b in all_bounces) / n_bounces
-        vol_weight = sum(volumes[b] for b in all_bounces) / (n_bounces * avg_vol)
-        vol_weight = min(vol_weight, 3.0)
-        score = n_bounces * (0.3 + avg_recency) * vol_weight * respect
-
-        pivot_bar_indices = sorted(
-            [idx for p, idx in pivot_details if abs(p - level_price) < zone_width]
+    levels.extend(
+        _recent_swing_level_candidates(
+            current_price,
+            zone_width,
+            body_highs,
+            body_lows,
+            opens,
+            closes,
+            volumes,
+            avg_vol,
+            timestamps,
+            pivot_details,
         )
-        pivot_times = [timestamps[i] for i in pivot_bar_indices]
-        bounce_times = sorted(set(timestamps[b] for b in all_bounces))
-
-        levels.append(
-            {
-                "price": round(float(level_price), 2),
-                "zone_low": round(float(level_price - zone_width), 2),
-                "zone_high": round(float(level_price + zone_width), 2),
-                "touches": n_bounces,
-                "type": level_type,
-                "touch_times": bounce_times,
-                "pivot_times": pivot_times,
-                "respect": round(respect, 2),
-                "_score": score,
-            }
+    )
+    levels.extend(
+        _recent_body_cluster_candidates(
+            current_price,
+            zone_width,
+            body_highs,
+            body_lows,
+            opens,
+            closes,
+            volumes,
+            avg_vol,
+            timestamps,
+            pivot_details,
         )
+    )
 
+    levels = _merge_nearby_levels(levels, zone_width)
     levels.sort(key=lambda l: -l["_score"])
     for lv in levels:
         del lv["_score"]

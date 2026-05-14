@@ -104,7 +104,8 @@ from lib.trend_sr_macro_strategy import (
 from lib.paths import get_user_data_path
 
 bp = Blueprint("chart", __name__)
-_CHART_PAYLOAD_CACHE_VERSION = 2
+_CHART_PAYLOAD_CACHE_VERSION = 3
+_SR_LEVEL_ALGORITHM_VERSION = "sr-v2"
 _CHART_INTERACTIVE_IDLE_SECONDS = 30
 _chart_activity_lock = threading.Lock()
 _last_interactive_chart_request_at = 0.0
@@ -1178,7 +1179,7 @@ def _get_sr_and_trade_setup(
     as a pair avoids that double scan and skips both calls on cache hit.
     """
     cache_key = (
-        f"sr_trade_setup:{ticker}:{_frame_signature(df)}:"
+        f"sr_trade_setup:{_SR_LEVEL_ALGORITHM_VERSION}:{ticker}:{_frame_signature(df)}:"
         f"{_frame_signature(df_w) if df_w is not None and not df_w.empty else 'none'}"
     )
     cached = _cache_get(cache_key)

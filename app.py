@@ -73,13 +73,15 @@ if __name__ == "__main__":
         if args.build_chart_cache_only:
             raise SystemExit(0)
     debug = True
+    prewarm_disabled = os.environ.get("TRIEDINGVIEW_DISABLE_PREWARMER") == "1"
     if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         with app.app_context():
             schedule_daily_watchlist_prefetch()
         # Start the chart payload prewarmer in the same reloader-guarded
         # block so Werkzeug's auto-restart doesn't spawn two of them.
-        from lib.chart_prewarmer import ChartPrewarmer
-        ChartPrewarmer(app).start()
+        if not prewarm_disabled:
+            from lib.chart_prewarmer import ChartPrewarmer
+            ChartPrewarmer(app).start()
     # threaded=True lets the background chart prewarmer (see lib/chart_prewarmer.py)
     # run concurrently with user requests instead of queuing behind them.
     app.run(debug=debug, port=args.port, threaded=True)
