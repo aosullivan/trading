@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, Mapping
+
 import numpy as np
 import pandas as pd
 
@@ -10,6 +12,8 @@ from lib.technical_indicators import (
     compute_corpus_trend_signal,
     compute_trend_ribbon,
 )
+
+from ._types import BacktestEngine, StrategyContext, StrategyDef, StrategyResult
 
 
 TREND_SR_MACRO_KEY = "trend_sr_macro_v1"
@@ -160,18 +164,8 @@ def _frame_strength_scores(
     if weekly_ma_frame is not None and not weekly_ma_frame.empty:
         ma_frame = pd.concat([ma_frame, weekly_ma_frame.reindex(df.index)], axis=1)
 
-    bullish_ma_distance = _nearest_aligned_ma_distance_atr(
-        close,
-        atr,
-        ma_frame,
-        bullish=True,
-    )
-    bearish_ma_distance = _nearest_aligned_ma_distance_atr(
-        close,
-        atr,
-        ma_frame,
-        bullish=False,
-    )
+    bullish_ma_distance = _nearest_aligned_ma_distance_atr(close, atr, ma_frame, bullish=True)
+    bearish_ma_distance = _nearest_aligned_ma_distance_atr(close, atr, ma_frame, bullish=False)
 
     upside_atr = (resistance - close).abs() / atr
     downside_atr = (close - support).abs() / atr
@@ -452,3 +446,52 @@ def trend_sr_macro_confirmation_config() -> dict:
         "label": TREND_SR_MACRO_LABEL,
         "semantics": "escalation_layered",
     }
+
+
+_CONFIRMATION = trend_sr_macro_confirmation_config()
+
+
+def _compute(ctx: StrategyContext) -> StrategyResult:
+    params = ctx.params
+    bundle = compute_trend_sr_macro_strategy(
+        ctx.df,
+        treasury_history=params.get("treasury_history"),
+        config=params.get("config", TREND_SR_MACRO_CONFIG),
+    )
+    return StrategyResult(
+        direction=bundle["daily_direction"],
+        metadata={
+            "weekly_direction": bundle["weekly_direction"],
+            "daily_bull_score": bundle["daily_bull_score"],
+            "daily_bear_score": bundle["daily_bear_score"],
+            "weekly_bull_score": bundle["weekly_bull_score"],
+            "macro_frame": bundle["macro_frame"],
+        },
+    )
+
+
+def _engine_kwargs(result: StrategyResult) -> Mapping[str, Any]:
+    return {
+        "weekly_direction": result.metadata["weekly_direction"],
+        "starter_fraction": _CONFIRMATION["starter_fraction"],
+        "confirmed_fraction": _CONFIRMATION["confirmed_fraction"],
+        "semantics": _CONFIRMATION["semantics"],
+    }
+
+
+def _meta_extras(result: StrategyResult) -> Mapping[str, Any]:
+    return trend_sr_macro_backtest_meta({"macro_frame": result.metadata.get("macro_frame")})
+
+
+STRATEGY = StrategyDef(
+    key=TREND_SR_MACRO_KEY,
+    label=TREND_SR_MACRO_LABEL,
+    compute=_compute,
+    backtest_engine=BacktestEngine.CONFIRMATION_LAYERED,
+    supports_confirmation=False,
+    is_experimental=True,
+    backtest_kwargs_from=_engine_kwargs,
+    include_buy_hold_in_payload=True,
+    include_managed_window_meta=False,
+    meta_extras_from=_meta_extras,
+)

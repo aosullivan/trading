@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from lib.trend_sr_macro_strategy import compute_trend_sr_macro_strategy
+from lib.strategies.trend_sr_macro_v1 import compute_trend_sr_macro_strategy
 
 
 def _synthetic_ohlcv() -> pd.DataFrame:

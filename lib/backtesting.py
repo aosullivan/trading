@@ -1948,3 +1948,34 @@ def backtest_ribbon_accumulation(
     )
     buy_hold_equity_curve = build_buy_hold_equity_curve(df, contributions=contributions)
     return trades, summary, equity_curve, buy_hold_equity_curve
+
+
+# ---------------------------------------------------------------------------
+# Backtest Engine dispatch
+#
+# Maps the BacktestEngine enum from lib/strategies/_types.py to the concrete
+# backtest function above. Callers should reach for run_backtest(engine, ...)
+# instead of importing the underlying function by name, so the engine ↔ function
+# binding lives in exactly one place.
+# ---------------------------------------------------------------------------
+
+from lib.strategies._types import BacktestEngine  # noqa: E402  (placed at bottom to avoid forward-import cycles)
+
+
+_ENGINE_DISPATCH = {
+    BacktestEngine.DIRECTION: backtest_direction,
+    BacktestEngine.DIRECTION_VECTORIZED: backtest_direction_vectorized,
+    BacktestEngine.SUPERTREND: backtest_supertrend,
+    BacktestEngine.CORPUS_TREND: backtest_corpus_trend,
+    BacktestEngine.CORPUS_TREND_LAYERED: backtest_corpus_trend_layered,
+    BacktestEngine.MANAGED: backtest_managed,
+    BacktestEngine.CONFIRMATION_LAYERED: backtest_confirmation_layering,
+    BacktestEngine.WEEKLY_CORE_DAILY_OVERLAY: backtest_weekly_core_daily_overlay,
+    BacktestEngine.RIBBON_REGIME: backtest_ribbon_regime,
+    BacktestEngine.RIBBON_ACCUMULATION: backtest_ribbon_accumulation,
+}
+
+
+def run_backtest(engine: BacktestEngine, *args, **kwargs):
+    return _ENGINE_DISPATCH[engine](*args, **kwargs)
+

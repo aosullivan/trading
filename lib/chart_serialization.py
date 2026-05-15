@@ -20,11 +20,8 @@ from lib.technical_indicators import (
     compute_supertrend_i,
     compute_trend_ribbon,
 )
-from lib.specialized_strategies import (
-    EMA_9_26_KEY,
-    SEMIS_PERSIST_KEY,
-    compute_semis_persist_strategy,
-)
+from lib.strategies.ema_9_26 import EMA_9_26_KEY
+from lib.strategies.semis_persist import SEMIS_PERSIST_KEY, compute_semis_persist_strategy
 
 
 _DEFAULT_CORE_OVERLAY_PROFILE = {

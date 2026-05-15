@@ -37,8 +37,8 @@ from lib.portfolio_strategies import (
     compute_monthly_breadth_guard_directions,
     compute_monthly_breadth_guard_ladder_directions,
 )
-from lib.technical_indicators import compute_corpus_trend_signal, compute_cci_hysteresis
-from lib.ribbon_signals import compute_confirmed_ribbon_direction
+from lib.strategies import StrategyContext, get_strategy, has_strategy
+from lib.strategies.ribbon import compute_confirmed_ribbon_direction
 from lib.settings import DAILY_WARMUP_DAYS
 from routes.watchlist import load_watchlist
 
@@ -217,15 +217,15 @@ def _fetch_ticker_data(ticker: str, start: str, end: str | None):
 
 
 def _compute_signal_for_strategy(strategy: str, ticker: str, df):
+    # Ribbon needs the weekly-confirmed direction for portfolio entry decisions;
+    # the registry strategy returns the raw daily and lets its engine build the
+    # confirmed view at backtest time. Portfolio doesn't go through the engine,
+    # so call the confirmed-direction helper directly.
     if strategy == "ribbon":
         return compute_confirmed_ribbon_direction(ticker, df)
-    if strategy == "corpus_trend":
-        _entry_upper, _exit_lower, _atr, _stop_line, direction = compute_corpus_trend_signal(df)
-        return direction
-    if strategy == "cci_hysteresis":
-        _cci, direction = compute_cci_hysteresis(df)
-        return direction
-    raise ValueError(f"Unsupported portfolio strategy '{strategy}'")
+    if not has_strategy(strategy):
+        raise ValueError(f"Unsupported portfolio strategy '{strategy}'")
+    return get_strategy(strategy).compute(StrategyContext(df=df, ticker=ticker)).direction
 
 
 def _compute_signal(strategy: str, ticker: str, df):

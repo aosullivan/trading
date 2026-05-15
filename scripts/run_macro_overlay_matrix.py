@@ -28,7 +28,7 @@ from lib.portfolio_research import (  # noqa: E402
     V18_BEST_PAIR,
     macro_overlay_matrix_catalog,
 )
-from lib.ribbon_signals import compute_confirmed_ribbon_direction  # noqa: E402
+from lib.strategies.ribbon import compute_confirmed_ribbon_direction  # noqa: E402
 from lib.settings import DAILY_WARMUP_DAYS  # noqa: E402
 from lib.technical_indicators import compute_cci_hysteresis, compute_corpus_trend_signal  # noqa: E402
 

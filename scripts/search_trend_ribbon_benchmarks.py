@@ -18,7 +18,7 @@ from lib.paths import get_user_data_path
 from lib.settings import DAILY_WARMUP_DAYS
 from lib.technical_indicators import compute_trend_ribbon
 from lib.trend_optimizer import RIBBON_GRID
-from lib.trend_ribbon_profile import (
+from lib.strategies.ribbon import (
     trend_ribbon_backtest_kwargs,
     trend_ribbon_signal_kwargs,
 )

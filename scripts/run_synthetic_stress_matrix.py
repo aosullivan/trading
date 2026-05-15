@@ -32,7 +32,7 @@ from lib.portfolio_research import (  # noqa: E402
     V19_BEST_NEAR_MISS,
     synthetic_stress_matrix_catalog,
 )
-from lib.ribbon_signals import compute_confirmed_ribbon_direction  # noqa: E402
+from lib.strategies.ribbon import compute_confirmed_ribbon_direction  # noqa: E402
 from lib.settings import DAILY_WARMUP_DAYS  # noqa: E402
 from lib.synthetic_stress import (  # noqa: E402
     DEFAULT_SYNTHETIC_STRESS_SCENARIOS,

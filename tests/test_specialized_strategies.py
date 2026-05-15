@@ -1,11 +1,10 @@
 import pandas as pd
 
-from lib.specialized_strategies import (
-    EMA_9_26_KEY,
+from lib.strategies import StrategyResult, get_strategy
+from lib.strategies.ema_9_26 import EMA_9_26_KEY, compute_ema_9_26_strategy
+from lib.strategies.semis_persist import (
     SEMIS_PERSIST_KEY,
-    compute_ema_9_26_strategy,
     compute_semis_persist_strategy,
-    specialized_strategy_backtest_meta,
 )
 
 
@@ -48,8 +47,9 @@ def test_compute_semis_persist_strategy_holds_breakouts_until_confirmed_failure(
 
 
 def test_specialized_strategy_backtest_meta_exposes_expected_hints():
-    ema_meta = specialized_strategy_backtest_meta(EMA_9_26_KEY)
-    semis_meta = specialized_strategy_backtest_meta(SEMIS_PERSIST_KEY)
+    empty = StrategyResult(direction=pd.Series(dtype=int))
+    ema_meta = dict(get_strategy(EMA_9_26_KEY).meta_extras_from(empty))
+    semis_meta = dict(get_strategy(SEMIS_PERSIST_KEY).meta_extras_from(empty))
 
     assert "weekly confirmation" in ema_meta["architecture_hint"].lower()
     assert semis_meta["confirmation_supported"] is False

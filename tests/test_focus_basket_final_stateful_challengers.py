@@ -9,13 +9,18 @@ import pandas as pd
 import pytest
 
 from lib.backtesting import backtest_direction, build_weekly_confirmed_ribbon_direction
-from lib.ribbon_signals import _align_weekly_to_daily, _carry_neutral, _resample_to_weekly
+from lib.strategies.ribbon import (
+    _align_weekly_to_daily,
+    _carry_neutral,
+    _resample_to_weekly,
+    trend_ribbon_regime_kwargs,
+    trend_ribbon_signal_kwargs,
+)
 from lib.technical_indicators import (
     _compute_wilder_atr,
     compute_cci_hysteresis,
     compute_trend_ribbon,
 )
-from lib.trend_ribbon_profile import trend_ribbon_regime_kwargs, trend_ribbon_signal_kwargs
 from tests.test_focus_basket_benchmark_backtests import (
     _evaluate_approved_policy,
     _score_from_metrics,

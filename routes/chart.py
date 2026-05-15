@@ -81,25 +81,26 @@ from lib.chart_serialization import (
     last_trend_flip,
     series_to_json,
 )
-from lib.trend_ribbon_profile import (
+from lib.strategies.ribbon import (
     trend_ribbon_profile_signature,
     trend_ribbon_regime_kwargs,
     trend_ribbon_signal_kwargs,
 )
 from lib.support_resistance import compute_support_resistance
 from lib.trade_setup import compute_trade_setup
-from lib.specialized_strategies import (
-    EMA_9_26_KEY,
-    SEMIS_PERSIST_KEY,
-    compute_ema_9_26_strategy,
-    compute_semis_persist_strategy,
-    specialized_strategy_backtest_meta,
-)
-from lib.trend_sr_macro_strategy import (
+from lib.strategies.ema_9_26 import EMA_9_26_KEY, compute_ema_9_26_strategy
+from lib.strategies.semis_persist import SEMIS_PERSIST_KEY, compute_semis_persist_strategy
+from lib.strategies.trend_sr_macro_v1 import (
     TREND_SR_MACRO_KEY,
     compute_trend_sr_macro_strategy,
-    trend_sr_macro_backtest_meta,
     trend_sr_macro_confirmation_config,
+)
+from lib.strategies import (
+    STRATEGIES,
+    StrategyDef,
+    StrategyResult,
+    get_strategy,
+    has_strategy,
 )
 from lib.paths import get_user_data_path
 
@@ -148,45 +149,6 @@ CONFIRMATION_PRESETS = {
         "hint": "keep the base 50% only while the daily signal stays bullish, add the second 50% only when weekly confirms, and remove the add-on first when confirmation breaks.",
     },
 }
-
-DEFAULT_CORE_OVERLAY_PROFILE = {
-    "core": "cb150",
-    "overlay": "donchian",
-    "core_fraction": 0.70,
-    "overlay_fraction": 0.30,
-}
-
-CORE_OVERLAY_STRATEGY_PROFILES = {
-    "BTC-USD": {
-        "core": "donchian",
-        "overlay": "donchian",
-        "core_fraction": 0.70,
-        "overlay_fraction": 0.30,
-    },
-    "ETH-USD": {
-        "core": "donchian",
-        "overlay": "donchian",
-        "core_fraction": 0.70,
-        "overlay_fraction": 0.30,
-    },
-    "COIN": {
-        "core": "macd",
-        "overlay": "keltner",
-        "core_fraction": 0.70,
-        "overlay_fraction": 0.30,
-    },
-}
-WEEKLY_CONFIRMATION_STRATEGIES = frozenset(
-    {
-        "ribbon",
-        "corpus_trend",
-        "supertrend_i",
-        "bb_breakout",
-        "ema_crossover",
-        EMA_9_26_KEY,
-        "cci_trend",
-    }
-)
 
 
 def _elapsed_ms(started_at: float) -> int:
@@ -526,7 +488,7 @@ def _confirmation_supported_for_strategy(
         return False
     allowed = confirmation_config.get("supported_strategies")
     if not allowed:
-        return strategy_key in WEEKLY_CONFIRMATION_STRATEGIES
+        return has_strategy(strategy_key) and get_strategy(strategy_key).supports_confirmation
     return strategy_key in allowed
 
 
@@ -663,9 +625,8 @@ def _supertrend_segments_for_view(
 
 
 def _core_overlay_profile(ticker: str) -> dict[str, float | str]:
-    profile = dict(DEFAULT_CORE_OVERLAY_PROFILE)
-    profile.update(CORE_OVERLAY_STRATEGY_PROFILES.get(ticker, {}))
-    return profile
+    from lib.strategies.weekly_core_overlay_v1 import profile_for
+    return profile_for(ticker)
 
 
 def _run_direction_backtest(
@@ -828,20 +789,6 @@ def _run_weekly_core_overlay_backtest(
 def _carry_neutral_direction(direction: pd.Series) -> pd.Series:
     """Carry the prior non-zero state through neutral bridge bars."""
     return direction.replace(0, pd.NA).ffill().fillna(0).astype(int)
-
-
-def _weekly_core_overlay_hint(
-    core_key: str,
-    overlay_key: str,
-    core_fraction: float,
-    overlay_fraction: float,
-) -> str:
-    core_pct = int(round(float(core_fraction) * 100))
-    overlay_pct = int(round(float(overlay_fraction) * 100))
-    return (
-        f"keep a {core_pct}% weekly {core_key} core on while the weekly regime stays bullish, "
-        f"then add or remove the final {overlay_pct}% using daily {overlay_key} timing."
-    )
 
 
 def _align_weekly_direction_to_daily(
@@ -1861,137 +1808,111 @@ def chart_data():
                               strategy_confirmation_config("ribbon")),
     }
 
+    _direction_for_strategy = {
+        "ribbon": ribbon_backtest_direction,
+        "corpus_trend": corpus_direction,
+        "corpus_trend_layered": corpus_direction,
+        "weekly_core_overlay_v1": weekly_core_overlay_overlay_direction,
+        "supertrend_i": supertrend_i_direction,
+        "bb_breakout": bb_direction,
+        "ema_crossover": ema_direction,
+        EMA_9_26_KEY: ema_9_26_direction,
+        "cci_trend": cci_direction,
+        "cci_hysteresis": cci_hyst_direction,
+        SEMIS_PERSIST_KEY: semis_persist_direction,
+        TREND_SR_MACRO_KEY: trend_sr_macro_direction,
+        "polymarket": poly_direction,
+    }
+
+    def _result_for_meta(strategy: StrategyDef, direction) -> StrategyResult:
+        metadata: dict = {}
+        if strategy.key == TREND_SR_MACRO_KEY and trend_sr_macro_bundle is not None:
+            metadata = {"macro_frame": trend_sr_macro_bundle.get("macro_frame")}
+        elif strategy.key == "weekly_core_overlay_v1":
+            metadata = {
+                "core_key": weekly_core_overlay_core_key,
+                "overlay_key": weekly_core_overlay_overlay_key,
+                "core_fraction": weekly_core_overlay_core_fraction,
+                "overlay_fraction": weekly_core_overlay_overlay_fraction,
+            }
+        return StrategyResult(direction=direction, metadata=metadata)
+
+    def _build_meta_from_registry(strategy: StrategyDef, direction) -> dict:
+        window_meta_config = None if confirmation_config else active_mm_config
+        parts: list[dict] = []
+        if strategy.include_managed_window_meta:
+            parts.append(_managed_window_metadata(
+                direction, df.index, df_view.index, window_meta_config,
+            ))
+        if strategy.supports_confirmation:
+            parts.append(strategy_confirmation_meta(strategy.key))
+        elif not strategy.meta_extras_from:
+            parts.append(_confirmation_meta(confirmation_config, supported=False))
+        if strategy.architecture_label:
+            parts.append({"architecture_label": strategy.architecture_label})
+        if strategy.architecture_hint:
+            parts.append({"architecture_hint": strategy.architecture_hint})
+        if strategy.meta_extras_from is not None:
+            parts.append(dict(strategy.meta_extras_from(_result_for_meta(strategy, direction))))
+        return _merge_backtest_meta(*parts)
+
+    def _build_all_strategy_payloads() -> dict:
+        from lib.strategies import STRATEGIES as _ALL_STRATEGIES
+        payloads = {}
+        for s_key, strategy in _ALL_STRATEGIES.items():
+            task_key = _STRATEGY_TASK_KEYS[s_key]
+            trades, summary, equity = bt_results[task_key]
+            direction = _direction_for_strategy.get(s_key)
+            per_strategy_buy_hold = None
+            if strategy.include_buy_hold_in_payload:
+                if s_key == "ribbon":
+                    per_strategy_buy_hold = ribbon_hold_equity_curve or buy_hold_equity_curve
+                else:
+                    per_strategy_buy_hold = buy_hold_equity_curve
+            payloads[s_key] = _strategy_payload(
+                trades, summary, equity,
+                buy_hold_equity_curve=per_strategy_buy_hold,
+                backtest_meta=_build_meta_from_registry(strategy, direction),
+            )
+        return payloads
+
     def _selected_strategy_response(strategy_key: str):
+        strategy = get_strategy(strategy_key)
         task_key = _STRATEGY_TASK_KEYS[strategy_key]
         selected_trades, selected_summary, selected_equity_curve = backtest_tasks[task_key]()
-        selected_direction = {
-            "ribbon": ribbon_backtest_direction,
-            "corpus_trend": corpus_direction,
-            "corpus_trend_layered": corpus_direction,
-            "weekly_core_overlay_v1": weekly_core_overlay_overlay_direction,
-            "supertrend_i": supertrend_i_direction,
-            "bb_breakout": bb_direction,
-            "ema_crossover": ema_direction,
-            EMA_9_26_KEY: ema_9_26_direction,
-            "cci_trend": cci_direction,
-            "cci_hysteresis": cci_hyst_direction,
-            SEMIS_PERSIST_KEY: semis_persist_direction,
-            TREND_SR_MACRO_KEY: trend_sr_macro_direction,
-            "polymarket": poly_direction,
-        }.get(strategy_key, ribbon_backtest_direction)
+        selected_direction = _direction_for_strategy.get(strategy_key, ribbon_backtest_direction)
         buy_hold = build_buy_hold_equity_curve(df_view)
-        selected_buy_hold = None
-        backtest_meta = {}
-        window_meta_config = None if confirmation_config else active_mm_config
 
-        if strategy_key == "ribbon":
-            if (
-                interval == "1d"
-                and weekly_bundle is not None
-                and not strategy_confirmation_config("ribbon")
-            ):
-                daily_ribbon_direction = _carry_neutral_direction(ribbon_dir)
-                weekly_ribbon_direction = _align_weekly_direction_to_daily(
-                    weekly_bundle["ribbon_dir"],
-                    df.index,
+        # Ribbon's weekly-confirmed re-backtest: on daily intervals with weekly data
+        # available and no user-selected confirmation preset, rebuild the direction
+        # via the regime logic and re-run the backtest.
+        if (
+            strategy_key == "ribbon"
+            and interval == "1d"
+            and weekly_bundle is not None
+            and not strategy_confirmation_config("ribbon")
+        ):
+            daily_ribbon_direction = _carry_neutral_direction(ribbon_dir)
+            weekly_ribbon_direction = _align_weekly_direction_to_daily(
+                weekly_bundle["ribbon_dir"], df.index,
+            )
+            ribbon_regime_kwargs = trend_ribbon_regime_kwargs(ticker)
+            selected_direction = build_weekly_confirmed_ribbon_direction(
+                daily_ribbon_direction,
+                weekly_ribbon_direction,
+                reentry_cooldown_bars=ribbon_regime_kwargs["reentry_cooldown_bars"],
+                reentry_cooldown_ratio=ribbon_regime_kwargs["reentry_cooldown_ratio"],
+                weekly_nonbull_confirm_bars=ribbon_regime_kwargs["weekly_nonbull_confirm_bars"],
+                asymmetric_exit=ribbon_regime_kwargs.get("asymmetric_exit", False),
+            )
+            selected_trades, selected_summary, selected_equity_curve = (
+                _run_ribbon_regime_backtest(
+                    df_view, selected_direction, df.index, df_view.index, active_mm_config,
                 )
-                ribbon_regime_kwargs = trend_ribbon_regime_kwargs(ticker)
-                selected_direction = build_weekly_confirmed_ribbon_direction(
-                    daily_ribbon_direction,
-                    weekly_ribbon_direction,
-                    reentry_cooldown_bars=ribbon_regime_kwargs["reentry_cooldown_bars"],
-                    reentry_cooldown_ratio=ribbon_regime_kwargs["reentry_cooldown_ratio"],
-                    weekly_nonbull_confirm_bars=ribbon_regime_kwargs[
-                        "weekly_nonbull_confirm_bars"
-                    ],
-                    asymmetric_exit=ribbon_regime_kwargs.get("asymmetric_exit", False),
-                )
-                selected_trades, selected_summary, selected_equity_curve = (
-                    _run_ribbon_regime_backtest(
-                        df_view,
-                        selected_direction,
-                        df.index,
-                        df_view.index,
-                        active_mm_config,
-                    )
-                )
-            selected_buy_hold = buy_hold
-            backtest_meta = _merge_backtest_meta(
-                _managed_window_metadata(selected_direction, df.index, df_view.index, window_meta_config),
-                strategy_confirmation_meta("ribbon"),
             )
-        elif strategy_key == "corpus_trend":
-            selected_buy_hold = buy_hold
-            backtest_meta = _merge_backtest_meta(
-                _managed_window_metadata(corpus_direction, df.index, df_view.index, window_meta_config),
-                strategy_confirmation_meta("corpus_trend"),
-            )
-        elif strategy_key == "corpus_trend_layered":
-            selected_buy_hold = buy_hold
-            backtest_meta = _confirmation_meta(confirmation_config, supported=False)
-        elif strategy_key == "supertrend_i":
-            selected_buy_hold = buy_hold
-            backtest_meta = _merge_backtest_meta(
-                _managed_window_metadata(supertrend_i_direction, df.index, df_view.index, window_meta_config),
-                strategy_confirmation_meta("supertrend_i"),
-                {
-                    "architecture_label": "Supertrend-I",
-                    "architecture_hint": "ATR Supertrend ratchet that flips on an intrabar touch of the active band rather than waiting for the close to cross it.",
-                },
-            )
-        elif strategy_key == "weekly_core_overlay_v1":
-            selected_buy_hold = buy_hold
-            backtest_meta = {
-                "confirmation_supported": False,
-                "architecture_label": "Weekly Core + Daily Overlay",
-                "architecture_core_strategy": f"{weekly_core_overlay_core_key}_weekly",
-                "architecture_overlay_strategy": f"{weekly_core_overlay_overlay_key}_daily",
-                "architecture_core_fraction": weekly_core_overlay_core_fraction,
-                "architecture_overlay_fraction": weekly_core_overlay_overlay_fraction,
-                "architecture_hint": _weekly_core_overlay_hint(
-                    weekly_core_overlay_core_key,
-                    weekly_core_overlay_overlay_key,
-                    weekly_core_overlay_core_fraction,
-                    weekly_core_overlay_overlay_fraction,
-                ),
-            }
-        elif strategy_key == "bb_breakout":
-            backtest_meta = _merge_backtest_meta(
-                _managed_window_metadata(bb_direction, df.index, df_view.index, window_meta_config),
-                strategy_confirmation_meta("bb_breakout"),
-            )
-        elif strategy_key == "ema_crossover":
-            backtest_meta = _merge_backtest_meta(
-                _managed_window_metadata(ema_direction, df.index, df_view.index, window_meta_config),
-                strategy_confirmation_meta("ema_crossover"),
-            )
-        elif strategy_key == EMA_9_26_KEY:
-            backtest_meta = _merge_backtest_meta(
-                _managed_window_metadata(ema_9_26_direction, df.index, df_view.index, window_meta_config),
-                strategy_confirmation_meta(EMA_9_26_KEY),
-                specialized_strategy_backtest_meta(EMA_9_26_KEY),
-            )
-        elif strategy_key == "cci_trend":
-            backtest_meta = _merge_backtest_meta(
-                _managed_window_metadata(cci_direction, df.index, df_view.index, window_meta_config),
-                strategy_confirmation_meta("cci_trend"),
-            )
-        elif strategy_key == "cci_hysteresis":
-            selected_buy_hold = buy_hold
-            backtest_meta = _confirmation_meta(confirmation_config, supported=False)
-        elif strategy_key == SEMIS_PERSIST_KEY:
-            backtest_meta = _merge_backtest_meta(
-                _managed_window_metadata(semis_persist_direction, df.index, df_view.index, window_meta_config),
-                specialized_strategy_backtest_meta(SEMIS_PERSIST_KEY),
-            )
-        elif strategy_key == TREND_SR_MACRO_KEY:
-            selected_buy_hold = buy_hold
-            backtest_meta = trend_sr_macro_backtest_meta(trend_sr_macro_bundle or {})
-        elif strategy_key == "polymarket":
-            backtest_meta = _merge_backtest_meta(
-                _managed_window_metadata(poly_direction, df.index, df_view.index, window_meta_config),
-                _confirmation_meta(confirmation_config, supported=False),
-            )
+
+        selected_buy_hold = buy_hold if strategy.include_buy_hold_in_payload else None
+        backtest_meta = _build_meta_from_registry(strategy, selected_direction)
 
         payload = _strategy_payload(
             selected_trades,
@@ -2607,167 +2528,7 @@ def chart_data():
         "sma_50w": sma_50w,
         "sma_100w": sma_100w,
         "sma_200w": sma_200w,
-        "strategies": {
-            "ribbon": _strategy_payload(
-                ribbon_trades,
-                ribbon_summary,
-                ribbon_equity_curve,
-                buy_hold_equity_curve=ribbon_hold_equity_curve or buy_hold_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        ribbon_backtest_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("ribbon"),
-                ),
-            ),
-            "corpus_trend": _strategy_payload(
-                corpus_trend_trades,
-                corpus_trend_summary,
-                corpus_trend_equity_curve,
-                buy_hold_equity_curve=buy_hold_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        corpus_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("corpus_trend"),
-                ),
-            ),
-            "corpus_trend_layered": _strategy_payload(
-                corpus_trend_layered_trades,
-                corpus_trend_layered_summary,
-                corpus_trend_layered_equity_curve,
-                buy_hold_equity_curve=buy_hold_equity_curve,
-                backtest_meta=_confirmation_meta(
-                    confirmation_config,
-                    supported=False,
-                ),
-            ),
-            "supertrend_i": _strategy_payload(
-                supertrend_i_trades,
-                supertrend_i_summary,
-                supertrend_i_equity_curve,
-                buy_hold_equity_curve=buy_hold_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        supertrend_i_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("supertrend_i"),
-                    {
-                        "architecture_label": "Supertrend-I",
-                        "architecture_hint": "ATR Supertrend ratchet that flips on an intrabar touch of the active band rather than waiting for the close to cross it.",
-                    },
-                ),
-            ),
-            "weekly_core_overlay_v1": _strategy_payload(
-                weekly_core_overlay_trades,
-                weekly_core_overlay_summary,
-                weekly_core_overlay_equity_curve,
-                buy_hold_equity_curve=buy_hold_equity_curve,
-                backtest_meta={
-                    "confirmation_supported": False,
-                    "architecture_label": "Weekly Core + Daily Overlay",
-                    "architecture_core_strategy": f"{weekly_core_overlay_core_key}_weekly",
-                    "architecture_overlay_strategy": f"{weekly_core_overlay_overlay_key}_daily",
-                    "architecture_core_fraction": weekly_core_overlay_core_fraction,
-                    "architecture_overlay_fraction": weekly_core_overlay_overlay_fraction,
-                    "architecture_hint": _weekly_core_overlay_hint(
-                        weekly_core_overlay_core_key,
-                        weekly_core_overlay_overlay_key,
-                        weekly_core_overlay_core_fraction,
-                        weekly_core_overlay_overlay_fraction,
-                    ),
-                },
-            ),
-            "bb_breakout": _strategy_payload(
-                bb_trades,
-                bb_summary,
-                bb_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        bb_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("bb_breakout"),
-                ),
-            ),
-            "ema_crossover": _strategy_payload(
-                ema_trades,
-                ema_summary,
-                ema_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        ema_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("ema_crossover"),
-                ),
-            ),
-            EMA_9_26_KEY: _strategy_payload(
-                ema_9_26_trades,
-                ema_9_26_summary,
-                ema_9_26_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        ema_9_26_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta(EMA_9_26_KEY),
-                    specialized_strategy_backtest_meta(EMA_9_26_KEY),
-                ),
-            ),
-            "cci_trend": _strategy_payload(
-                cci_trades,
-                cci_summary,
-                cci_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        cci_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    strategy_confirmation_meta("cci_trend"),
-                ),
-            ),
-            "cci_hysteresis": _strategy_payload(
-                cci_hyst_trades,
-                cci_hyst_summary,
-                cci_hyst_equity_curve,
-                buy_hold_equity_curve=buy_hold_equity_curve,
-                backtest_meta=_confirmation_meta(
-                    confirmation_config,
-                    supported=False,
-                ),
-            ),
-            SEMIS_PERSIST_KEY: _strategy_payload(
-                semis_persist_trades,
-                semis_persist_summary,
-                semis_persist_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        semis_persist_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    specialized_strategy_backtest_meta(SEMIS_PERSIST_KEY),
-                ),
-            ),
-            TREND_SR_MACRO_KEY: _strategy_payload(
-                trend_sr_macro_trades,
-                trend_sr_macro_summary,
-                trend_sr_macro_equity_curve,
-                buy_hold_equity_curve=buy_hold_equity_curve,
-                backtest_meta=trend_sr_macro_backtest_meta(
-                    trend_sr_macro_bundle
-                ),
-            ),
-            "polymarket": _strategy_payload(
-                poly_trades,
-                poly_summary,
-                poly_equity_curve,
-                backtest_meta=_merge_backtest_meta(
-                    _managed_window_metadata(
-                        poly_direction, df.index, df_view.index, window_meta_config
-                    ),
-                    _confirmation_meta(
-                        confirmation_config,
-                        supported=False,
-                    ),
-                ),
-            ),
-        },
+        "strategies": _build_all_strategy_payloads(),
         "ema9": ema9_data,
         "ema21": ema21_data,
         "macd_line": macd_line_data,
