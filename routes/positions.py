@@ -1,7 +1,8 @@
+import pandas as pd
 from flask import Blueprint, current_app, jsonify, render_template, request
 
-from lib.cache import _cache_get, _cache_set
-from lib.data_fetching import _fetch_market_quote, normalize_ticker
+from lib.cache import _cache_get, _cache_set, _yf_rate_limited_download
+from lib.data_fetching import _fetch_market_quote, _quote_from_frame, normalize_ticker
 from lib.positions import (
     allocation_plan,
     load_imported_positions,
@@ -47,22 +48,61 @@ def regime():
 def position_quotes():
     rows = load_imported_positions()
     symbols = quoteable_symbols(rows)
+    if not symbols:
+        return jsonify({"quotes": []})
 
-    quotes = []
-    for symbol in symbols:
+    # Resolve from cache first. Anything still missing is bulk-fetched in a
+    # single yfinance call instead of N rate-limited per-symbol calls — the
+    # serial path took 60+ seconds for a typical 40-position portfolio.
+    quotes: list[dict | None] = [None] * len(symbols)
+    uncached: list[tuple[int, str]] = []  # (index_in_quotes, symbol)
+    for idx, symbol in enumerate(symbols):
         cached = _cache_get(f"quote:{symbol}")
         if isinstance(cached, dict):
-            quotes.append(cached)
-            continue
-        if current_app.config.get("TESTING"):
-            quotes.append(_empty_quote(symbol))
-            continue
+            quotes[idx] = cached
+        else:
+            uncached.append((idx, symbol))
+
+    if uncached and not current_app.config.get("TESTING"):
+        yf_pairs = [(idx, symbol, normalize_ticker(symbol)) for idx, symbol in uncached]
+        yf_tickers = list(dict.fromkeys(yf_ticker for _, _, yf_ticker in yf_pairs))
         try:
-            quote = _fetch_market_quote(symbol, normalize_ticker(symbol))
+            df = _yf_rate_limited_download(
+                yf_tickers,
+                period="5d",
+                interval="1d",
+                progress=False,
+                group_by="ticker",
+                threads=False,
+            )
         except Exception:
-            quote = _empty_quote(symbol)
-        if quote.get("last") is not None:
-            _cache_set(f"quote:{symbol}", quote)
-        quotes.append(quote)
+            df = None
+
+        for idx, symbol, yf_ticker in yf_pairs:
+            quote = None
+            if df is not None:
+                try:
+                    tdf = df if len(yf_tickers) == 1 else df[yf_ticker]
+                    if isinstance(tdf.columns, pd.MultiIndex):
+                        tdf.columns = tdf.columns.get_level_values(0)
+                    quote = _quote_from_frame(symbol, tdf)
+                except Exception:
+                    quote = None
+            if quote is None:
+                quote = _empty_quote(symbol)
+            if quote.get("last") is not None:
+                _cache_set(f"quote:{symbol}", quote)
+            else:
+                # Bulk fetch had no data for this symbol (money-market fund,
+                # CUSIP, etc.). Cache the empty placeholder briefly so the
+                # request doesn't fall back to a 1.5s-rate-limited per-symbol
+                # retry on every refresh.
+                _cache_set(f"quote:{symbol}", quote, ttl=60)
+            quotes[idx] = quote
+
+    # Fill any holes (e.g. TESTING mode with nothing cached).
+    for idx, symbol in enumerate(symbols):
+        if quotes[idx] is None:
+            quotes[idx] = _empty_quote(symbol)
 
     return jsonify({"quotes": quotes})
