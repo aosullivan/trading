@@ -5,8 +5,19 @@
       "runtime": "@vercel/python@4.3.1",
       "maxDuration": 60,
       "includeFiles": "lib/**"
+    },
+    "api/prewarm-cron.py": {
+      "runtime": "@vercel/python@4.3.1",
+      "maxDuration": 60,
+      "includeFiles": "{lib/**,watchlist.json}"
     }
   },
+  "crons": [
+    {
+      "path": "/api/prewarm-cron",
+      "schedule": "0 4 * * *"
+    }
+  ],
   "env": {
     "TRIEDINGVIEW_USER_DATA_DIR": "/tmp/triedingview"
   }
