@@ -77,7 +77,13 @@ if __name__ == "__main__":
         if args.build_chart_cache_only:
             raise SystemExit(0)
     debug = True
-    prewarm_disabled = os.environ.get("TRIEDINGVIEW_DISABLE_PREWARMER") == "1"
+    # The local prewarmer also stands down when a Vercel Blob base URL is
+    # configured — the Vercel cron + read-shim in lib/vercel_cache.py owns the
+    # precompute work in that mode, so running both wastes CPU.
+    prewarm_disabled = (
+        os.environ.get("TRIEDINGVIEW_DISABLE_PREWARMER") == "1"
+        or bool(os.environ.get("TRIEDINGVIEW_BLOB_BASE_URL"))
+    )
     if not debug or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
         with app.app_context():
             schedule_daily_watchlist_prefetch()
