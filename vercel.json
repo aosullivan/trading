@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/prewarm-batch.py": {
+      "runtime": "@vercel/python@4.3.1",
+      "maxDuration": 60,
+      "includeFiles": "lib/**"
+    }
+  },
+  "env": {
+    "TRIEDINGVIEW_USER_DATA_DIR": "/tmp/triedingview"
+  }
+}

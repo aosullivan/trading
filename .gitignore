@@ -22,3 +22,5 @@ dist/
 *.spec
 audio/
 .planning/
+.vercel
+.env*.local

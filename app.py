@@ -6,7 +6,11 @@ except ImportError:  # Optional dependency; run without gzip if missing.
     Compress = None
 
 from lib.paths import get_resource_path
-from routes import ALL_BLUEPRINTS
+from lib.strategies import register_all
+
+register_all()
+
+from routes import ALL_BLUEPRINTS  # noqa: E402 — must follow register_all()
 
 
 def create_app() -> Flask:
