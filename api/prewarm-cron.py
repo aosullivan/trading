@@ -30,11 +30,16 @@ sys.path.insert(
 
 import pandas as pd  # noqa: E402
 import vercel_blob  # noqa: E402
-import yfinance as yf  # noqa: E402
 
 from lib.backtesting import backtest_direction_vectorized  # noqa: E402
+from lib.data_fetching import (  # noqa: E402
+    _frame_cache_signature,
+    cached_download,
+    compute_warmup_start,
+)
 from lib.strategies import get_strategy, register_all  # noqa: E402
 from lib.strategies._types import StrategyContext  # noqa: E402
+from lib.vercel_cache import blob_token_from_signature  # noqa: E402
 
 register_all()
 
@@ -44,7 +49,9 @@ PREWARM_STRATEGIES: tuple[str, ...] = (
     "ema_crossover",
 )
 PREWARM_INTERVALS: tuple[str, ...] = ("1d", "1wk")
-PREWARM_START: str = "2015-01-01"
+# User-visible chart range starts at this date; the actual fetch reaches back
+# further so indicators have warmup data (see compute_warmup_start).
+PREWARM_VIEW_START: str = "2015-01-01"
 MAX_WORKERS: int = 4
 # Hobby plan caps function duration at 60s. With 4 workers, ~30 tickers fits.
 # Pro + Fluid Compute can take 800s — bump or remove when upgrading.
@@ -61,27 +68,32 @@ def _load_watchlist() -> list[str]:
 
 
 def _fetch_ohlcv(ticker: str, interval: str) -> pd.DataFrame:
-    df = yf.download(
+    # Use cached_download + compute_warmup_start so the resulting frame's
+    # signature matches what routes/chart.py computes locally. Identical
+    # fetch range and post-processing on both sides is what makes the Blob
+    # pathname lookup deterministic.
+    df = cached_download(
         ticker,
-        start=PREWARM_START,
+        start=compute_warmup_start(PREWARM_VIEW_START, interval),
         interval=interval,
         progress=False,
         threads=False,
-        auto_adjust=False,
     )
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
+    if df.index.duplicated().any():
+        df = df[~df.index.duplicated(keep="last")]
     return df
 
 
 def _data_signature(df: pd.DataFrame) -> str:
-    last_idx = pd.Timestamp(df.index[-1])
-    last_close = float(df["Close"].iloc[-1])
-    return f"{len(df)}.{int(last_idx.timestamp())}.{last_close:.4f}"
+    # Matches lib/data_fetching._frame_cache_signature exactly, so the Blob path
+    # token agrees with what _source_data_token reads from the local meta file.
+    return f"sig:{_frame_cache_signature(df)}"
 
 
 def _blob_path(ticker: str, interval: str, strategy: str, token: str) -> str:
-    return f"strategy/{ticker}_{interval}_{strategy}_{token}.json"
+    return f"strategy/{ticker}_{interval}_{strategy}_{blob_token_from_signature(token)}.json"
 
 
 def _write_payload(ticker, interval, strategy_key, df, token):

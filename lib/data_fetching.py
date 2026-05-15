@@ -4,6 +4,7 @@ import os
 import threading
 import time as _time
 import urllib.request
+from datetime import timedelta
 
 import pandas as pd
 
@@ -17,6 +18,20 @@ from lib.cache import (
     _yf_cooldown_active,
     _yf_rate_limited_download,
 )
+from lib.settings import DAILY_WARMUP_DAYS, WEEKLY_WARMUP_DAYS
+
+
+def compute_warmup_start(start: str, interval: str) -> str:
+    """Return the warmup-adjusted fetch-start date.
+
+    Indicator computation needs more history than the user's chosen view
+    range. The chart route and the Vercel prewarm cron both call this so
+    they fetch identical date ranges and produce matching frame signatures.
+    """
+    lookback = WEEKLY_WARMUP_DAYS if interval in {"1wk", "1mo"} else DAILY_WARMUP_DAYS
+    return (
+        pd.Timestamp(start).normalize() - timedelta(days=lookback)
+    ).strftime("%Y-%m-%d")
 
 # ---------------------------------------------------------------------------
 # Persistent local file cache for historical OHLCV data

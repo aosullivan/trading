@@ -22,6 +22,7 @@ from lib.data_fetching import (
     _disk_cache_path,
     _meta_path,
     cached_download,
+    compute_warmup_start,
     normalize_ticker,
     is_treasury_price_ticker,
     _TREASURY_PRICE_PROXIES,
@@ -88,6 +89,7 @@ from lib.strategies.ribbon import (
 )
 from lib.support_resistance import compute_support_resistance
 from lib.trade_setup import compute_trade_setup
+from lib.vercel_cache import try_read_strategy_backtest
 from lib.strategies.ema_9_26 import EMA_9_26_KEY, compute_ema_9_26_strategy
 from lib.strategies.semis_persist import SEMIS_PERSIST_KEY, compute_semis_persist_strategy
 from lib.strategies.trend_sr_macro_v1 import (
@@ -379,8 +381,7 @@ def _parse_end_date(end):
 
 
 def _warmup_start(start, interval):
-    lookback_days = WEEKLY_WARMUP_DAYS if interval in {"1wk", "1mo"} else DAILY_WARMUP_DAYS
-    return (_parse_start_date(start) - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
+    return compute_warmup_start(start, interval)
 
 
 def _source_interval(interval: str) -> str:
@@ -2156,6 +2157,24 @@ def chart_data():
             "trend_flips": {"daily": local_daily_flips, "weekly": local_weekly_flips},
             "trade_setup": local_trade_setup,
         }
+
+    # Vercel Blob shortcut: when the prewarm cron has already computed the
+    # backtest for this (ticker, interval, strategy, source_token) tuple,
+    # stub the matching entry in `backtest_tasks` so `_selected_strategy_response`
+    # reuses the cached result instead of running the backtest locally. No-ops
+    # when `TRIEDINGVIEW_BLOB_BASE_URL` is unset.
+    if strategy_only:
+        _blob_task_key = _STRATEGY_TASK_KEYS.get(requested_strategy)
+        if _blob_task_key and _blob_task_key in backtest_tasks:
+            _blob_bt = try_read_strategy_backtest(
+                ticker, interval, requested_strategy, source_token
+            )
+            if _blob_bt is not None:
+                backtest_tasks[_blob_task_key] = (lambda r=_blob_bt: r)
+                current_app.logger.info(
+                    "chart_data blob_cache_hit ticker=%s interval=%s strategy=%s",
+                    ticker, interval, requested_strategy,
+                )
 
     if strategy_only and not include_shared:
         payload = _selected_strategy_response(requested_strategy)
