@@ -168,11 +168,23 @@ def _classify(score: int) -> dict[str, str]:
     }
 
 
-def evaluate_regime(use_cache: bool = True) -> dict[str, Any]:
+def evaluate_regime(use_cache: bool = True, peek_only: bool = False) -> dict[str, Any]:
     if use_cache:
         cached = _cache_get(REGIME_CACHE_KEY)
         if cached is not None:
             return cached
+    if peek_only:
+        # The /positions HTML render uses this so the page doesn't block on
+        # five rate-limited yfinance calls. JS auto-fetches /api/regime to
+        # populate the panel as soon as the page loads.
+        return {
+            "regime": "Loading market regime…",
+            "tag": "loading",
+            "score": 0,
+            "signals": [],
+            "guidance": "Fetching SPY / VIX / HYG / LQD / AHLT signals…",
+            "error": None,
+        }
 
     try:
         spy = _fetch_closes("SPY", "1y")

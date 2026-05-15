@@ -629,6 +629,28 @@ function renderRegime(data) {
   if (regimeUpdatedEl) regimeUpdatedEl.textContent = `Updated ${fmtClockNow()}`;
 }
 
+async function fetchRegime({ forceRefresh = false } = {}) {
+  const url = forceRefresh ? '/api/regime?refresh=1' : '/api/regime';
+  if (regimeUpdatedEl) regimeUpdatedEl.textContent = 'Fetching live signals…';
+  try {
+    const resp = await fetch(url, { cache: 'no-store' });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    renderRegime(data);
+    flashRefreshed();
+    if (regimeUpdatedEl) regimeUpdatedEl.textContent = `Updated ${fmtClockNow()}`;
+    return true;
+  } catch (err) {
+    if (regimeUpdatedEl) regimeUpdatedEl.textContent = `Error: ${err.message || 'unknown'}`;
+    return false;
+  }
+}
+
+if (regimeTagEl && regimeTagEl.classList.contains('pos-regime-tag-loading')) {
+  fetchRegime();
+}
+
 regimeRefreshBtn?.addEventListener('click', async () => {
   const originalLabel = regimeRefreshBtn.textContent;
   regimeRefreshBtn.disabled = true;

@@ -26,7 +26,9 @@ def positions():
     if current_app.config.get("TESTING"):
         regime = {"regime": "Test mode", "tag": "test", "score": 0, "signals": [], "guidance": "", "error": None}
     else:
-        regime = evaluate_regime()
+        # peek_only=True so the HTML load doesn't block on 5 rate-limited
+        # yfinance calls. JS auto-fetches /api/regime to populate.
+        regime = evaluate_regime(peek_only=True)
     return render_template(
         "positions.html",
         positions=rows,
