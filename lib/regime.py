@@ -7,11 +7,13 @@ Signals checked:
   4. HY credit-spread proxy (HYG/LQD ratio)
   5. AHLT trend slope (5d vs 50d MA) — the user's own trend hedge
 
-Composite score maps to regime:
-  >= +4   : Scenario 1 (Bull continuation)
-  -2..+3  : Transition (watch closely)
-  -6..-3  : Scenario 2 (Pullback)
-  <= -7   : Scenario 3 (Bubble pop / bear)
+Allocation strategy:
+  SPY drawdown <= -5% from 1y peak   : move toward Confident Bull
+  SPY drawdown <= -10% from 1y peak  : move toward Bubble Pop (S3)
+
+Composite score is still shown as supporting evidence, but the staged
+allocation trigger controls S2/S3 rotation so de-risking follows a simple
+price-based glide path.
 
 Results are cached for 15 minutes via lib.cache to avoid hammering Yahoo.
 """
@@ -23,6 +25,7 @@ from lib.cache import _cache_get, _cache_set, _yf_rate_limited_download
 
 REGIME_CACHE_KEY = "regime:current"
 REGIME_CACHE_TTL_SECONDS = 15 * 60
+DRAWDOWN_TRIGGER_EPSILON = 1e-9
 
 
 def _fetch_closes(symbol: str, period: str) -> list[float]:
@@ -73,20 +76,52 @@ def _signal_spy_200dma(spy: list[float]) -> dict | None:
 
 
 def _signal_spy_drawdown(spy: list[float]) -> dict | None:
+    drawdown = _spy_drawdown_pct(spy)
+    if drawdown is None:
+        return None
+    if _trigger_reached(drawdown, -25):
+        verdict, score = "Severe bear", -3
+    elif _trigger_reached(drawdown, -15):
+        verdict, score = "Bear market entry", -2
+    elif _trigger_reached(drawdown, -10):
+        verdict, score = "Bubble Pop trigger (-10%)", -2
+    elif _trigger_reached(drawdown, -5):
+        verdict, score = "Confident Bull trigger (-5%)", -1
+    elif _trigger_reached(drawdown, -3):
+        verdict, score = "Early pullback; stay Max Conviction", 0
+    else:
+        verdict, score = "Near all-time highs", 2
+    return {"name": "SPY drawdown from 1y peak", "value": f"{drawdown:+.2f}%", "score": score, "verdict": verdict}
+
+
+def _trigger_reached(drawdown: float, threshold: float) -> bool:
+    return drawdown <= threshold + DRAWDOWN_TRIGGER_EPSILON
+
+
+def _spy_drawdown_pct(spy: list[float]) -> float | None:
     if not spy:
         return None
-    drawdown = (spy[-1] / max(spy) - 1) * 100
-    if drawdown > -3:
-        verdict, score = "Near all-time highs", 2
-    elif drawdown > -10:
-        verdict, score = "Mild pullback", 0
-    elif drawdown > -15:
-        verdict, score = "Correction territory (S2 range)", -1
-    elif drawdown > -25:
-        verdict, score = "Bear market entry", -2
+    return (spy[-1] / max(spy) - 1) * 100
+
+
+def _allocation_trigger_signal(spy_drawdown: float | None) -> dict | None:
+    if spy_drawdown is None:
+        return None
+    if _trigger_reached(spy_drawdown, -10):
+        verdict = "Move to Bubble Pop (S3)"
+        score = -2
+    elif _trigger_reached(spy_drawdown, -5):
+        verdict = "Move to Confident Bull"
+        score = -1
     else:
-        verdict, score = "Severe bear", -3
-    return {"name": "SPY drawdown from 1y peak", "value": f"{drawdown:+.2f}%", "score": score, "verdict": verdict}
+        verdict = "Stay Max Conviction"
+        score = 1
+    return {
+        "name": "Allocation trigger",
+        "value": f"{spy_drawdown:+.2f}%",
+        "score": score,
+        "verdict": verdict,
+    }
 
 
 def _signal_vix(vix: list[float]) -> dict | None:
@@ -142,7 +177,19 @@ def _signal_ahlt_trend(ahlt: list[float]) -> dict | None:
     return {"name": "AHLT 5d vs 50d MA", "value": f"{slope:+.2f}%", "score": score, "verdict": verdict}
 
 
-def _classify(score: int) -> dict[str, str]:
+def _classify(score: int, spy_drawdown: float | None = None) -> dict[str, str]:
+    if spy_drawdown is not None and _trigger_reached(spy_drawdown, -10):
+        return {
+            "label": "Scenario 3 — Bubble Pop trigger",
+            "tag": "s3",
+            "guidance": "SPY is down at least 10% from its 1-year peak. Move toward Bubble Pop (S3): US equity ~25%, money-market cash ~19%, trend ~12%, gold ~10%.",
+        }
+    if spy_drawdown is not None and _trigger_reached(spy_drawdown, -5):
+        return {
+            "label": "Scenario 2 — Confident Bull trigger",
+            "tag": "s2",
+            "guidance": "SPY is down at least 5% from its 1-year peak. Move gradually toward Confident Bull before the next leg lower.",
+        }
     if score >= 4:
         return {
             "label": "Scenario 1 — Bull continuation",
@@ -157,14 +204,14 @@ def _classify(score: int) -> dict[str, str]:
         }
     if score >= -6:
         return {
-            "label": "Scenario 2 — Pullback territory",
-            "tag": "s2",
-            "guidance": "HODL US equity. Accelerate DCA into bargains. Trim cash to ~6%.",
+            "label": "Scenario 1/2 stress — wait for price trigger",
+            "tag": "s1s2",
+            "guidance": "Stress is building, but the -5% drawdown trigger has not fired. Prepare Confident Bull trades; wait for price confirmation.",
         }
     return {
-        "label": "Scenario 3 — Bear / bubble pop",
-        "tag": "s3",
-        "guidance": "Rotate to defensive. Scale trend to 10-12%, US equity down to ~25%, raise cash to 12-15%.",
+        "label": "Scenario 2 — severe stress, awaiting -10% trigger",
+        "tag": "s2",
+        "guidance": "Composite stress is severe. Move toward Confident Bull, favoring productive money-market cash and trend, but reserve full Bubble Pop rotation for the -10% SPY drawdown trigger.",
     }
 
 
@@ -201,8 +248,10 @@ def evaluate_regime(use_cache: bool = True, peek_only: bool = False) -> dict[str
             "guidance": "Could not evaluate signals.",
         }
 
+    spy_drawdown = _spy_drawdown_pct(spy)
     signals = [
         s for s in (
+            _allocation_trigger_signal(spy_drawdown),
             _signal_spy_200dma(spy),
             _signal_spy_drawdown(spy),
             _signal_vix(vix),
@@ -211,7 +260,7 @@ def evaluate_regime(use_cache: bool = True, peek_only: bool = False) -> dict[str
         ) if s is not None
     ]
     score = sum(s["score"] for s in signals)
-    classification = _classify(score)
+    classification = _classify(score, spy_drawdown=spy_drawdown)
     result = {
         "regime": classification["label"],
         "tag": classification["tag"],
