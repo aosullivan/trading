@@ -19,6 +19,7 @@ posn*.html
 posn_files/
 yahoo-positions*.html
 dist/
+*.zip
 *.spec
 audio/
 .planning/

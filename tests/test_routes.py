@@ -120,6 +120,9 @@ class TestIndexRoute:
         assert b"pos-section-row" in resp.data
         assert b"By Asset" in resp.data
         assert b"By Account" in resp.data
+        assert b'data-view="allocation" type="button" role="tab" aria-selected="true"' in resp.data
+        assert b'id="pos-table-wrap" hidden' in resp.data
+        assert b'id="pos-allocation-wrap">' in resp.data
         assert b"data-expand-asset" in resp.data
         assert b"Second Brokerage" in resp.data
 

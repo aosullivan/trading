@@ -55,6 +55,7 @@ STRATEGIC_SLEEVE_LABELS = {
 
 STRATEGIC_SLEEVE_ORDER = [
     "cash",
+    "fixed_income",
     "gold",
     "trend",
     "commodities",
@@ -98,6 +99,7 @@ SLEEVE_BY_SYMBOL = {
 
 SCENARIO_1_TARGETS = {
     "cash": 5.0,
+    "fixed_income": 1.0,
     "gold": 4.0,
     "trend": 2.0,
     "commodities": 3.0,
@@ -108,18 +110,20 @@ SCENARIO_1_TARGETS = {
 }
 
 SCENARIO_2_TARGETS = {
-    "cash": 8.0,
-    "gold": 6.0,
-    "trend": 3.0,
-    "commodities": 5.0,
-    "crypto": 6.0,
-    "us_equity": 62.0,
-    "non_us_developed": 6.0,
+    "cash": 12.5,
+    "fixed_income": 4.0,
+    "gold": 7.0,
+    "trend": 7.0,
+    "commodities": 6.5,
+    "crypto": 5.0,
+    "us_equity": 47.5,
+    "non_us_developed": 7.5,
     "emerging_markets": 3.0,
 }
 
 SCENARIO_3_TARGETS = {
-    "cash": 12.0,
+    "cash": 19.0,
+    "fixed_income": 8.0,
     "gold": 10.0,
     "trend": 12.0,
     "commodities": 10.0,
@@ -630,6 +634,73 @@ def _gap(target: float | None, current_pct: float, total_mv: float) -> tuple[flo
     return gap_pct, gap_pct / 100 * total_mv
 
 
+REBALANCE_SCALE_PP = 25.0
+
+
+def _gap_side(gap_pct: float | None) -> str | None:
+    if gap_pct is None:
+        return None
+    if gap_pct > 0:
+        return "pos"
+    if gap_pct < 0:
+        return "neg"
+    return "zero"
+
+
+def _gap_bucket(gap_pct: float | None) -> str | None:
+    if gap_pct is None:
+        return None
+    abs_gap = abs(gap_pct)
+    if abs_gap < 0.5:
+        return "hold"
+    if abs_gap < 2.0:
+        return "small"
+    if abs_gap < 5.0:
+        return "medium"
+    return "large"
+
+
+def _gap_bar_pct(gap_pct: float | None) -> float | None:
+    if gap_pct is None:
+        return None
+    return min(abs(gap_pct), REBALANCE_SCALE_PP) / REBALANCE_SCALE_PP * 50.0
+
+
+def _fmt_signed_pp(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if abs(value) < 0.05:
+        return "±0.0%"
+    sign = "−" if value < 0 else "+"
+    return f"{sign}{abs(value):.1f}%"
+
+
+def _fmt_signed_usd(value: float | None) -> str | None:
+    if value is None:
+        return None
+    abs_v = abs(value)
+    if abs_v < 1:
+        return "±$0"
+    sign = "−" if value < 0 else "+"
+    if abs_v >= 10_000:
+        return f"{sign}${abs_v / 1000:.0f}k"
+    if abs_v >= 1_000:
+        return f"{sign}${abs_v / 1000:.1f}k"
+    return f"{sign}${abs_v:.0f}"
+
+
+def _gap_aria(label: str, gap_pct: float | None, gap_dollars: float | None) -> str | None:
+    if gap_pct is None:
+        return None
+    if abs(gap_pct) < 0.5:
+        return f"Hold {label}, within tolerance"
+    verb = "Reduce" if gap_pct < 0 else "Increase"
+    return (
+        f"{verb} {label} by {abs(gap_pct):.1f} percentage points, "
+        f"approximately ${abs(gap_dollars or 0):,.0f}"
+    )
+
+
 def allocation_plan(positions: Iterable[dict]) -> list[dict]:
     rows = list(positions)
     sleeve_mv: dict[str, float] = {}
@@ -652,33 +723,57 @@ def allocation_plan(positions: Iterable[dict]) -> list[dict]:
         s1_gap_pct, s1_gap_dollars = _gap(s1_target, current_pct, total_mv)
         s2_gap_pct, s2_gap_dollars = _gap(s2_target, current_pct, total_mv)
         s3_gap_pct, s3_gap_dollars = _gap(s3_target, current_pct, total_mv)
+        label = STRATEGIC_SLEEVE_LABELS.get(sleeve, sleeve.title())
         plan.append({
             "sleeve": sleeve,
-            "label": STRATEGIC_SLEEVE_LABELS.get(sleeve, sleeve.title()),
+            "label": label,
             "current_market_value": current_mv,
             "current_pct": current_pct,
             "s1_target_pct": s1_target,
             "s1_gap_pct": s1_gap_pct,
             "s1_gap_dollars": s1_gap_dollars,
+            "s1_side": _gap_side(s1_gap_pct),
+            "s1_bucket": _gap_bucket(s1_gap_pct),
+            "s1_bar_pct": _gap_bar_pct(s1_gap_pct),
+            "s1_pp_str": _fmt_signed_pp(s1_gap_pct),
+            "s1_usd_str": _fmt_signed_usd(s1_gap_dollars),
+            "s1_aria": _gap_aria(label, s1_gap_pct, s1_gap_dollars),
             "s2_target_pct": s2_target,
             "s2_gap_pct": s2_gap_pct,
             "s2_gap_dollars": s2_gap_dollars,
+            "s2_side": _gap_side(s2_gap_pct),
+            "s2_bucket": _gap_bucket(s2_gap_pct),
+            "s2_bar_pct": _gap_bar_pct(s2_gap_pct),
+            "s2_pp_str": _fmt_signed_pp(s2_gap_pct),
+            "s2_usd_str": _fmt_signed_usd(s2_gap_dollars),
+            "s2_aria": _gap_aria(label, s2_gap_pct, s2_gap_dollars),
             "s3_target_pct": s3_target,
             "s3_gap_pct": s3_gap_pct,
             "s3_gap_dollars": s3_gap_dollars,
+            "s3_side": _gap_side(s3_gap_pct),
+            "s3_bucket": _gap_bucket(s3_gap_pct),
+            "s3_bar_pct": _gap_bar_pct(s3_gap_pct),
+            "s3_pp_str": _fmt_signed_pp(s3_gap_pct),
+            "s3_usd_str": _fmt_signed_usd(s3_gap_dollars),
+            "s3_aria": _gap_aria(label, s3_gap_pct, s3_gap_dollars),
         })
     for sleeve, mv in sleeve_mv.items():
         if sleeve in seen or sleeve == "pending":
             continue
         current_pct = (mv / total_mv * 100) if total_mv else 0.0
+        empty_scenario = {
+            "target_pct": None, "gap_pct": None, "gap_dollars": None,
+            "side": None, "bucket": None, "bar_pct": None,
+            "pp_str": None, "usd_str": None, "aria": None,
+        }
         plan.append({
             "sleeve": sleeve,
             "label": STRATEGIC_SLEEVE_LABELS.get(sleeve, sleeve.title()),
             "current_market_value": mv,
             "current_pct": current_pct,
-            "s1_target_pct": None, "s1_gap_pct": None, "s1_gap_dollars": None,
-            "s2_target_pct": None, "s2_gap_pct": None, "s2_gap_dollars": None,
-            "s3_target_pct": None, "s3_gap_pct": None, "s3_gap_dollars": None,
+            **{f"s1_{k}": v for k, v in empty_scenario.items()},
+            **{f"s2_{k}": v for k, v in empty_scenario.items()},
+            **{f"s3_{k}": v for k, v in empty_scenario.items()},
         })
     return plan
 

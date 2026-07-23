@@ -105,16 +105,16 @@
       </div>
       <div class="pos-panel-tools">
         <div class="pos-view-tabs" role="tablist" aria-label="Position perspective">
-          <button class="pos-view-tab active" data-view="asset" type="button" role="tab" aria-selected="true">By Asset</button>
+          <button class="pos-view-tab" data-view="asset" type="button" role="tab" aria-selected="false">By Asset</button>
           <button class="pos-view-tab" data-view="account" type="button" role="tab" aria-selected="false">By Account</button>
-          <button class="pos-view-tab" data-view="allocation" type="button" role="tab" aria-selected="false">Allocation Plan</button>
+          <button class="pos-view-tab active" data-view="allocation" type="button" role="tab" aria-selected="true">Allocation Plan</button>
         </div>
         <input id="pos-filter" class="inp pos-filter" type="search" placeholder="Filter symbol or account">
       </div>
     </div>
 
     {% if positions %}
-    <div class="pos-table-wrap" id="pos-table-wrap">
+    <div class="pos-table-wrap" id="pos-table-wrap" hidden>
       <table class="ttbl pos-table">
         <thead>
           <tr>
@@ -130,27 +130,31 @@
       </table>
     </div>
 
-    <div class="pos-allocation-wrap" id="pos-allocation-wrap" hidden>
+    <div class="pos-allocation-wrap" id="pos-allocation-wrap">
       <div class="pos-allocation-header">
-        <h3>Strategic Allocation Plan</h3>
+        <div class="pos-allocation-title">
+          <h3>Strategic Allocation Plan</h3>
+          <span>Total {{ "${:,.0f}".format(summary.market_value) }}</span>
+        </div>
         <ul class="pos-allocation-scenarios">
-          <li><strong>Max Conviction:</strong> High-conviction bull. 70% US equity, lean hedges. Use when regime is clear S1 and AI thesis remains intact.</li>
-          <li><strong>Confident Bull:</strong> Bullish but cautious. 62% US equity, modest hedge sleeve. Default when at ATH or signals are mixed.</li>
-          <li><strong>Bubble Pop (S3):</strong> Defensive rotation — 12% cash, 12% trend, 25% US equity. Trigger only when regime detector confirms.</li>
+          <li><strong>Max Conviction:</strong> Default while SPY is less than 5% below its 1-year peak. 70% US equity, lean hedges.</li>
+          <li><strong>Confident Bull:</strong> Move gradually when SPY is down 5% from its 1-year peak. 47.5% US equity, 12.5% money-market cash, and larger hedge sleeves.</li>
+          <li><strong>Bubble Pop (S3):</strong> Move when SPY is down 10% from its 1-year peak. 19% money-market cash, 12% trend, 10% gold, 25% US equity.</li>
         </ul>
-        <p class="pos-allocation-note">Each column shows the target % and the gap from today's allocation. Drift toward Max Conviction or Confident Bull via new contributions and within-account reallocations (e.g. the UK pension); only rotate to S3 if signals confirm.</p>
+        <p class="pos-allocation-note">Strategy: stay Max Conviction until the -5% trigger, move toward Confident Bull from -5% to -10%, then move toward Bubble Pop (S3) at -10%. Money-market cash is treated as productive defense; the trend sleeve is intentional grind-down defense, while SPY drawdown thresholds control execution.</p>
       </div>
       <table class="ttbl pos-table pos-allocation-table">
         <thead>
           <tr>
             <th>Sleeve</th>
-            <th>Current</th>
+            <th>Current %</th>
+            <th>Current $</th>
             <th>Max Conviction</th>
-            <th>Gap</th>
+            <th>Action</th>
             <th>Confident Bull</th>
-            <th>Gap</th>
+            <th>Action</th>
             <th>Bubble Pop (S3)</th>
-            <th>Gap</th>
+            <th>Action</th>
           </tr>
         </thead>
         <tbody>
@@ -158,33 +162,51 @@
           <tr>
             <td>
               <div class="pos-symbol">{{ row.label }}</div>
-              <div class="pos-name">{{ "${:,.0f}".format(row.current_market_value) }}</div>
             </td>
             <td class="pos-num">{{ "{:.1f}%".format(row.current_pct) }}</td>
+            <td class="pos-num">{{ "${:,.0f}".format(row.current_market_value) }}</td>
             <td class="pos-num">{% if row.s1_target_pct is not none %}{{ "{:.1f}%".format(row.s1_target_pct) }}{% else %}<span class="pos-muted-num">--</span>{% endif %}</td>
             <td class="pos-num">
               {% if row.s1_gap_pct is not none %}
-                <div class="pos-gain {% if row.s1_gap_pct > 0 %}vr{% elif row.s1_gap_pct < 0 %}vg{% endif %}">
-                  <strong>{{ "{:+.1f}".format(row.s1_gap_pct) }}%</strong>
-                  <span>{{ "${:+,.0f}".format(row.s1_gap_dollars) }}</span>
+                <div class="pos-delta pos-delta--{{ row.s1_side }} pos-delta--{{ row.s1_bucket }}" aria-label="{{ row.s1_aria }}">
+                  <div class="pos-delta__nums">
+                    <span class="pos-delta__pp">{{ row.s1_pp_str }}</span>
+                    <span class="pos-delta__usd">{{ row.s1_usd_str }}</span>
+                  </div>
+                  <div class="pos-delta__chart" aria-hidden="true">
+                    <div class="pos-delta__axis"></div>
+                    <div class="pos-delta__bar" style="width: {{ "{:.2f}".format(row.s1_bar_pct) }}%"></div>
+                  </div>
                 </div>
               {% else %}<span class="pos-muted-num">--</span>{% endif %}
             </td>
             <td class="pos-num">{% if row.s2_target_pct is not none %}{{ "{:.1f}%".format(row.s2_target_pct) }}{% else %}<span class="pos-muted-num">--</span>{% endif %}</td>
             <td class="pos-num">
               {% if row.s2_gap_pct is not none %}
-                <div class="pos-gain {% if row.s2_gap_pct > 0 %}vr{% elif row.s2_gap_pct < 0 %}vg{% endif %}">
-                  <strong>{{ "{:+.1f}".format(row.s2_gap_pct) }}%</strong>
-                  <span>{{ "${:+,.0f}".format(row.s2_gap_dollars) }}</span>
+                <div class="pos-delta pos-delta--{{ row.s2_side }} pos-delta--{{ row.s2_bucket }}" aria-label="{{ row.s2_aria }}">
+                  <div class="pos-delta__nums">
+                    <span class="pos-delta__pp">{{ row.s2_pp_str }}</span>
+                    <span class="pos-delta__usd">{{ row.s2_usd_str }}</span>
+                  </div>
+                  <div class="pos-delta__chart" aria-hidden="true">
+                    <div class="pos-delta__axis"></div>
+                    <div class="pos-delta__bar" style="width: {{ "{:.2f}".format(row.s2_bar_pct) }}%"></div>
+                  </div>
                 </div>
               {% else %}<span class="pos-muted-num">--</span>{% endif %}
             </td>
             <td class="pos-num">{% if row.s3_target_pct is not none %}{{ "{:.1f}%".format(row.s3_target_pct) }}{% else %}<span class="pos-muted-num">--</span>{% endif %}</td>
             <td class="pos-num">
               {% if row.s3_gap_pct is not none %}
-                <div class="pos-gain {% if row.s3_gap_pct > 0 %}vr{% elif row.s3_gap_pct < 0 %}vg{% endif %}">
-                  <strong>{{ "{:+.1f}".format(row.s3_gap_pct) }}%</strong>
-                  <span>{{ "${:+,.0f}".format(row.s3_gap_dollars) }}</span>
+                <div class="pos-delta pos-delta--{{ row.s3_side }} pos-delta--{{ row.s3_bucket }}" aria-label="{{ row.s3_aria }}">
+                  <div class="pos-delta__nums">
+                    <span class="pos-delta__pp">{{ row.s3_pp_str }}</span>
+                    <span class="pos-delta__usd">{{ row.s3_usd_str }}</span>
+                  </div>
+                  <div class="pos-delta__chart" aria-hidden="true">
+                    <div class="pos-delta__axis"></div>
+                    <div class="pos-delta__bar" style="width: {{ "{:.2f}".format(row.s3_bar_pct) }}%"></div>
+                  </div>
                 </div>
               {% else %}<span class="pos-muted-num">--</span>{% endif %}
             </td>
@@ -220,7 +242,7 @@ const GROUP_LABELS = {
 };
 let quotesBySymbol = new Map();
 let sortState = { key: null, direction: 'asc' };
-let viewMode = 'asset';
+let viewMode = 'allocation';
 let expandedAssets = new Set();
 let expandedAccounts = new Set();
 
