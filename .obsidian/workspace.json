@@ -4,11 +4,11 @@
     "type": "split",
     "children": [
       {
-        "id": "aa8c868b402d2ed1",
+        "id": "c43302e28bd60ea3",
         "type": "tabs",
         "children": [
           {
-            "id": "76edbefb4e7347e7",
+            "id": "8dfb63442c37f9f4",
             "type": "leaf",
             "state": {
               "type": "empty",
@@ -74,7 +74,8 @@
       }
     ],
     "direction": "horizontal",
-    "width": 300
+    "width": 300,
+    "collapsed": true
   },
   "right": {
     "id": "bd9d3395502c540c",
@@ -176,6 +177,8 @@
       "bases:Create new base": false
     }
   },
-  "active": "76edbefb4e7347e7",
-  "lastOpenFiles": []
+  "active": "8dfb63442c37f9f4",
+  "lastOpenFiles": [
+    "tests/__pycache__/test_regime.cpython-314-pytest-9.0.2.pyc"
+  ]
 }

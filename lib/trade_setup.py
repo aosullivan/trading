@@ -669,6 +669,7 @@ def compute_trade_setup(
 
     ma_levels = _moving_average_levels(df_d, df_w, current_price, atr_value)
     nearest_ma = _nearest_ma(ma_levels)
+    ma_by_label = {level["label"]: level for level in ma_levels}
 
     upside_room_pct = nearest_resistance.get("distance_pct") if nearest_resistance else None
     upside_room_atr = nearest_resistance.get("distance_atr") if nearest_resistance else None
@@ -685,6 +686,8 @@ def compute_trade_setup(
         "nearest_support": nearest_support,
         "nearest_resistance": nearest_resistance,
         "nearest_ma": nearest_ma,
+        "ma_levels": ma_levels,
+        "ma_200w": ma_by_label.get("200W MA"),
         "upside_room_pct": round(upside_room_pct, 2) if upside_room_pct is not None else None,
         "upside_room_atr": round(upside_room_atr, 2) if upside_room_atr is not None else None,
         "downside_room_pct": round(downside_room_pct, 2) if downside_room_pct is not None else None,

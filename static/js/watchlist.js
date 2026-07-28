@@ -6,6 +6,8 @@ const WL_DEFAULT_TREND_SIDE='all';
 const WL_DEFAULT_TREND_SORT_KEY='score';
 const WL_SORT_KEYS=['sym','last','chg','chg_pct'];
 const WL_TREND_SORT_KEYS=['ticker','flip','strength','score'];
+const WL_LEVELS_MAX_ROWS=20;
+const WL_LEVELS_MAX_PROX_ATR=2;
 const WL_PANEL_DEFAULT_WIDTH=352;
 const WL_PANEL_MIN_WIDTH=320;
 const WL_PANEL_MAX_WIDTH=540;
@@ -41,7 +43,8 @@ let wlTrendSelectionSyncPending=false;
 const WL_TAB_ORDER=['all','indexes','treasuries','semis','tech','software','etfs','crypto','misc'];
 const WL_CATEGORY_LABELS={indexes:'Index',treasuries:'Rates',semis:'Semis',tech:'Tech',software:'Software',etfs:'ETF',crypto:'Crypto',misc:'Misc'};
 
-function wlNormalizeView(view){return view==='trends'?'trends':WL_DEFAULT_VIEW}
+function wlNormalizeView(view){return view==='trends'||view==='levels'?view:WL_DEFAULT_VIEW}
+function wlUsesTrendData(){return wlView==='trends'||wlView==='levels'}
 function wlNormalizeTab(tab){return WL_TAB_ORDER.includes(tab)?tab:WL_DEFAULT_TAB}
 function wlNormalizeTrendFrame(frame){return frame==='weekly'?'weekly':WL_DEFAULT_TREND_FRAME}
 function wlNormalizeTrendSide(side){return ['all','bullish','bearish','mixed'].includes(side)?side:WL_DEFAULT_TREND_SIDE}
@@ -253,6 +256,9 @@ function switchWLView(view,{syncURL=true}={}){
     switchWLTrendFrame(wlTrendFrame,{syncURL:false});
     switchWLTrendSide(wlTrendSide,{syncURL:false});
     fetchTrends();
+  }else if(wlView==='levels'){
+    wlTrendSelectionSyncPending=false;
+    fetchTrends();
   }else{
     wlTrendSelectionSyncPending=false;
     stopWLTrendTimers();
@@ -436,7 +442,7 @@ function syncWLRefreshTimers({forceRefresh=false}={}){
   if(!wlRefreshTimer){
     wlRefreshTimer=setInterval(fetchQuotes,WL_QUOTES_REFRESH_MS);
   }
-  if(wlView==='trends'){
+  if(wlUsesTrendData()){
     if(!wlTrendRefreshTimer){
       wlTrendRefreshTimer=setInterval(fetchTrends,WL_TRENDS_REFRESH_MS);
     }
@@ -449,12 +455,12 @@ function syncWLRefreshTimers({forceRefresh=false}={}){
   else syncWLRefreshStateBadge();
   if(forceRefresh){
     fetchQuotes();
-    if(wlView!=='trends')queueWatchlistTrendPreload();
+    if(!wlUsesTrendData())queueWatchlistTrendPreload();
   }
 }
 
 function markWLActivity({forceRefresh=false}={}){
-  const shouldRefresh=forceRefresh||!wlRefreshTimer||(wlView==='trends'&&!wlTrendRefreshTimer);
+  const shouldRefresh=forceRefresh||!wlRefreshTimer||(wlUsesTrendData()&&!wlTrendRefreshTimer);
   wlLastActivityAt=Date.now();
   if(document.visibilityState==='hidden'){
     stopWLRefreshTimers();
@@ -502,7 +508,7 @@ async function loadWL(){
 }
 
 function queueWatchlistTrendPreload(delayMs=1500){
-  if(!wlRefreshAllowed()||wlView==='trends'||wlTrendRows.length||wlTrendsLoading)return;
+  if(!wlRefreshAllowed()||wlUsesTrendData()||wlTrendRows.length||wlTrendsLoading)return;
   if(wlTrendPreloadTimer) clearTimeout(wlTrendPreloadTimer);
   wlTrendPreloadTimer=setTimeout(()=>{
     wlTrendPreloadTimer=null;
@@ -631,7 +637,7 @@ function fetchTrends(){
       renderWL(wlList);
       if(wlTrendPollTimer) clearTimeout(wlTrendPollTimer);
       wlTrendPollTimer=null;
-      if(wlView==='trends'&&wlRefreshAllowed()&&(wlTrendsLoading||wlTrendsStale)){
+      if(wlUsesTrendData()&&wlRefreshAllowed()&&(wlTrendsLoading||wlTrendsStale)){
         wlTrendPollTimer=setTimeout(fetchTrends,WL_TRENDS_POLL_MS);
       }
       syncWLRefreshStateBadge();
@@ -797,9 +803,81 @@ function wlTrendCellHtml(f,preferredStrategy){
   return `<span class="wl-trend-flip ${tone}" title="${label} · ${fullDate}">${age==null?'--':age+'d'} ${shortDate}</span>`;
 }
 
+// ATR-normalized proximity so "at the level" means the same thing across a
+// quiet ETF and a volatile crypto. Falls back to % when ATR is unavailable.
+function wlLevelProximity(level){
+  if(!level||level.distance_pct==null)return null;
+  if(level.distance_atr!=null)return level.distance_atr;
+  return level.distance_pct/2.5;
+}
+
+function wlLevelEvents(){
+  const events=[];
+  (wlTrendRows||[])
+    .filter(row=>wlActiveTab==='all'||wlTickerCategory(row?.ticker||'')===wlActiveTab)
+    .forEach(row=>{
+      const shared=row?.trade_setup?.shared||{};
+      const ma200w=shared.ma_200w
+        ||(Array.isArray(shared.ma_levels)?shared.ma_levels.find(l=>l?.label==='200W MA'):null)
+        ||null;
+      const hits=[
+        {kind:'sup',label:'Support',level:shared.nearest_support},
+        {kind:'res',label:'Resist',level:shared.nearest_resistance},
+        {kind:'ma',label:'200W',level:ma200w},
+      ]
+        .map(c=>({...c,prox:wlLevelProximity(c.level)}))
+        .filter(c=>c.prox!=null&&c.prox<=WL_LEVELS_MAX_PROX_ATR)
+        .sort((a,b)=>a.prox-b.prox);
+      if(!hits.length)return;
+      events.push({ticker:row.ticker,primary:hits[0],extras:hits.slice(1),prox:hits[0].prox});
+    });
+  events.sort((a,b)=>a.prox-b.prox||a.ticker.localeCompare(b.ticker));
+  return events.slice(0,WL_LEVELS_MAX_ROWS);
+}
+
+function wlLevelBadgeHtml(hit,{compact=false}={}){
+  const tone=hit.prox<=1?'near':'close';
+  const arrow=hit.kind==='ma'?(hit.level.position==='below'?'▲':'▼'):'';
+  const price=hit.level.price!=null?` @ ${hit.level.price}`:'';
+  const atrTxt=hit.level.distance_atr!=null?` · ${hit.level.distance_atr} ATR`:'';
+  const title=`${hit.kind==='ma'?'200W MA':hit.label==='Resist'?'Resistance':'Support'}${price}${atrTxt}`;
+  const body=compact?`+${arrow}${hit.label}`:`${arrow}${hit.label} ${hit.level.distance_pct.toFixed(1)}%`;
+  return `<span class="wl-lvl-badge ${hit.kind} ${tone}${compact?' extra':''}" title="${title}">${body}</span>`;
+}
+
+function wlLevelEventRowHtml(ev,cur){
+  return `<div class="wl-lvl-row${ev.ticker===cur?' active':''}" onclick="pickTicker('${ev.ticker}')">
+    <div class="wl-tk wl-trend-symbol"><span>${ev.ticker}</span></div>
+    <div class="wl-lvl-badges">${wlLevelBadgeHtml(ev.primary)}${ev.extras.map(x=>wlLevelBadgeHtml(x,{compact:true})).join('')}</div>
+  </div>`;
+}
+
+function renderLevels(){
+  const cur=wlCurrentTicker();
+  const events=wlLevelEvents();
+  document.getElementById('wl-count').textContent=events.length;
+  const statusRow=wlTrendsLoading||wlTrendsStale
+    ?`<div class="wl-trend-msg">${wlTrendsLoading?'Refreshing levels...':'Levels are updating...'}</div>`
+    :'';
+  if(!events.length){
+    const statusText=wlTrendsLoading
+      ?'Checking your watchlist against key levels...'
+      :'Nothing sitting at support, resistance, or the 200W MA right now.';
+    document.getElementById('wl-items').innerHTML=`<div class="wl-trend-msg">${statusText}</div>`;
+    return;
+  }
+  document.getElementById('wl-items').innerHTML=statusRow
+    +'<div class="wl-lvl-caption">Tickers at key levels · nearest first</div>'
+    +events.map(ev=>wlLevelEventRowHtml(ev,cur)).join('');
+}
+
 function renderWL(list){
   if(wlView==='trends'){
     renderTrends();
+    return;
+  }
+  if(wlView==='levels'){
+    renderLevels();
     return;
   }
   syncWLSortArrows(['sym','last','chg','chg_pct'],'wl-arrow-',wlSortKey,wlSortAsc);

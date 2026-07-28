@@ -34,6 +34,12 @@ class TestIndexRoute:
         assert resp.status_code == 200
         assert b"chart-container" in resp.data
 
+    def test_index_exposes_watchlist_levels_view(self, client):
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert b'data-view="levels"' in resp.data
+        assert b"switchWLView('levels')" in resp.data
+
     def test_backtest_page_returns_html(self, client):
         resp = client.get("/backtest")
         assert resp.status_code == 200

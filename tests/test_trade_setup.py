@@ -62,8 +62,43 @@ def test_compute_trade_setup_reports_nearest_levels_and_trade_scores(sample_df):
     assert shared["nearest_resistance"] is not None
     assert shared["nearest_ma"] is not None
     assert shared["nearest_ma"]["label"] in {"SMA 50", "SMA 100", "SMA 200", "50W MA", "100W MA", "200W MA"}
+    ma_labels = [level["label"] for level in shared["ma_levels"]]
+    assert "SMA 200" in ma_labels
+    if shared["ma_200w"] is not None:
+        assert shared["ma_200w"]["label"] == "200W MA"
+        assert shared["ma_200w"]["distance_pct"] is not None
+        assert shared["ma_200w"]["position"] in {"above", "below", "at"}
     assert shared["upside_room_pct"] is not None
     assert shared["downside_room_pct"] is not None
+
+
+def test_compute_trade_setup_reports_200w_ma_when_weekly_history_is_long_enough(sample_df):
+    import numpy as np
+
+    rng = np.random.default_rng(7)
+    n_weeks = 260
+    dates = pd.date_range("2020-01-03", periods=n_weeks, freq="W-FRI")
+    close = 100 + np.cumsum(rng.standard_normal(n_weeks) * 2)
+    weekly_df = pd.DataFrame(
+        {
+            "Open": close + rng.standard_normal(n_weeks) * 0.5,
+            "High": close + np.abs(rng.standard_normal(n_weeks)) * 2,
+            "Low": close - np.abs(rng.standard_normal(n_weeks)) * 2,
+            "Close": close,
+            "Volume": rng.integers(1_000_000, 10_000_000, n_weeks),
+        },
+        index=dates,
+    )
+
+    payload = compute_trade_setup(sample_df, weekly_df, {}, {})
+
+    shared = payload["shared"]
+    ma_200w = shared["ma_200w"]
+    assert ma_200w is not None
+    assert ma_200w["label"] == "200W MA"
+    assert ma_200w["distance_pct"] is not None
+    assert ma_200w["position"] in {"above", "below", "at"}
+    assert any(level["label"] == "200W MA" for level in shared["ma_levels"])
 
 
 def test_compute_trade_setup_returns_mixed_score_when_bias_is_neutral(sample_df):
