@@ -41,6 +41,9 @@ os.makedirs(_DATA_CACHE_DIR, exist_ok=True)
 
 _DEFAULT_DISK_CACHE_FRESHNESS = 300  # 5 minutes
 _LATEST_INTERVAL_CACHE_FRESHNESS = 3600  # 1 hour
+# A cached series whose first bar is the first trading day of a range also
+# covers requests that start on the preceding weekend/holiday days.
+_COVERAGE_START_TOLERANCE = timedelta(days=7)
 _LAZY_REFRESH_INTERVALS = {"1d", "1wk", "1mo"}
 _lazy_refresh_lock = threading.Lock()
 _lazy_refreshing: set[str] = set()
@@ -143,6 +146,77 @@ def _incremental_data_failed_validation(
     return ratio > 2 or ratio < 0.5
 
 
+def _full_refetch_failed_validation(
+    cached_df: pd.DataFrame | None, new_df: pd.DataFrame, interval: str
+) -> bool:
+    """Sanity-check a full-history refetch against the cached rows it overlaps.
+
+    A refetch that starts before the cached range re-downloads history the
+    cache already holds, so comparing the cached last close to the new first
+    close (the incremental check) always trips the 2x ratio bound. Instead,
+    require the new series to scale consistently against the cached one on
+    the dates they share: dividend/split adjustments shift every overlapping
+    bar by (nearly) the same factor, while a cross-ticker response does not.
+    """
+    if new_df is None or new_df.empty:
+        return False
+
+    if interval == "1wk" and _has_suspicious_weekly_spacing(new_df):
+        return True
+
+    if (
+        cached_df is None
+        or cached_df.empty
+        or "Close" not in cached_df.columns
+        or "Close" not in new_df.columns
+    ):
+        return False
+
+    cached_close = cached_df["Close"].dropna()
+    new_close = new_df["Close"].dropna()
+    if interval in ("1wk", "1mo"):
+        # Yahoo has re-anchored weekly bars in the past (Thursday-dated bars
+        # became Monday-dated), so align by period instead of exact date.
+        freq = "W" if interval == "1wk" else "M"
+        cached_close = cached_close.groupby(pd.DatetimeIndex(cached_close.index).to_period(freq)).last()
+        new_close = new_close.groupby(pd.DatetimeIndex(new_close.index).to_period(freq)).last()
+    overlap = cached_close.index.intersection(new_close.index)
+    if overlap.empty:
+        # A refetch from an earlier start should always re-cover cached dates.
+        return True
+
+    # Recent bars carry the least cumulative adjustment drift.
+    overlap = overlap.sort_values()[-50:]
+    ratios = new_close.loc[overlap] / cached_close.loc[overlap]
+    ratios = ratios[(ratios > 0) & ratios.notna() & (ratios != float("inf"))]
+    if ratios.empty:
+        return False
+    median_ratio = float(ratios.median())
+    if median_ratio <= 0:
+        return True
+    spread = ratios / median_ratio
+    # Tolerate a stray partial-bar mismatch; reject only when the two series
+    # broadly fail to scale by one consistent factor.
+    within_bounds = (spread <= 1.25) & (spread >= 0.8)
+    return bool(within_bounds.mean() < 0.8)
+
+
+def _refetched_frame_covers_cached_tail(
+    new_df: pd.DataFrame, cached_df: pd.DataFrame | None, interval: str
+) -> bool:
+    """True when a full refetch reaches the cached frame's last bar, so the
+    refetched frame can replace the cache outright instead of merging."""
+    if cached_df is None or cached_df.empty:
+        return True
+    if interval == "1wk":
+        tolerance = pd.Timedelta(days=6)
+    elif interval == "1mo":
+        tolerance = pd.Timedelta(days=27)
+    else:
+        tolerance = pd.Timedelta(0)
+    return pd.Timestamp(new_df.index.max()) >= pd.Timestamp(cached_df.index.max()) - tolerance
+
+
 def _clamped_requested_end(end) -> pd.Timestamp | None:
     if not end:
         return None
@@ -174,7 +248,7 @@ def _cached_range_covers_request(cached_df: pd.DataFrame | None, start, end) -> 
         return False
     cached_min = pd.Timestamp(cached_df.index.min())
     cached_max = pd.Timestamp(cached_df.index.max())
-    if start and pd.Timestamp(start) < cached_min:
+    if start and pd.Timestamp(start) < cached_min - _COVERAGE_START_TOLERANCE:
         return False
     requested_end = _clamped_requested_end(end)
     if requested_end is not None and requested_end > cached_max:
@@ -288,11 +362,13 @@ def _cached_download_impl(ticker: str, *, allow_stale_latest: bool = True, **kwa
         except Exception:
             pass
 
+    is_full_refetch = False
     if cached_df is not None and not cached_df.empty:
         first_cached = cached_df.index.min()
         last_cached = cached_df.index.max()
-        if start and pd.Timestamp(start) < pd.Timestamp(first_cached):
+        if start and pd.Timestamp(start) < pd.Timestamp(first_cached) - _COVERAGE_START_TOLERANCE:
             fetch_start = start
+            is_full_refetch = True
         elif interval == "1wk":
             fetch_start = last_cached.strftime("%Y-%m-%d")
         else:
@@ -331,14 +407,50 @@ def _cached_download_impl(ticker: str, *, allow_stale_latest: bool = True, **kwa
     if not new_df.empty and new_df.index.duplicated().any():
         new_df = new_df[~new_df.index.duplicated(keep="last")]
 
-    if _incremental_data_failed_validation(cached_df, new_df, interval):
+    failed_validation = (
+        _full_refetch_failed_validation(cached_df, new_df, interval)
+        if is_full_refetch
+        else _incremental_data_failed_validation(cached_df, new_df, interval)
+    )
+
+    if failed_validation and not is_full_refetch and cached_df is not None and not cached_df.empty:
+        # The incremental bars conflict with the cached series (e.g. Yahoo
+        # re-anchored weekly bars, so new dates interleave with cached ones).
+        # Retry once as a full-history refetch and replace the cache wholesale.
+        retry_kwargs = dict(fetch_kwargs)
+        retry_start = pd.Timestamp(first_cached)
+        if start:
+            retry_start = min(retry_start, pd.Timestamp(start))
+        retry_kwargs["start"] = retry_start.strftime("%Y-%m-%d")
+        try:
+            refetched = _yf_rate_limited_download(ticker, **retry_kwargs)
+        except Exception:
+            refetched = pd.DataFrame()
+        if isinstance(refetched.columns, pd.MultiIndex):
+            refetched.columns = refetched.columns.get_level_values(0)
+        if not refetched.empty and refetched.index.duplicated().any():
+            refetched = refetched[~refetched.index.duplicated(keep="last")]
+        if not refetched.empty and not _full_refetch_failed_validation(
+            cached_df, refetched, interval
+        ):
+            new_df = refetched
+            is_full_refetch = True
+            failed_validation = False
+
+    if failed_validation:
         _write_meta(meta_p, now, cached_df)
         return _slice_df(cached_df, start, end)
 
     if cached_df is not None and not cached_df.empty and not new_df.empty:
-        combined = pd.concat([cached_df, new_df])
-        combined = combined[~combined.index.duplicated(keep="last")]
-        combined.sort_index(inplace=True)
+        if is_full_refetch and _refetched_frame_covers_cached_tail(new_df, cached_df, interval):
+            # The refetch spans the cached range with internally consistent
+            # (freshly adjusted, consistently anchored) bars — replace rather
+            # than merge, so stale labels/adjustments don't linger.
+            combined = new_df
+        else:
+            combined = pd.concat([cached_df, new_df])
+            combined = combined[~combined.index.duplicated(keep="last")]
+            combined.sort_index(inplace=True)
     elif not new_df.empty:
         combined = new_df
     else:

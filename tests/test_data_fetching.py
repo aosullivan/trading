@@ -233,6 +233,173 @@ def test_cached_download_does_not_rewrite_csv_when_refresh_returns_no_new_bars(t
     assert meta["data_signature"] == data_fetching._frame_cache_signature(cached_df)
 
 
+def test_cached_download_full_refetch_accepts_history_with_much_lower_early_prices(tmp_path, monkeypatch):
+    """Regression: a start before the cached range triggers a full-history
+    refetch, and the incremental last-close/first-close ratio check used to
+    reject the (legitimate) result forever, freezing the cache."""
+    monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+    ticker = "SPY"
+    interval = "1d"
+    cached_df = pd.DataFrame(
+        {"Close": [740.0, 743.0, 748.0]},
+        index=pd.to_datetime(["2026-05-12", "2026-05-13", "2026-05-14"]),
+    )
+    cached_df.to_csv(data_fetching._disk_cache_path(ticker, interval))
+    with open(data_fetching._meta_path(ticker, interval), "w") as handle:
+        json.dump({"last_fetch": 0}, handle)
+
+    refetched_df = pd.DataFrame(
+        {"Close": [169.0, 738.0, 741.0, 746.0, 752.0, 755.0]},
+        index=pd.to_datetime(
+            ["2015-01-02", "2026-05-12", "2026-05-13", "2026-05-14", "2026-07-22", "2026-07-23"]
+        ),
+    )
+    calls = []
+
+    def fake_download(*args, **kwargs):
+        calls.append(kwargs)
+        return refetched_df
+
+    monkeypatch.setattr(data_fetching, "_yf_rate_limited_download", fake_download)
+
+    result = data_fetching.cached_download(
+        ticker,
+        start="2015-01-01",
+        interval=interval,
+        allow_stale_latest=False,
+    )
+
+    assert calls and calls[0]["start"] == "2015-01-01"
+    assert result.index.max() == pd.Timestamp("2026-07-23")
+    # Overlapping dates take the freshly adjusted values.
+    assert result.loc[pd.Timestamp("2026-05-14"), "Close"] == 746.0
+
+
+def test_cached_download_full_refetch_rejects_inconsistent_overlap(tmp_path, monkeypatch):
+    monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+    ticker = "SPY"
+    interval = "1d"
+    cached_df = pd.DataFrame(
+        {"Close": [740.0, 743.0, 748.0]},
+        index=pd.to_datetime(["2026-05-12", "2026-05-13", "2026-05-14"]),
+    )
+    cached_df.to_csv(data_fetching._disk_cache_path(ticker, interval))
+    with open(data_fetching._meta_path(ticker, interval), "w") as handle:
+        json.dump({"last_fetch": 0}, handle)
+
+    # Overlapping closes scale wildly differently -> looks like a cross-ticker
+    # response, so the cached frame must be kept.
+    refetched_df = pd.DataFrame(
+        {"Close": [12.0, 45.0, 900.0, 3.0, 61.0]},
+        index=pd.to_datetime(
+            ["2015-01-02", "2026-05-12", "2026-05-13", "2026-05-14", "2026-07-23"]
+        ),
+    )
+    monkeypatch.setattr(
+        data_fetching, "_yf_rate_limited_download", lambda *args, **kwargs: refetched_df
+    )
+
+    result = data_fetching.cached_download(
+        ticker,
+        start="2015-01-01",
+        interval=interval,
+        allow_stale_latest=False,
+    )
+
+    assert result["Close"].tolist() == [740.0, 743.0, 748.0]
+
+
+def test_cached_download_weekly_reanchor_falls_back_to_full_refetch(tmp_path, monkeypatch):
+    """Regression: cached weekly bars were Thursday-anchored, Yahoo switched to
+    Monday-anchored bars. The incremental append interleaves labels < 5 days
+    apart and gets rejected forever. A rejected incremental append must fall
+    back to one full refetch that replaces the cached series."""
+    monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+    ticker = "AMD"
+    interval = "1wk"
+    cached_df = pd.DataFrame(
+        {"Close": [220.27, 210.21, 217.50]},
+        index=pd.to_datetime(["2026-03-19", "2026-03-26", "2026-04-02"]),
+    )
+    cached_df.to_csv(data_fetching._disk_cache_path(ticker, interval))
+    with open(data_fetching._meta_path(ticker, interval), "w") as handle:
+        json.dump({"last_fetch": 0}, handle)
+
+    incremental_df = pd.DataFrame(
+        {"Close": [217.50, 245.04]},
+        index=pd.to_datetime(["2026-03-30", "2026-04-06"]),
+    )
+    full_df = pd.DataFrame(
+        {"Close": [221.0, 211.0, 217.50, 245.04, 278.39]},
+        index=pd.to_datetime(
+            ["2026-03-16", "2026-03-23", "2026-03-30", "2026-04-06", "2026-04-13"]
+        ),
+    )
+    calls = []
+
+    def fake_download(*args, **kwargs):
+        calls.append(kwargs)
+        return incremental_df if len(calls) == 1 else full_df
+
+    monkeypatch.setattr(data_fetching, "_yf_rate_limited_download", fake_download)
+
+    result = data_fetching.cached_download(
+        ticker,
+        start="2026-03-19",
+        interval=interval,
+        allow_stale_latest=False,
+    )
+
+    assert len(calls) == 2
+    # First call is the incremental weekly re-fetch from the cached last bar,
+    # the fallback re-fetches from the cached first bar.
+    assert calls[0]["start"] == "2026-04-02"
+    assert calls[1]["start"] == "2026-03-19"
+    # The Monday-anchored refetch replaces the Thursday-anchored cache.
+    assert result["Close"].tolist() == [211.0, 217.50, 245.04, 278.39]
+    on_disk = pd.read_csv(
+        data_fetching._disk_cache_path(ticker, interval), index_col=0, parse_dates=True
+    )
+    assert list(on_disk.index.strftime("%Y-%m-%d"))[:2] == ["2026-03-16", "2026-03-23"]
+
+
+def test_cached_download_start_just_before_cached_min_stays_incremental(tmp_path, monkeypatch):
+    """A start on the holiday/weekend days before the first cached trading day
+    must not trigger a full-history refetch."""
+    monkeypatch.setattr(data_fetching, "_DATA_CACHE_DIR", str(tmp_path))
+    ticker = "AMD"
+    interval = "1d"
+    cached_df = pd.DataFrame(
+        {"Close": [100.0, 101.0]},
+        index=pd.to_datetime(["2015-01-02", "2026-04-14"]),
+    )
+    cached_df.to_csv(data_fetching._disk_cache_path(ticker, interval))
+    with open(data_fetching._meta_path(ticker, interval), "w") as handle:
+        json.dump({"last_fetch": 0}, handle)
+
+    appended_df = pd.DataFrame(
+        {"Close": [102.0]},
+        index=pd.to_datetime(["2026-04-15"]),
+    )
+    calls = []
+
+    def fake_download(*args, **kwargs):
+        calls.append(kwargs)
+        return appended_df
+
+    monkeypatch.setattr(data_fetching, "_yf_rate_limited_download", fake_download)
+
+    result = data_fetching.cached_download(
+        ticker,
+        start="2015-01-01",
+        interval=interval,
+        allow_stale_latest=False,
+    )
+
+    assert calls and calls[0]["start"] == "2026-04-15"
+    assert result["Close"].tolist() == [100.0, 101.0, 102.0]
+
+
 def test_cached_download_coalesces_concurrent_identical_period_requests(monkeypatch):
     ticker = "SINGLEFLIGHT"
     calls = []
