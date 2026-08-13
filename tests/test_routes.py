@@ -2022,6 +2022,47 @@ class TestChartAPI:
 
         assert _lc._yf_cooldown_active()
 
+    def test_active_cooldown_raises_a_recognisable_rate_limit_error(self, monkeypatch):
+        """Callers classify the cooldown refusal via _is_yf_rate_limit_error.
+
+        YFRateLimitError takes no constructor args, so raising it with the
+        reason positionally yields a TypeError that no caller recognises.
+        """
+        import time as _time
+
+        import lib.cache as _lc
+        from yfinance.exceptions import YFRateLimitError
+
+        monkeypatch.setattr(_lc, "_yf_cooldown_until", _time.time() + 600)
+        monkeypatch.setattr(_lc, "_yf_cooldown_reason", "429 Too Many Requests")
+
+        with pytest.raises(YFRateLimitError) as excinfo:
+            _lc._yf_reserve_call_slot()
+
+        assert _lc._is_yf_rate_limit_error(excinfo.value)
+        assert "429" in str(excinfo.value)
+
+    def test_rate_delay_only_applies_inside_the_post_429_caution_window(self, monkeypatch):
+        import time as _time
+
+        import lib.cache as _lc
+
+        monkeypatch.setattr(_lc, "_yf_cooldown_until", 0.0)
+        monkeypatch.setattr(_lc, "_YF_RATE_DELAY", 1.5)
+
+        # Healthy: no spacing, so cold loads don't pay a delay per call.
+        monkeypatch.setattr(_lc, "_yf_caution_until", 0.0)
+        monkeypatch.setattr(_lc, "_yf_last_call", _time.time())
+        assert _lc._yf_reserve_call_slot() - _time.time() < 0.05
+
+        # After a 429: successive slots are spaced and strictly increasing.
+        monkeypatch.setattr(_lc, "_yf_caution_until", _time.time() + 600)
+        monkeypatch.setattr(_lc, "_yf_last_call", _time.time())
+        first = _lc._yf_reserve_call_slot()
+        second = _lc._yf_reserve_call_slot()
+        assert first - _time.time() >= 1.0
+        assert second - first >= 1.0
+
     @patch("lib.cache.yf.download")
     def test_supertrend_payload_includes_whitespace_breaks(self, mock_download, client):
         close = [10, 11, 12, 13, 14, 15, 5, 4, 3, 2, 6, 7, 8]

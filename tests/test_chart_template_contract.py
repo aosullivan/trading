@@ -126,6 +126,28 @@ def test_chart_load_uses_strategy_only_shared_path_and_lazy_strategy_fetches():
     assert "async function switchStrategy(name){" in source
 
 
+def test_overlay_family_fetches_are_deduped_while_in_flight():
+    """The strategy response lands mid-flight and re-checks overlay families.
+
+    Without the in-flight guard it re-requests the families the initial load is
+    already fetching, doubling the overlay payload on every chart load.
+    """
+    source = CHART_LOAD_JS_PATH.read_text()
+
+    assert "let pendingOverlayFamilies=new Set();" in source
+    # The initial load must go through the same guarded helper, not a raw fetch.
+    assert "const overlaysPromise=ensureActiveOverlayData()" in source
+    assert "!pending.has(f)" in source
+    add_pos = source.index("missing.forEach(f=>pending.add(f));")
+    fetch_pos = source.index("await fetch(url)", add_pos)
+    release_pos = source.index("finally{missing.forEach(f=>pending.delete(f))}", fetch_pos)
+    assert add_pos < fetch_pos < release_pos
+    # A superseded load must not leave entries that block the next one.
+    assert "pendingOverlayFamilies=new Set();" in source[: source.index("async function ensureOverlayFamilies")] or (
+        "pendingOverlayFamilies=new Set();" in source[source.index("async function loadChart"):]
+    )
+
+
 def test_stale_chart_loads_release_backtest_loading_counter():
     source = CHART_LOAD_JS_PATH.read_text()
 

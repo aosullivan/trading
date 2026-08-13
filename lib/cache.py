@@ -116,7 +116,12 @@ def _yf_cooldown_active() -> bool:
 def _raise_if_yf_cooldown_active() -> None:
     if _yf_cooldown_active():
         reason = _yf_cooldown_reason or "Yahoo Finance cooldown active"
-        raise YFRateLimitError(reason)
+        # YFRateLimitError takes no constructor args, so passing the reason
+        # positionally raises TypeError instead — which callers then fail to
+        # recognise as a rate limit. Attach it after construction.
+        exc = YFRateLimitError()
+        exc.args = (reason,)
+        raise exc
 
 
 def _ticker_info_cache_path(ticker: str) -> str:

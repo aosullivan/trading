@@ -235,29 +235,35 @@ function applySharedChartPayload(ticker,interval,period,mult,data,selectedStrate
   updateMarkers();
 }
 
-// Fetch overlay families that are toggled on but missing from lastData
-// (they are shipped separately from the strategy payload).
-let overlayFetchToken=0;
+// Overlay families ship separately from the strategy payload, so a chart load
+// and a toggle can want the same family at once. `pendingOverlayFamilies` stops
+// a family being requested twice concurrently; loadChart replaces the set (never
+// clears it) so requests still in flight from a superseded load can't block the
+// new one when they settle.
+let pendingOverlayFamilies=new Set();
+
 async function ensureOverlayFamilies(fams){
   const present=typeof FAMILY_DATA_PRESENT!=='undefined'?FAMILY_DATA_PRESENT:{};
-  const missing=[...fams].filter(f=>present[f]&&!present[f](lastData));
+  const pending=pendingOverlayFamilies;
+  const missing=[...fams].filter(f=>present[f]&&!present[f](lastData)&&!pending.has(f));
   if(!missing.length)return;
   const ticker=document.getElementById('ticker').value.toUpperCase();
   const interval=document.getElementById('interval').value;
   const period=document.getElementById('period').value,mult=document.getElementById('multiplier').value;
-  const token=++overlayFetchToken;
   const loadTokenAtRequest=chartLoadRequestToken;
   const url=buildChartRequestUrl(ticker,interval,chartStart,chartEnd,period,mult,{overlaysOnly:true,overlays:missing.sort().join(','),includeMM:false});
+  missing.forEach(f=>pending.add(f));
   try{
     const data=await fetch(url).then(r=>r.json());
-    if(token!==overlayFetchToken||loadTokenAtRequest!==chartLoadRequestToken)return;
+    if(loadTokenAtRequest!==chartLoadRequestToken)return;
     if(data?.error)return;
     applyOverlayPayload(data);
   }catch(_e){}
+  finally{missing.forEach(f=>pending.delete(f))}
 }
 
 function ensureActiveOverlayData(){
-  if(typeof currentOverlayFamilies==='function')ensureOverlayFamilies(currentOverlayFamilies());
+  if(typeof currentOverlayFamilies==='function')return ensureOverlayFamilies(currentOverlayFamilies());
 }
 
 async function loadChart(){
@@ -270,6 +276,9 @@ async function loadChart(){
   const ticker=document.getElementById('ticker').value.toUpperCase();
   const nameRefreshToken=++tickerNameRefreshToken;
   const requestToken=++chartLoadRequestToken;
+  // Fresh set: overlay fetches from the load we just superseded must not make
+  // this load skip a family they will never deliver.
+  pendingOverlayFamilies=new Set();
   const interval=document.getElementById('interval').value;
   const start=chartStart,end=chartEnd;
   const period=document.getElementById('period').value,mult=document.getElementById('multiplier').value;
@@ -278,8 +287,6 @@ async function loadChart(){
   const candlesUrl=buildChartRequestUrl(ticker,interval,start,end,period,mult,{candlesOnly:true,includeMM:false});
   const nameRefreshUrl=candlesUrl;
   const selectedStrategyUrl=buildChartRequestUrl(ticker,interval,start,end,period,mult,{strategyOnly:true,strategy:selectedStrategy,includeMM:true,includeShared:true});
-  const overlaysCsv=(typeof currentOverlayFamilies==='function')?[...currentOverlayFamilies()].sort().join(','):'ribbon,volumes';
-  const overlaysUrl=overlaysCsv?buildChartRequestUrl(ticker,interval,start,end,period,mult,{overlaysOnly:true,overlays:overlaysCsv,includeMM:false}):null;
   let candlesLoaded=false;
   try{
     syncChartHeader(ticker,interval,period,mult,'');
@@ -305,11 +312,10 @@ async function loadChart(){
   }
   if(loadingLabel)loadingLabel.textContent='Loading strategy…';
   // Strategy and overlay payloads are independent server modes — fetch them
-  // concurrently and apply each as it lands.
-  const overlaysPromise=overlaysUrl?fetch(overlaysUrl).then(r=>r.json()).then(od=>{
-    if(requestToken!==chartLoadRequestToken)return;
-    if(od&&!od.error)applyOverlayPayload(od);
-  }).catch(()=>{}):Promise.resolve();
+  // concurrently and apply each as it lands. Going through ensureOverlayFamilies
+  // registers the in-flight families, so the strategy response landing first
+  // can't trigger a duplicate request for the same set.
+  const overlaysPromise=ensureActiveOverlayData()||Promise.resolve();
   try{
     const data=await fetch(selectedStrategyUrl).then(r=>r.json());
     if(requestToken!==chartLoadRequestToken)return;
