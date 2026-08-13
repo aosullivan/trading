@@ -1611,9 +1611,13 @@ class TestChartAPI:
         assert data["strategy_only"] is True
         assert data["strategy"] == "ema_crossover"
         assert list(data["strategies"].keys()) == ["ema_crossover"]
-        assert "candles" in data
-        assert "supertrend_up" in data
-        assert "overlays" in data
+        # v4 contract: candles and overlay series ship via the candles_only /
+        # overlays_only modes, never with the strategy payload.
+        assert "candles" not in data
+        assert "overlays" not in data
+        assert "supertrend_up" not in data
+        assert "volumes" not in data
+        assert "sr_levels" in data
         assert "trend_flips" in data
         assert "trade_setup" in data
 
@@ -1690,7 +1694,82 @@ class TestChartAPI:
         assert second.status_code == 200
         data = second.get_json()
         assert data["strategy"] == "ema_crossover"
-        assert "candles" in data
+        assert "ema_crossover" in data["strategies"]
+
+    @patch("lib.cache.yf.download")
+    def test_chart_overlays_only_returns_requested_families_without_backtests(
+        self, mock_download, client
+    ):
+        n = 120
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 140, n)
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+
+        with patch(
+            "routes.chart.concurrent.futures.ThreadPoolExecutor",
+            side_effect=AssertionError("overlays_only should not dispatch backtests"),
+        ):
+            resp = client.get(
+                "/api/chart?ticker=OVERLAYSONLY&start=2023-01-01&period=10&multiplier=3"
+                "&overlays_only=1&overlays=ribbon,volumes"
+            )
+
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["overlays_only"] is True
+        assert "ribbon" in data["overlays"]
+        assert {"upper", "lower", "center"} <= set(data["overlays"]["ribbon"].keys())
+        assert isinstance(data["volumes"], list) and data["volumes"]
+        # Unrequested families and strategy fields stay out of the payload.
+        assert "bb" not in data["overlays"]
+        assert "ema9" not in data
+        assert "sma_50" not in data
+        assert "strategies" not in data
+        assert "candles" not in data
+
+    @patch("lib.cache.yf.download")
+    def test_chart_overlays_only_reuses_payload_cache_before_fetching(
+        self, mock_download, client
+    ):
+        n = 120
+        dates = pd.bdate_range("2023-01-01", periods=n)
+        close = np.linspace(100, 140, n)
+        mock_download.return_value = pd.DataFrame(
+            {
+                "Open": close,
+                "High": close + 2,
+                "Low": close - 2,
+                "Close": close,
+                "Volume": np.full(n, 5_000_000),
+            },
+            index=dates,
+        )
+        url = (
+            "/api/chart?ticker=OVERLAYSCACHE&start=2023-01-01&period=10&multiplier=3"
+            "&overlays_only=1&overlays=bb"
+        )
+
+        first = client.get(url)
+        assert first.status_code == 200
+        assert "bb" in first.get_json()["overlays"]
+
+        with patch(
+            "routes.chart.cached_download",
+            side_effect=AssertionError("overlays payload cache should avoid fetch"),
+        ):
+            second = client.get(url)
+
+        assert second.status_code == 200
+        assert "bb" in second.get_json()["overlays"]
 
     @patch("lib.cache.yf.download")
     def test_chart_reuses_disk_cached_payload_after_memory_cache_is_cleared(

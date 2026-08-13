@@ -107,11 +107,84 @@ from lib.strategies import (
 from lib.paths import get_user_data_path
 
 bp = Blueprint("chart", __name__)
-_CHART_PAYLOAD_CACHE_VERSION = 3
+# v4: strategy payloads no longer carry candles or overlay series; overlay
+# families ship via the `overlays_only` mode instead.
+_CHART_PAYLOAD_CACHE_VERSION = 4
 _SR_LEVEL_ALGORITHM_VERSION = "sr-v2"
 _CHART_INTERACTIVE_IDLE_SECONDS = 30
 _chart_activity_lock = threading.Lock()
 _last_interactive_chart_request_at = 0.0
+
+# Overlay families a client can request via `overlays=fam1,fam2` on an
+# `overlays_only=1` request. Families map to payload fields in
+# `_build_overlay_payload_fields`. The browser default is DEFAULT_OVERLAY_FAMILIES
+# (the toggles that are on at first load) — the prewarmer must warm the same set.
+OVERLAY_FAMILIES = (
+    "bb",
+    "cci",
+    "ema",
+    "ribbon",
+    "sma",
+    "supertrend",
+    "supertrend_i",
+    "vol_profile",
+    "volumes",
+)
+DEFAULT_OVERLAY_FAMILIES = "ribbon,volumes"
+
+# Single-flight map so concurrent requests for the same indicator/weekly bundle
+# wait for one computation instead of duplicating multi-second CPU work (the
+# client fetches strategy and overlay payloads in parallel).
+_bundle_singleflight_lock = threading.Lock()
+_bundle_singleflight_events: dict[str, threading.Event] = {}
+
+
+def _bundle_singleflight_begin(cache_key: str) -> threading.Event | None:
+    """Return an Event to wait on if another thread is computing cache_key."""
+    with _bundle_singleflight_lock:
+        event = _bundle_singleflight_events.get(cache_key)
+        if event is None:
+            _bundle_singleflight_events[cache_key] = threading.Event()
+            return None
+        return event
+
+
+def _bundle_singleflight_end(cache_key: str) -> None:
+    with _bundle_singleflight_lock:
+        event = _bundle_singleflight_events.pop(cache_key, None)
+    if event is not None:
+        event.set()
+
+
+def _bundle_cache_read(cache_key: str):
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    disk_cached = _read_bundle_disk_cache(cache_key)
+    if disk_cached is not None:
+        _cache_set(cache_key, disk_cached, ttl=_CHART_CACHE_TTL)
+        return disk_cached
+    return None
+
+
+def _bundle_cached_compute(cache_key: str, compute) -> tuple[dict, bool]:
+    """Memory/disk-cached bundle lookup with single-flight compute coalescing."""
+    cached = _bundle_cache_read(cache_key)
+    if cached is not None:
+        return cached, True
+    wait_event = _bundle_singleflight_begin(cache_key)
+    if wait_event is not None:
+        wait_event.wait(timeout=180)
+        cached = _bundle_cache_read(cache_key)
+        if cached is not None:
+            return cached, True
+        # The computing thread failed or timed out; compute without registering
+        # so we can't wedge other waiters.
+        return compute(), False
+    try:
+        return compute(), False
+    finally:
+        _bundle_singleflight_end(cache_key)
 
 
 def _mark_interactive_chart_request() -> None:
@@ -836,14 +909,19 @@ def _get_indicator_bundle(
         f"indicator_bundle:{ticker}:{interval}:{period_val}:{multiplier_val}:"
         f"{trend_ribbon_profile_signature(ticker)}:{_frame_signature(df)}"
     )
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached, True
-    disk_cached = _read_bundle_disk_cache(cache_key)
-    if disk_cached is not None:
-        _cache_set(cache_key, disk_cached, ttl=_CHART_CACHE_TTL)
-        return disk_cached, True
+    return _bundle_cached_compute(
+        cache_key,
+        lambda: _compute_indicator_bundle(ticker, df, period_val, multiplier_val, cache_key),
+    )
 
+
+def _compute_indicator_bundle(
+    ticker: str,
+    df: pd.DataFrame,
+    period_val: int,
+    multiplier_val: float,
+    cache_key: str,
+) -> dict:
     supertrend, direction = compute_supertrend(df, period_val, multiplier_val)
     supertrend_i, supertrend_i_direction = compute_supertrend_i(
         df,
@@ -987,7 +1065,7 @@ def _get_indicator_bundle(
     }
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
     _write_bundle_disk_cache(cache_key, bundle)
-    return bundle, False
+    return bundle
 
 
 def _get_weekly_bundle(
@@ -1000,14 +1078,19 @@ def _get_weekly_bundle(
         f"weekly_bundle:{ticker}:{period_val}:{multiplier_val}:"
         f"{trend_ribbon_profile_signature(ticker)}:{_frame_signature(df_w)}"
     )
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached, True
-    disk_cached = _read_bundle_disk_cache(cache_key)
-    if disk_cached is not None:
-        _cache_set(cache_key, disk_cached, ttl=_CHART_CACHE_TTL)
-        return disk_cached, True
+    return _bundle_cached_compute(
+        cache_key,
+        lambda: _compute_weekly_bundle(ticker, df_w, period_val, multiplier_val, cache_key),
+    )
 
+
+def _compute_weekly_bundle(
+    ticker: str,
+    df_w: pd.DataFrame,
+    period_val: int,
+    multiplier_val: float,
+    cache_key: str,
+) -> dict:
     _supertrend, supertrend_direction = compute_supertrend(
         df_w,
         period_val,
@@ -1110,7 +1193,7 @@ def _get_weekly_bundle(
     }
     _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
     _write_bundle_disk_cache(cache_key, bundle)
-    return bundle, False
+    return bundle
 
 
 def _get_sr_and_trade_setup(
@@ -1130,27 +1213,23 @@ def _get_sr_and_trade_setup(
         f"sr_trade_setup:{_SR_LEVEL_ALGORITHM_VERSION}:{ticker}:{_frame_signature(df)}:"
         f"{_frame_signature(df_w) if df_w is not None and not df_w.empty else 'none'}"
     )
-    cached = _cache_get(cache_key)
-    if cached is not None:
-        return cached, True
-    disk_cached = _read_bundle_disk_cache(cache_key)
-    if disk_cached is not None:
-        _cache_set(cache_key, disk_cached, ttl=_CHART_CACHE_TTL)
-        return disk_cached, True
 
-    sr_levels = compute_support_resistance(df, max_levels=20)
-    trade_setup = compute_trade_setup(
-        df,
-        df_w,
-        daily_flips,
-        weekly_flips,
-        ticker=ticker,
-        sr_levels=sr_levels,
-    )
-    bundle = {"sr_levels": sr_levels, "trade_setup": trade_setup}
-    _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
-    _write_bundle_disk_cache(cache_key, bundle)
-    return bundle, False
+    def _compute() -> dict:
+        sr_levels = compute_support_resistance(df, max_levels=20)
+        trade_setup = compute_trade_setup(
+            df,
+            df_w,
+            daily_flips,
+            weekly_flips,
+            ticker=ticker,
+            sr_levels=sr_levels,
+        )
+        bundle = {"sr_levels": sr_levels, "trade_setup": trade_setup}
+        _cache_set(cache_key, bundle, ttl=_CHART_CACHE_TTL)
+        _write_bundle_disk_cache(cache_key, bundle)
+        return bundle
+
+    return _bundle_cached_compute(cache_key, _compute)
 
 
 def _weekly_direction_for_strategy(
@@ -1164,6 +1243,189 @@ def _weekly_direction_for_strategy(
     if weekly_direction is None:
         return None
     return _align_weekly_direction_to_daily(weekly_direction, daily_index)
+
+
+def _parse_overlay_families(raw: str | None) -> set[str]:
+    """Normalize the `overlays=` request param to a known-family subset.
+
+    A missing param means "every supported family" so callers that predate the
+    param (tests, scripts) keep getting full payloads; an explicit empty value
+    means "none".
+    """
+    if raw is None:
+        return set(OVERLAY_FAMILIES)
+    return {f.strip() for f in raw.split(",") if f.strip()} & set(OVERLAY_FAMILIES)
+
+
+def _build_overlay_payload_fields(
+    families: set[str],
+    *,
+    ticker: str,
+    indicator_bundle: dict,
+    df: pd.DataFrame,
+    df_view: pd.DataFrame,
+    source_df: pd.DataFrame,
+    source_interval: str,
+    start,
+    end,
+    period_val: int,
+    multiplier_val: float,
+) -> dict:
+    """Serialize the requested overlay families into chart payload fields.
+
+    The only place overlay series become JSON — the overlays_only mode and the
+    full-chart payload both go through it, so the field shapes cannot drift.
+    Families that aren't requested are neither serialized nor shipped.
+    """
+    fields: dict = {"overlays": {}}
+
+    if "volumes" in families:
+        volumes = []
+        for i in range(len(df_view)):
+            ts = int(df_view.index[i].timestamp())
+            c = df_view["Close"].iloc[i]
+            o = df_view["Open"].iloc[i]
+            volumes.append(
+                {
+                    "time": ts,
+                    "value": int(df_view["Volume"].iloc[i]),
+                    "color": "rgba(38,166,154,0.5)" if c >= o else "rgba(239,83,80,0.5)",
+                }
+            )
+        fields["volumes"] = volumes
+
+    if "supertrend" in families:
+        st_up, st_down = _supertrend_segments_for_view(
+            df_view, indicator_bundle["supertrend"], indicator_bundle["direction"]
+        )
+        fields["supertrend_up"] = st_up
+        fields["supertrend_down"] = st_down
+
+    if "supertrend_i" in families:
+        st_i_up, st_i_down = _supertrend_segments_for_view(
+            df_view,
+            indicator_bundle["supertrend_i"],
+            indicator_bundle["supertrend_i_direction"],
+        )
+        fields["supertrend_i_up"] = st_i_up
+        fields["supertrend_i_down"] = st_i_down
+
+    if "ema" in families:
+        ema9_data = []
+        ema21_data = []
+        ema_fast_view = indicator_bundle["ema_fast"].loc[df_view.index]
+        ema_slow_view = indicator_bundle["ema_slow"].loc[df_view.index]
+        for i in range(len(df_view)):
+            ts = int(df_view.index[i].timestamp())
+            if not pd.isna(ema_fast_view.iloc[i]):
+                ema9_data.append({"time": ts, "value": round(float(ema_fast_view.iloc[i]), 2)})
+            if not pd.isna(ema_slow_view.iloc[i]):
+                ema21_data.append({"time": ts, "value": round(float(ema_slow_view.iloc[i]), 2)})
+        fields["ema9"] = ema9_data
+        fields["ema21"] = ema21_data
+
+    if "sma" in families:
+        for sma_period in [50, 100, 180, 200]:
+            sma = df["Close"].rolling(window=sma_period).mean()
+            sma_view = sma.loc[df_view.index]
+            sma_data = []
+            for i in range(len(df_view)):
+                if pd.isna(sma_view.iloc[i]):
+                    continue
+                sma_data.append(
+                    {
+                        "time": int(df_view.index[i].timestamp()),
+                        "value": round(float(sma_view.iloc[i]), 2),
+                    }
+                )
+            fields[f"sma_{sma_period}"] = sma_data
+        sma_50w: list[dict] = []
+        sma_100w: list[dict] = []
+        sma_200w: list[dict] = []
+        try:
+            if source_interval == "1wk":
+                df_w = source_df.copy()
+            else:
+                df_w = _resample_ohlcv(source_df, "W-FRI")
+            if not df_w.empty:
+                if isinstance(df_w.columns, pd.MultiIndex):
+                    df_w.columns = df_w.columns.get_level_values(0)
+                if df_w.index.duplicated().any():
+                    df_w = df_w[~df_w.index.duplicated(keep="last")]
+                df_w_view = df_w.loc[_visible_mask(df_w.index, start, end)]
+                weekly_bundle_local, _ = _get_weekly_bundle(
+                    ticker, df_w, period_val, multiplier_val
+                )
+                weekly_sma_outputs = [
+                    (weekly_bundle_local["sma_w50"].loc[df_w_view.index], sma_50w),
+                    (weekly_bundle_local["sma_w100"].loc[df_w_view.index], sma_100w),
+                    (weekly_bundle_local["sma_w200"].loc[df_w_view.index], sma_200w),
+                ]
+                for i in range(len(df_w_view)):
+                    ts = int(df_w_view.index[i].timestamp())
+                    for view, out in weekly_sma_outputs:
+                        if not pd.isna(view.iloc[i]):
+                            out.append({"time": ts, "value": round(float(view.iloc[i]), 2)})
+        except Exception:
+            current_app.logger.exception(
+                "overlay weekly SMA serialization failed ticker=%s", ticker
+            )
+        fields["sma_50w"] = sma_50w
+        fields["sma_100w"] = sma_100w
+        fields["sma_200w"] = sma_200w
+
+    if "bb" in families:
+        fields["overlays"]["bb"] = {
+            "upper": series_to_json(indicator_bundle["bb_upper"], df_view.index),
+            "mid": series_to_json(indicator_bundle["bb_mid"], df_view.index),
+            "lower": series_to_json(indicator_bundle["bb_lower"], df_view.index),
+        }
+
+    if "cci" in families:
+        fields["overlays"]["cci"] = {
+            "cci": series_to_json(indicator_bundle["cci_val"], df_view.index)
+        }
+
+    if "ribbon" in families:
+        ribbon_upper_data = []
+        ribbon_lower_data = []
+        r_upper_view = indicator_bundle["ribbon_upper"].loc[df_view.index]
+        r_lower_view = indicator_bundle["ribbon_lower"].loc[df_view.index]
+        r_dir_view = indicator_bundle["ribbon_dir"].loc[df_view.index]
+        r_strength_view = indicator_bundle["ribbon_strength"].loc[df_view.index]
+        for i in range(len(df_view)):
+            ts = int(df_view.index[i].timestamp())
+            u, lo, d, s = (
+                r_upper_view.iloc[i],
+                r_lower_view.iloc[i],
+                r_dir_view.iloc[i],
+                r_strength_view.iloc[i],
+            )
+            if pd.isna(u) or pd.isna(lo):
+                continue
+            alpha = max(0.15, min(0.6, float(s) * 0.7))
+            if d >= 0:
+                color = f"rgba(0,230,138,{alpha:.2f})"
+                line_color = "rgba(0,230,138,0.8)"
+            else:
+                color = f"rgba(255,82,116,{alpha:.2f})"
+                line_color = "rgba(255,82,116,0.8)"
+            ribbon_upper_data.append(
+                {"time": ts, "value": round(float(u), 2), "color": color, "lineColor": line_color}
+            )
+            ribbon_lower_data.append(
+                {"time": ts, "value": round(float(lo), 2), "color": color, "lineColor": line_color}
+            )
+        fields["overlays"]["ribbon"] = {
+            "upper": ribbon_upper_data,
+            "lower": ribbon_lower_data,
+            "center": series_to_json(indicator_bundle["ribbon_center"], df_view.index),
+        }
+
+    if "vol_profile" in families:
+        fields["vol_profile"] = build_volume_profile(df_view)
+
+    return fields
 
 
 def _resolve_cached_ticker_name(ticker: str) -> str:
@@ -1230,6 +1492,9 @@ def chart_data():
         )
     )
     candles_only = request.args.get("candles_only", "").lower() in ("1", "true", "yes")
+    overlays_only = request.args.get("overlays_only", "").lower() in ("1", "true", "yes")
+    overlay_families = _parse_overlay_families(request.args.get("overlays"))
+    overlays_sig = ",".join(sorted(overlay_families))
     strategy_only = request.args.get("strategy_only", "").lower() in ("1", "true", "yes")
     include_shared = request.args.get("include_shared", "").lower() in ("1", "true", "yes")
     requested_strategy = _normalize_requested_strategy(request.args.get("strategy"))
@@ -1252,7 +1517,7 @@ def chart_data():
     )
     chart_cache_key = (
         f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
-        f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}:{source_token}"
+        f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}:{overlays_sig}:{source_token}"
     )
     strategy_cache_kind = "strategy_shared" if include_shared else "strategy"
     strategy_cache_key = (
@@ -1264,6 +1529,10 @@ def chart_data():
         f"chart:strategy_shared:{ticker}:{interval}:{start}:{end}:"
         f"{period_val}:{multiplier_val}:{trend_ribbon_profile_signature(ticker)}:"
         f"{mm_sig}:{requested_strategy}:{source_token}"
+    )
+    overlays_cache_key = (
+        f"chart:overlays:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
+        f"{trend_ribbon_profile_signature(ticker)}:{overlays_sig}:{source_token}"
     )
     if candles_only:
         cached_candles = _cache_get(candles_cache_key)
@@ -1299,6 +1568,32 @@ def chart_data():
                 _elapsed_ms(request_started_at),
             )
             return jsonify(disk_cached_candles)
+    elif overlays_only:
+        cached_overlays = _cache_get(overlays_cache_key)
+        if cached_overlays is not None:
+            current_app.logger.info(
+                "chart_data overlays_only_cache_hit ticker=%s interval=%s families=%s total_ms=%s",
+                ticker,
+                interval,
+                overlays_sig,
+                _elapsed_ms(request_started_at),
+            )
+            return jsonify(cached_overlays)
+        disk_cached_overlays = _read_chart_payload_cache(
+            "overlays",
+            overlays_cache_key,
+            end,
+        )
+        if disk_cached_overlays is not None:
+            _cache_set(overlays_cache_key, disk_cached_overlays, ttl=_CHART_CACHE_TTL)
+            current_app.logger.info(
+                "chart_data overlays_only_disk_cache_hit ticker=%s interval=%s families=%s total_ms=%s",
+                ticker,
+                interval,
+                overlays_sig,
+                _elapsed_ms(request_started_at),
+            )
+            return jsonify(disk_cached_overlays)
     elif strategy_only:
         strategy_cache_candidates = [(strategy_cache_kind, strategy_cache_key)]
         if not include_shared:
@@ -1484,12 +1779,16 @@ def chart_data():
         )
         chart_cache_key = (
             f"chart:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
-            f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}:{post_fetch_token}"
+            f"{trend_ribbon_profile_signature(ticker)}:{mm_sig}:{overlays_sig}:{post_fetch_token}"
         )
         strategy_cache_key = (
             f"chart:{strategy_cache_kind}:{ticker}:{interval}:{start}:{end}:"
             f"{period_val}:{multiplier_val}:{trend_ribbon_profile_signature(ticker)}:"
             f"{mm_sig}:{requested_strategy}:{post_fetch_token}"
+        )
+        overlays_cache_key = (
+            f"chart:overlays:{ticker}:{interval}:{start}:{end}:{period_val}:{multiplier_val}:"
+            f"{trend_ribbon_profile_signature(ticker)}:{overlays_sig}:{post_fetch_token}"
         )
 
     if candles_only:
@@ -1513,7 +1812,9 @@ def chart_data():
     confirmation_config = _parse_confirmation_config()
     weekly_bundle = None
     weekly_bundle_hit = False
-    if interval == "1d":
+    # overlays_only requests never touch confirmation logic; skip the weekly
+    # bundle here (the sma family computes its own via _get_weekly_bundle).
+    if interval == "1d" and not overlays_only:
         try:
             df_w = _resample_ohlcv(source_df, "W-FRI")
             if not df_w.empty:
@@ -1542,6 +1843,37 @@ def chart_data():
         period_val,
         multiplier_val,
     )
+
+    if overlays_only:
+        payload = {
+            "overlays_only": True,
+            "ticker_name": ticker_name,
+            **_build_overlay_payload_fields(
+                overlay_families,
+                ticker=ticker,
+                indicator_bundle=indicator_bundle,
+                df=df,
+                df_view=df_view,
+                source_df=source_df,
+                source_interval=source_interval,
+                start=start,
+                end=end,
+                period_val=period_val,
+                multiplier_val=multiplier_val,
+            ),
+        }
+        _cache_set(overlays_cache_key, payload, ttl=_CHART_CACHE_TTL)
+        _write_chart_payload_cache("overlays", overlays_cache_key, end, payload)
+        current_app.logger.info(
+            "chart_data overlays_only ticker=%s interval=%s families=%s indicator_bundle_hit=%s total_ms=%s",
+            ticker,
+            interval,
+            overlays_sig,
+            indicator_bundle_hit,
+            _elapsed_ms(request_started_at),
+        )
+        return jsonify(payload)
+
     weekly_confirmation_supported = interval == "1d" and weekly_bundle is not None
     cb50_weekly_direction = _weekly_direction_for_strategy(
         weekly_bundle, "cb50", df.index
@@ -1953,33 +2285,9 @@ def chart_data():
             except Exception:
                 local_daily_flips = {}
 
-        candles = _ohlcv_df_to_candles(df_view)
-        st_up, st_down = _supertrend_segments_for_view(df_view, supertrend, direction)
-        st_i_up, st_i_down = _supertrend_segments_for_view(
-            df_view,
-            supertrend_i,
-            supertrend_i_direction,
-        )
-
-        local_smas = {}
-        for sma_period in [50, 100, 180, 200]:
-            sma = df["Close"].rolling(window=sma_period).mean()
-            sma_view = sma.loc[df_view.index]
-            sma_data = []
-            for i in range(len(df_view)):
-                if pd.isna(sma_view.iloc[i]):
-                    continue
-                sma_data.append(
-                    {
-                        "time": int(df_view.index[i].timestamp()),
-                        "value": round(float(sma_view.iloc[i]), 2),
-                    }
-                )
-            local_smas[f"sma_{sma_period}"] = sma_data
-
-        local_sma_50w = []
-        local_sma_100w = []
-        local_sma_200w = []
+        # Overlay series intentionally left out: the client fetches them via
+        # the `overlays_only` mode, so this payload keeps one fixed shape and
+        # its cache entries stay valid regardless of which toggles are on.
         local_weekly_flips = {}
         df_w = pd.DataFrame()
         try:
@@ -1992,30 +2300,15 @@ def chart_data():
                     df_w.columns = df_w.columns.get_level_values(0)
                 if df_w.index.duplicated().any():
                     df_w = df_w[~df_w.index.duplicated(keep="last")]
-                df_w_view = df_w.loc[_visible_mask(df_w.index, start, end)]
-                weekly_bundle_local, _ = _get_weekly_bundle(
-                    ticker,
-                    df_w,
-                    period_val,
-                    multiplier_val,
-                )
-                sma_w50 = weekly_bundle_local["sma_w50"]
-                sma_w100 = weekly_bundle_local["sma_w100"]
-                sma_w200 = weekly_bundle_local["sma_w200"]
-                sma_w50_view = sma_w50.loc[df_w_view.index]
-                sma_w100_view = sma_w100.loc[df_w_view.index]
-                sma_w200_view = sma_w200.loc[df_w_view.index]
-                for i in range(len(df_w_view)):
-                    ts = int(df_w_view.index[i].timestamp())
-                    if not pd.isna(sma_w50_view.iloc[i]):
-                        local_sma_50w.append({"time": ts, "value": round(float(sma_w50_view.iloc[i]), 2)})
-                    if not pd.isna(sma_w100_view.iloc[i]):
-                        local_sma_100w.append({"time": ts, "value": round(float(sma_w100_view.iloc[i]), 2)})
-                    if not pd.isna(sma_w200_view.iloc[i]):
-                        local_sma_200w.append({"time": ts, "value": round(float(sma_w200_view.iloc[i]), 2)})
                 if interval == "1wk":
                     local_weekly_flips = indicator_bundle["daily_flips"]
                 else:
+                    weekly_bundle_local, _ = _get_weekly_bundle(
+                        ticker,
+                        df_w,
+                        period_val,
+                        multiplier_val,
+                    )
                     local_weekly_flips = weekly_bundle_local["weekly_flips"]
         except Exception:
             current_app.logger.exception(
@@ -2027,135 +2320,12 @@ def chart_data():
         sr_setup_bundle, _ = _get_sr_and_trade_setup(
             ticker, df, df_w, local_daily_flips, local_weekly_flips
         )
-        local_sr_levels = sr_setup_bundle["sr_levels"]
-        local_trade_setup = sr_setup_bundle["trade_setup"]
-
-        volumes = []
-        for i in range(len(df_view)):
-            ts = int(df_view.index[i].timestamp())
-            c = df_view["Close"].iloc[i]
-            o = df_view["Open"].iloc[i]
-            volumes.append(
-                {
-                    "time": ts,
-                    "value": int(df_view["Volume"].iloc[i]),
-                    "color": "rgba(38,166,154,0.5)" if c >= o else "rgba(239,83,80,0.5)",
-                }
-            )
-
-        ema9_data = []
-        ema21_data = []
-        ema_fast_view = ema_fast.loc[df_view.index]
-        ema_slow_view = ema_slow.loc[df_view.index]
-        for i in range(len(df_view)):
-            ts = int(df_view.index[i].timestamp())
-            if not pd.isna(ema_fast_view.iloc[i]):
-                ema9_data.append({"time": ts, "value": round(float(ema_fast_view.iloc[i]), 2)})
-            if not pd.isna(ema_slow_view.iloc[i]):
-                ema21_data.append({"time": ts, "value": round(float(ema_slow_view.iloc[i]), 2)})
-
-        macd_line_data = []
-        signal_line_data = []
-        macd_hist_data = []
-        macd_line_view = macd_line.loc[df_view.index]
-        signal_line_view = signal_line.loc[df_view.index]
-        macd_hist_view = macd_hist.loc[df_view.index]
-        for i in range(len(df_view)):
-            ts = int(df_view.index[i].timestamp())
-            if not pd.isna(macd_line_view.iloc[i]):
-                macd_line_data.append({"time": ts, "value": round(float(macd_line_view.iloc[i]), 2)})
-            if not pd.isna(signal_line_view.iloc[i]):
-                signal_line_data.append({"time": ts, "value": round(float(signal_line_view.iloc[i]), 2)})
-            if not pd.isna(macd_hist_view.iloc[i]):
-                macd_hist_data.append(
-                    {
-                        "time": ts,
-                        "value": round(float(macd_hist_view.iloc[i]), 2),
-                        "color": "rgba(38,166,154,0.7)" if macd_hist_view.iloc[i] >= 0 else "rgba(239,83,80,0.7)",
-                    }
-                )
-
-        donch_upper_data = series_to_json(donch_upper, df_view.index)
-        donch_lower_data = series_to_json(donch_lower, df_view.index)
-        bb_upper_data = series_to_json(bb_upper, df_view.index)
-        bb_mid_data = series_to_json(bb_mid, df_view.index)
-        bb_lower_data = series_to_json(bb_lower, df_view.index)
-        kelt_upper_data = series_to_json(kelt_upper, df_view.index)
-        kelt_mid_data = series_to_json(kelt_mid, df_view.index)
-        kelt_lower_data = series_to_json(kelt_lower, df_view.index)
-
-        psar_bull_data = []
-        psar_bear_data = []
-        psar_view = psar_line.loc[df_view.index]
-        psar_dir_view = psar_direction.loc[df_view.index]
-        for i in range(len(df_view)):
-            v = psar_view.iloc[i]
-            if pd.isna(v):
-                continue
-            pt = {"time": int(df_view.index[i].timestamp()), "value": round(float(v), 2)}
-            if psar_dir_view.iloc[i] == 1:
-                psar_bull_data.append(pt)
-            else:
-                psar_bear_data.append(pt)
-
-        cci_data = series_to_json(cci_val, df_view.index)
-        orb_high_data = series_to_json(orb_range_high, df_view.index)
-        orb_low_data = series_to_json(orb_range_low, df_view.index)
-        orb_mid_data = series_to_json(orb_range_mid, df_view.index)
-
-        ribbon_upper_data = []
-        ribbon_lower_data = []
-        r_upper_view = ribbon_upper.loc[df_view.index]
-        r_lower_view = ribbon_lower.loc[df_view.index]
-        r_dir_view = ribbon_dir.loc[df_view.index]
-        r_strength_view = ribbon_strength.loc[df_view.index]
-        for i in range(len(df_view)):
-            ts = int(df_view.index[i].timestamp())
-            u, lo, d, s = r_upper_view.iloc[i], r_lower_view.iloc[i], r_dir_view.iloc[i], r_strength_view.iloc[i]
-            if pd.isna(u) or pd.isna(lo):
-                continue
-            alpha = max(0.15, min(0.6, float(s) * 0.7))
-            if d >= 0:
-                color = f"rgba(0,230,138,{alpha:.2f})"
-                line_color = "rgba(0,230,138,0.8)"
-            else:
-                color = f"rgba(255,82,116,{alpha:.2f})"
-                line_color = "rgba(255,82,116,0.8)"
-            ribbon_upper_data.append({"time": ts, "value": round(float(u), 2), "color": color, "lineColor": line_color})
-            ribbon_lower_data.append({"time": ts, "value": round(float(lo), 2), "color": color, "lineColor": line_color})
-
-        ribbon_center_data = series_to_json(ribbon_center, df_view.index)
 
         return {
             "ticker_name": ticker_name,
-            "candles": candles,
-            "supertrend_up": st_up,
-            "supertrend_down": st_down,
-            "supertrend_i_up": st_i_up,
-            "supertrend_i_down": st_i_down,
-            "volumes": volumes,
-            **local_smas,
-            "sma_50w": local_sma_50w,
-            "sma_100w": local_sma_100w,
-            "sma_200w": local_sma_200w,
-            "ema9": ema9_data,
-            "ema21": ema21_data,
-            "macd_line": macd_line_data,
-            "signal_line": signal_line_data,
-            "macd_hist": macd_hist_data,
-            "sr_levels": local_sr_levels,
-            "overlays": {
-                "donchian": {"upper": donch_upper_data, "lower": donch_lower_data},
-                "bb": {"upper": bb_upper_data, "mid": bb_mid_data, "lower": bb_lower_data},
-                "keltner": {"upper": kelt_upper_data, "mid": kelt_mid_data, "lower": kelt_lower_data},
-                "psar": {"bull": psar_bull_data, "bear": psar_bear_data},
-                "cci": {"cci": cci_data},
-                "orb": {"upper": orb_high_data, "lower": orb_low_data, "mid": orb_mid_data},
-                "ribbon": {"upper": ribbon_upper_data, "lower": ribbon_lower_data, "center": ribbon_center_data},
-            },
-            "vol_profile": build_volume_profile(df_view),
+            "sr_levels": sr_setup_bundle["sr_levels"],
             "trend_flips": {"daily": local_daily_flips, "weekly": local_weekly_flips},
-            "trade_setup": local_trade_setup,
+            "trade_setup": sr_setup_bundle["trade_setup"],
         }
 
     # Vercel Blob shortcut: when the prewarm cron has already computed the
@@ -2272,14 +2442,6 @@ def chart_data():
     # --- Candles ---
     candles = _ohlcv_df_to_candles(df_view)
 
-    # --- Supertrend lines ---
-    st_up, st_down = _supertrend_segments_for_view(df_view, supertrend, direction)
-    st_i_up, st_i_down = _supertrend_segments_for_view(
-        df_view,
-        supertrend_i,
-        supertrend_i_direction,
-    )
-
     # --- Supertrend backtest ---
     trades, summary, equity_curve = _run_direction_backtest(
         df_view, direction, df.index, df_view.index, active_mm_config
@@ -2309,27 +2471,7 @@ def chart_data():
                 }
             )
 
-    # --- SMAs ---
-    smas = {}
-    for sma_period in [50, 100, 180, 200]:
-        sma = df["Close"].rolling(window=sma_period).mean()
-        sma_view = sma.loc[df_view.index]
-        sma_data = []
-        for i in range(len(df_view)):
-            if pd.isna(sma_view.iloc[i]):
-                continue
-            sma_data.append(
-                {
-                    "time": int(df_view.index[i].timestamp()),
-                    "value": round(float(sma_view.iloc[i]), 2),
-                }
-            )
-        smas[f"sma_{sma_period}"] = sma_data
-
-    # --- Weekly SMAs and flips ---
-    sma_50w = []
-    sma_100w = []
-    sma_200w = []
+    # --- Weekly flips (weekly SMA serialization lives in the overlay helper) ---
     weekly_flips = {}
     df_w = pd.DataFrame()
     try:
@@ -2342,27 +2484,12 @@ def chart_data():
                 df_w.columns = df_w.columns.get_level_values(0)
             if df_w.index.duplicated().any():
                 df_w = df_w[~df_w.index.duplicated(keep="last")]
-            df_w_view = df_w.loc[_visible_mask(df_w.index, start, end)]
             weekly_bundle, weekly_bundle_hit = _get_weekly_bundle(
                 ticker,
                 df_w,
                 period_val,
                 multiplier_val,
             )
-            sma_w50 = weekly_bundle["sma_w50"]
-            sma_w100 = weekly_bundle["sma_w100"]
-            sma_w200 = weekly_bundle["sma_w200"]
-            sma_w50_view = sma_w50.loc[df_w_view.index]
-            sma_w100_view = sma_w100.loc[df_w_view.index]
-            sma_w200_view = sma_w200.loc[df_w_view.index]
-            for i in range(len(df_w_view)):
-                ts = int(df_w_view.index[i].timestamp())
-                if not pd.isna(sma_w50_view.iloc[i]):
-                    sma_50w.append({"time": ts, "value": round(float(sma_w50_view.iloc[i]), 2)})
-                if not pd.isna(sma_w100_view.iloc[i]):
-                    sma_100w.append({"time": ts, "value": round(float(sma_w100_view.iloc[i]), 2)})
-                if not pd.isna(sma_w200_view.iloc[i]):
-                    sma_200w.append({"time": ts, "value": round(float(sma_w200_view.iloc[i]), 2)})
             if interval == "1wk":
                 weekly_flips = indicator_bundle["daily_flips"]
             else:
@@ -2422,148 +2549,32 @@ def chart_data():
     trade_setup = sr_setup_bundle["trade_setup"]
     mark_phase("sr_setup_ms")
 
-    # --- Volumes ---
-    volumes = []
-    for i in range(len(df_view)):
-        ts = int(df_view.index[i].timestamp())
-        c = df_view["Close"].iloc[i]
-        o = df_view["Open"].iloc[i]
-        volumes.append(
-            {
-                "time": ts,
-                "value": int(df_view["Volume"].iloc[i]),
-                "color": "rgba(38,166,154,0.5)" if c >= o else "rgba(239,83,80,0.5)",
-            }
-        )
-
-    # --- EMA lines ---
-    ema9_data = []
-    ema21_data = []
-    ema_fast_view = ema_fast.loc[df_view.index]
-    ema_slow_view = ema_slow.loc[df_view.index]
-    for i in range(len(df_view)):
-        ts = int(df_view.index[i].timestamp())
-        if not pd.isna(ema_fast_view.iloc[i]):
-            ema9_data.append({"time": ts, "value": round(float(ema_fast_view.iloc[i]), 2)})
-        if not pd.isna(ema_slow_view.iloc[i]):
-            ema21_data.append({"time": ts, "value": round(float(ema_slow_view.iloc[i]), 2)})
-
-    # --- MACD ---
-    macd_line_data = []
-    signal_line_data = []
-    macd_hist_data = []
-    macd_line_view = macd_line.loc[df_view.index]
-    signal_line_view = signal_line.loc[df_view.index]
-    macd_hist_view = macd_hist.loc[df_view.index]
-    for i in range(len(df_view)):
-        ts = int(df_view.index[i].timestamp())
-        if not pd.isna(macd_line_view.iloc[i]):
-            macd_line_data.append({"time": ts, "value": round(float(macd_line_view.iloc[i]), 2)})
-        if not pd.isna(signal_line_view.iloc[i]):
-            signal_line_data.append({"time": ts, "value": round(float(signal_line_view.iloc[i]), 2)})
-        if not pd.isna(macd_hist_view.iloc[i]):
-            macd_hist_data.append(
-                {
-                    "time": ts,
-                    "value": round(float(macd_hist_view.iloc[i]), 2),
-                    "color": "rgba(38,166,154,0.7)" if macd_hist_view.iloc[i] >= 0 else "rgba(239,83,80,0.7)",
-                }
-            )
-
-    # --- Channel overlays ---
-    donch_upper_data = series_to_json(donch_upper, df_view.index)
-    donch_lower_data = series_to_json(donch_lower, df_view.index)
-    bb_upper_data = series_to_json(bb_upper, df_view.index)
-    bb_mid_data = series_to_json(bb_mid, df_view.index)
-    bb_lower_data = series_to_json(bb_lower, df_view.index)
-    kelt_upper_data = series_to_json(kelt_upper, df_view.index)
-    kelt_mid_data = series_to_json(kelt_mid, df_view.index)
-    kelt_lower_data = series_to_json(kelt_lower, df_view.index)
-
-    # --- Parabolic SAR ---
-    psar_bull_data = []
-    psar_bear_data = []
-    psar_view = psar_line.loc[df_view.index]
-    psar_dir_view = psar_direction.loc[df_view.index]
-    for i in range(len(df_view)):
-        v = psar_view.iloc[i]
-        if pd.isna(v):
-            continue
-        pt = {"time": int(df_view.index[i].timestamp()), "value": round(float(v), 2)}
-        if psar_dir_view.iloc[i] == 1:
-            psar_bull_data.append(pt)
-        else:
-            psar_bear_data.append(pt)
-
-    # --- CCI ---
-    cci_data = series_to_json(cci_val, df_view.index)
-
-    # --- ORB ---
-    orb_high_data = series_to_json(orb_range_high, df_view.index)
-    orb_low_data = series_to_json(orb_range_low, df_view.index)
-    orb_mid_data = series_to_json(orb_range_mid, df_view.index)
-
-    # --- Trend ribbon ---
-    ribbon_upper_data = []
-    ribbon_lower_data = []
-    r_upper_view = ribbon_upper.loc[df_view.index]
-    r_lower_view = ribbon_lower.loc[df_view.index]
-    r_dir_view = ribbon_dir.loc[df_view.index]
-    r_strength_view = ribbon_strength.loc[df_view.index]
-    for i in range(len(df_view)):
-        ts = int(df_view.index[i].timestamp())
-        u, lo, d, s = r_upper_view.iloc[i], r_lower_view.iloc[i], r_dir_view.iloc[i], r_strength_view.iloc[i]
-        if pd.isna(u) or pd.isna(lo):
-            continue
-        alpha = max(0.15, min(0.6, float(s) * 0.7))
-        if d >= 0:
-            color = f"rgba(0,230,138,{alpha:.2f})"
-            line_color = "rgba(0,230,138,0.8)"
-        else:
-            color = f"rgba(255,82,116,{alpha:.2f})"
-            line_color = "rgba(255,82,116,0.8)"
-        ribbon_upper_data.append({"time": ts, "value": round(float(u), 2), "color": color, "lineColor": line_color})
-        ribbon_lower_data.append({"time": ts, "value": round(float(lo), 2), "color": color, "lineColor": line_color})
-
-    ribbon_center_data = series_to_json(ribbon_center, df_view.index)
-    vol_profile = build_volume_profile(df_view)
     window_meta_config = None if confirmation_config else active_mm_config
 
     # --- Build payload ---
     payload = {
         "ticker_name": ticker_name,
         "candles": candles,
-        "supertrend_up": st_up,
-        "supertrend_down": st_down,
-        "supertrend_i_up": st_i_up,
-        "supertrend_i_down": st_i_down,
-        "volumes": volumes,
         "markers": markers,
         "trades": trades,
         "summary": summary,
         "equity_curve": equity_curve,
         "buy_hold_equity_curve": buy_hold_equity_curve,
-        **smas,
-        "sma_50w": sma_50w,
-        "sma_100w": sma_100w,
-        "sma_200w": sma_200w,
         "strategies": _build_all_strategy_payloads(),
-        "ema9": ema9_data,
-        "ema21": ema21_data,
-        "macd_line": macd_line_data,
-        "signal_line": signal_line_data,
-        "macd_hist": macd_hist_data,
         "sr_levels": sr_levels,
-        "overlays": {
-            "donchian": {"upper": donch_upper_data, "lower": donch_lower_data},
-            "bb": {"upper": bb_upper_data, "mid": bb_mid_data, "lower": bb_lower_data},
-            "keltner": {"upper": kelt_upper_data, "mid": kelt_mid_data, "lower": kelt_lower_data},
-            "psar": {"bull": psar_bull_data, "bear": psar_bear_data},
-            "cci": {"cci": cci_data},
-            "orb": {"upper": orb_high_data, "lower": orb_low_data, "mid": orb_mid_data},
-            "ribbon": {"upper": ribbon_upper_data, "lower": ribbon_lower_data, "center": ribbon_center_data},
-        },
-        "vol_profile": vol_profile,
+        **_build_overlay_payload_fields(
+            overlay_families,
+            ticker=ticker,
+            indicator_bundle=indicator_bundle,
+            df=df,
+            df_view=df_view,
+            source_df=source_df,
+            source_interval=source_interval,
+            start=start,
+            end=end,
+            period_val=period_val,
+            multiplier_val=multiplier_val,
+        ),
         "trend_flips": {"daily": daily_flips, "weekly": weekly_flips},
         "trade_setup": trade_setup,
     }

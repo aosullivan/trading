@@ -116,6 +116,7 @@ function toggleLegendItem(idx){
   setLegendItemState(idx,nextOn);
   if(item.key===MA_AUTO_KEY&&nextOn)syncAutoMovingAverages();
   if(item.key===MA_AUTO_KEY&&!nextOn)clearMovingAverages();
+  if(nextOn&&typeof ensureActiveOverlayData==='function')ensureActiveOverlayData();
   pushURLParams();
 }
 

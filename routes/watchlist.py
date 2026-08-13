@@ -65,11 +65,11 @@ def _empty_quote_row(ticker: str) -> dict:
     return {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
 
 
-def _treasury_rate_payload(ticker: str) -> dict:
+def _treasury_rate_payload(ticker: str, *, allow_fetch: bool = True) -> dict:
     if not is_treasury_yield_ticker(ticker):
         return {}
     try:
-        df = _fetch_treasury_yield_history(ticker)
+        df = _fetch_treasury_yield_history(ticker, cached_only=not allow_fetch)
         if df.empty or "Close" not in df:
             return {}
         close = df.dropna(subset=["Close"])
@@ -85,9 +85,9 @@ def _treasury_rate_payload(ticker: str) -> dict:
         return {}
 
 
-def _with_treasury_rate(row: dict) -> dict:
+def _with_treasury_rate(row: dict, *, allow_fetch: bool = True) -> dict:
     ticker = str(row.get("ticker") or "").upper().strip()
-    payload = _treasury_rate_payload(ticker)
+    payload = _treasury_rate_payload(ticker, allow_fetch=allow_fetch)
     if not payload:
         return row
     return {**row, **payload}
@@ -368,7 +368,9 @@ def _load_watchlist_quote_snapshot_rows(tickers: list[str]) -> list[dict]:
     for ticker in tickers:
         cached = _cache_get(f"quote:{ticker}")
         row = cached if isinstance(cached, dict) else _empty_quote_row(ticker)
-        rows.append(_with_treasury_rate(row))
+        # allow_fetch=False: this is the fast path served while the background
+        # refresh runs — it must never block on a FRED download.
+        rows.append(_with_treasury_rate(row, allow_fetch=False))
     return rows
 
 

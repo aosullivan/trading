@@ -107,10 +107,10 @@ def test_template_exposes_trend_flip_pulse_controls():
 
 def test_template_updates_last_data_before_refreshing_trend_flip_ui():
     source = CHART_LOAD_JS_PATH.read_text()
-    last_data_pos = source.index("lastData=data;")
-    sync_pos = source.index("syncAutoMovingAverages();", last_data_pos)
-    flip_pos = source.index("updateFlipInfo();", sync_pos)
-    assert last_data_pos < sync_pos < flip_pos
+    last_data_pos = source.index("lastData={...(lastData||{}),...rest,candles};")
+    overlay_pos = source.index("applyOverlayPayload(data);", last_data_pos)
+    flip_pos = source.index("updateFlipInfo();", overlay_pos)
+    assert last_data_pos < overlay_pos < flip_pos
 
 
 def test_chart_load_uses_strategy_only_shared_path_and_lazy_strategy_fetches():

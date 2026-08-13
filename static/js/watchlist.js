@@ -565,6 +565,7 @@ function queueWatchlistChartPreload(delayMs=3000){
 	      try{
 	        const ticker=String(t).toUpperCase();
 	        const fallbackBase=`/api/chart?ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}&start=${encodeURIComponent(start)}&period=${encodeURIComponent(period)}&multiplier=${encodeURIComponent(mult)}${end?`&end=${encodeURIComponent(end)}`:''}`;
+	        const overlaysCsv=(typeof currentOverlayFamilies==='function')?[...currentOverlayFamilies()].sort().join(','):'ribbon,volumes';
 	        const urls=(typeof buildChartRequestUrl==='function')
 	          ? [
 	            buildChartRequestUrl(ticker,interval,start,end,period,mult,{candlesOnly:true,includeMM:false})+'&cache_only=1&prewarm=1',
@@ -574,6 +575,11 @@ function queueWatchlistChartPreload(delayMs=3000){
 	            `${fallbackBase}&candles_only=1&cache_only=1&prewarm=1`,
 	            `${fallbackBase}&strategy_only=1&include_shared=1&strategy=${encodeURIComponent(selectedStrategy)}&cache_only=1&prewarm=1`,
 	          ];
+	        if(overlaysCsv){
+	          urls.push((typeof buildChartRequestUrl==='function')
+	            ? buildChartRequestUrl(ticker,interval,start,end,period,mult,{overlaysOnly:true,overlays:overlaysCsv,includeMM:false})+'&cache_only=1&prewarm=1'
+	            : `${fallbackBase}&overlays_only=1&overlays=${encodeURIComponent(overlaysCsv)}&cache_only=1&prewarm=1`);
+	        }
 	        urls.forEach(url=>fetch(url,controller?{signal:controller.signal}:undefined).catch(()=>{}));
 	      }catch(_e){}
 	    });

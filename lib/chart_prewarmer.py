@@ -37,6 +37,10 @@ _DEFAULT_INITIAL_DELAY = 45.0
 _DEFAULT_PER_REQUEST_SLEEP = 0.25
 _DEFAULT_IDLE_POLL_SECONDS = 5.0
 _DEFAULT_STRATEGY = "ribbon"
+# Must mirror routes.chart.DEFAULT_OVERLAY_FAMILIES (kept as a literal here to
+# avoid importing the routes layer from lib): the overlay families the browser
+# has enabled on a first load with no saved URL state.
+DEFAULT_OVERLAY_FAMILIES = "ribbon,volumes"
 DEFAULT_CHART_STRATEGIES: tuple[str, ...] = (
     "ribbon",
     "corpus_trend",
@@ -89,6 +93,12 @@ def _chart_artifact_urls(
     if cache_only:
         suffix += "&cache_only=1"
     urls = [base_url + "&candles_only=1" + suffix]
+    # Warm the overlay families the browser requests on first load — the URL
+    # string is the cache-key contract, so this must mirror the frontend's
+    # default set (routes.chart.DEFAULT_OVERLAY_FAMILIES).
+    urls.append(
+        base_url + "&overlays_only=1&overlays=" + quote(DEFAULT_OVERLAY_FAMILIES) + suffix
+    )
     if str(interval) in {str(item) for item in strategy_intervals}:
         normalized_strategies = _normalize_strategies(strategies)
         if not normalized_strategies:

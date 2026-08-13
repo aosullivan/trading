@@ -563,35 +563,90 @@ def resolve_treasury_price_proxy_ticker(ticker: str) -> str:
     return proxy["yf_ticker"] if proxy else ticker
 
 
-def _fetch_treasury_yield_history(ticker: str, start=None, end=None) -> pd.DataFrame:
-    """Fetch and cache Treasury yield history from FRED without an API key."""
+_FRED_DISK_CACHE_DIR = os.path.join(_DATA_CACHE_DIR, "fred")
+_FRED_DISK_CACHE_TTL = 86400  # FRED series are daily; a day-old disk copy is current enough
+_FRED_DISK_STALE_TTL = 7 * 86400  # cached_only readers prefer week-old data over blocking
+
+
+def _fred_disk_cache_path(fred_id: str) -> str:
+    return os.path.join(_FRED_DISK_CACHE_DIR, f"{fred_id}.csv")
+
+
+def _read_disk_fred_frame(fred_id: str, max_age_seconds: float) -> pd.DataFrame | None:
+    path = _fred_disk_cache_path(fred_id)
+    try:
+        if (_time.time() - os.path.getmtime(path)) > max_age_seconds:
+            return None
+        df = pd.read_csv(path, index_col=0, parse_dates=True)
+    except (OSError, ValueError):
+        return None
+    if df.empty or "Close" not in df.columns:
+        return None
+    return df
+
+
+def _write_disk_fred_frame(fred_id: str, df: pd.DataFrame) -> None:
+    try:
+        os.makedirs(_FRED_DISK_CACHE_DIR, exist_ok=True)
+        df.to_csv(_fred_disk_cache_path(fred_id))
+    except OSError:
+        pass
+
+
+def _download_fred_frame(fred_id: str) -> pd.DataFrame | None:
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={fred_id}"
+    req = urllib.request.urlopen(url, timeout=5)
+    source = pd.read_csv(io.StringIO(req.read().decode("utf-8")))
+    date_col = next((col for col in _FRED_DATE_COLUMNS if col in source.columns), None)
+    if source.empty or date_col is None or fred_id not in source.columns:
+        return None
+    source[date_col] = pd.to_datetime(source[date_col], errors="coerce")
+    source[fred_id] = pd.to_numeric(source[fred_id], errors="coerce")
+    source = (
+        source.dropna(subset=[date_col, fred_id])
+        .set_index(date_col)
+        .sort_index()
+    )
+    frame = source.rename(columns={fred_id: "Close"})[["Close"]]
+    frame["Open"] = frame["Close"]
+    frame["High"] = frame["Close"]
+    frame["Low"] = frame["Close"]
+    frame["Volume"] = 0
+    return frame[["Open", "High", "Low", "Close", "Volume"]]
+
+
+def _fetch_treasury_yield_history(
+    ticker: str, start=None, end=None, *, cached_only: bool = False
+) -> pd.DataFrame:
+    """Fetch and cache Treasury yield history from FRED without an API key.
+
+    With cached_only=True this never touches the network: request paths that
+    must stay fast (watchlist quote snapshots) read memory/disk only and rely
+    on the background quote refresh to download and persist fresh series.
+    """
     meta = _TREASURY_YIELD_SERIES.get(ticker.upper())
     if meta is None:
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
+    fred_id = meta["fred_id"]
 
-    cache_key = f"fred:{meta['fred_id']}"
+    cache_key = f"fred:{fred_id}"
     cached = _cache_get(cache_key)
     if cached is None:
-        url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={meta['fred_id']}"
-        req = urllib.request.urlopen(url, timeout=5)
-        source = pd.read_csv(io.StringIO(req.read().decode("utf-8")))
-        date_col = next((col for col in _FRED_DATE_COLUMNS if col in source.columns), None)
-        if source.empty or date_col is None or meta["fred_id"] not in source.columns:
-            return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
-        source[date_col] = pd.to_datetime(source[date_col], errors="coerce")
-        source[meta["fred_id"]] = pd.to_numeric(source[meta["fred_id"]], errors="coerce")
-        source = (
-            source.dropna(subset=[date_col, meta["fred_id"]])
-            .set_index(date_col)
-            .sort_index()
-        )
-        cached = source.rename(columns={meta["fred_id"]: "Close"})[["Close"]]
-        cached["Open"] = cached["Close"]
-        cached["High"] = cached["Close"]
-        cached["Low"] = cached["Close"]
-        cached["Volume"] = 0
-        cached = cached[["Open", "High", "Low", "Close", "Volume"]]
-        _cache_set(cache_key, cached, ttl=_FRED_CACHE_TTL)
+        cached = _read_disk_fred_frame(fred_id, _FRED_DISK_CACHE_TTL)
+        if cached is not None:
+            _cache_set(cache_key, cached, ttl=_FRED_CACHE_TTL)
+    if cached is None:
+        if cached_only:
+            # Stale disk data is not promoted to the memory cache so the next
+            # fetching caller still refreshes it.
+            cached = _read_disk_fred_frame(fred_id, _FRED_DISK_STALE_TTL)
+        else:
+            cached = _download_fred_frame(fred_id)
+            if cached is not None:
+                _cache_set(cache_key, cached, ttl=_FRED_CACHE_TTL)
+                _write_disk_fred_frame(fred_id, cached)
+    if cached is None:
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
 
     df = cached.copy()
     if start:

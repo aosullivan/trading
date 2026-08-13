@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TriedingView</title>
 <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<link href="{{ url_for('static', filename='vendor/inter.css') }}" rel="stylesheet">
+<script src="{{ url_for('static', filename='vendor/lightweight-charts.4.1.1.standalone.production.js') }}"></script>
 <script src="{{ url_for('static', filename='chart_support_resistance.js') }}"></script>
 <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>

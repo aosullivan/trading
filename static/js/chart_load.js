@@ -5,10 +5,12 @@ function syncTickerNameLabel(tickerName){
   document.getElementById('tk-name').textContent=tickerName||'';
 }
 
-function buildChartRequestUrl(ticker,interval,start,end,period,mult,{candlesOnly=false,includeMM=true,strategyOnly=false,strategy='',includeShared=false}={}){
+function buildChartRequestUrl(ticker,interval,start,end,period,mult,{candlesOnly=false,includeMM=true,strategyOnly=false,strategy='',includeShared=false,overlaysOnly=false,overlays=''}={}){
   let url=`/api/chart?ticker=${encodeURIComponent(ticker)}&interval=${encodeURIComponent(interval)}&start=${encodeURIComponent(start)}&period=${encodeURIComponent(period)}&multiplier=${encodeURIComponent(mult)}`;
   if(end)url+=`&end=${encodeURIComponent(end)}`;
   if(candlesOnly)url+='&candles_only=1';
+  if(overlaysOnly)url+='&overlays_only=1';
+  if(overlays)url+=`&overlays=${encodeURIComponent(overlays)}`;
   if(strategyOnly)url+='&strategy_only=1';
   if(includeShared)url+='&include_shared=1';
   if(strategy)url+=`&strategy=${encodeURIComponent(strategy)}`;
@@ -151,67 +153,111 @@ async function loadStrategyPayload(name){
   }
 }
 
-function applySharedChartPayload(ticker,interval,period,mult,data,selectedStrategy,{resetRange=false}={}){
-  const candles=data.candles||[];
-  candleSeries.setData(candles);
-  _lastCandles=candles;
-  syncChartHeader(ticker,interval,period,mult,data.ticker_name||'');
-  updateChartPriceDisplay(ticker,candles);
-  clearChartDerivedSeries();
-  applySelectedStrategyPayload(data,selectedStrategy);
-  const stUpData=(data.supertrend_up||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
-  const stDownData=(data.supertrend_down||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
-  const stIUpData=(data.supertrend_i_up||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
-  const stIDownData=(data.supertrend_i_down||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
-  clearSupertrendSegments();
-  clearSupertrendISegments();
-  stUpSeries=buildSupertrendSegments(stUpData,'#00e68a');
-  stDownSeries=buildSupertrendSegments(stDownData,'#ff5274');
-  stIUpSeries=buildSupertrendSegments(stIUpData,'#00d084');
-  stIDownSeries=buildSupertrendSegments(stIDownData,'#ff3d71');
-  // Supertrend fills: area from body middle to supertrend line
-  stUpFill.setData(stUpData.map(d=>d.value==null?{time:d.time}:{time:d.time,value:d.mid??d.value}));
-  stDownFill.setData(stDownData.map(d=>d.value==null?{time:d.time}:{time:d.time,value:d.mid??d.value}));
-  stUpMid.setData(stUpData);
-  stDownMid.setData(stDownData);
-  volumeSeries.setData(data.volumes);
-  sma50Series.setData(data.sma_50||[]);sma100Series.setData(data.sma_100||[]);
-  sma180Series.setData(data.sma_180||[]);sma200Series.setData(data.sma_200||[]);
-  sma50wSeries.setData(data.sma_50w||[]);sma100wSeries.setData(data.sma_100w||[]);sma200wSeries.setData(data.sma_200w||[]);
-  ema9Series.setData(data.ema9||[]);ema21Series.setData(data.ema21||[]);
-  // Indicator overlays
+// Merge an overlay payload (from `overlays_only=1` or a legacy full payload)
+// into lastData and push the delivered families onto their chart series.
+// Fields the payload does not carry are left untouched.
+function applyOverlayPayload(data){
+  if(!data)return;
+  if(!lastData)lastData={};
+  const merged={...lastData};
+  if(data.overlays!==undefined)merged.overlays={...(lastData.overlays||{}),...data.overlays};
+  ['volumes','vol_profile','ema9','ema21','sma_50','sma_100','sma_180','sma_200','sma_50w','sma_100w','sma_200w','supertrend_up','supertrend_down','supertrend_i_up','supertrend_i_down'].forEach(k=>{
+    if(data[k]!==undefined)merged[k]=data[k];
+  });
+  lastData=merged;
   const ov=data.overlays||{};
-  donchUpperSeries.setData(ov.donchian?.upper||[]);donchLowerSeries.setData(ov.donchian?.lower||[]);
-  bbUpperSeries.setData(ov.bb?.upper||[]);bbMidSeries.setData(ov.bb?.mid||[]);bbLowerSeries.setData(ov.bb?.lower||[]);
-  keltUpperSeries.setData(ov.keltner?.upper||[]);keltMidSeries.setData(ov.keltner?.mid||[]);keltLowerSeries.setData(ov.keltner?.lower||[]);
-  psarBullSeries.setData(ov.psar?.bull||[]);psarBearSeries.setData(ov.psar?.bear||[]);
-  // Oscillators
-  macdLineSeries.setData(data.macd_line||[]);macdSignalSeries.setData(data.signal_line||[]);macdHistSeries.setData(data.macd_hist||[]);
-  adxLineSeries.setData(ov.adx?.adx||[]);plusDiSeries.setData(ov.adx?.plus_di||[]);minusDiSeries.setData(ov.adx?.minus_di||[]);
-  cciLineSeries.setData(ov.cci?.cci||[]);
-  orbUpperSeries.setData(ov.orb?.upper||[]);orbLowerSeries.setData(ov.orb?.lower||[]);orbMidSeries.setData(ov.orb?.mid||[]);
-  // Trend ribbon with per-bar colors (area series)
-  const rUpper=ov.ribbon?.upper||[],rLower=ov.ribbon?.lower||[];
-  ribbonUpperSeries.setData(rUpper.map(d=>{
-    const a=parseFloat(d.color?.match(/[\d.]+(?=\)$)/)?.[0]||'0.25');
-    return{time:d.time,value:d.value,lineColor:d.lineColor||d.color,topColor:d.color,bottomColor:d.color?.replace(/[\d.]+\)$/,Math.max(0.03,a*0.2).toFixed(2)+')')};
-  }));
-  ribbonLowerSeries.setData(rLower.map(d=>({time:d.time,value:d.value})));
-  ribbonCenterSeries.setData(ov.ribbon?.center||[]);
-  lastData=data;
+  if(data.supertrend_up!==undefined){
+    const stUpData=(data.supertrend_up||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
+    const stDownData=(data.supertrend_down||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
+    clearSupertrendSegments();
+    stUpSeries=buildSupertrendSegments(stUpData,'#00e68a');
+    stDownSeries=buildSupertrendSegments(stDownData,'#ff5274');
+    // Supertrend fills: area from body middle to supertrend line
+    stUpFill.setData(stUpData.map(d=>d.value==null?{time:d.time}:{time:d.time,value:d.mid??d.value}));
+    stDownFill.setData(stDownData.map(d=>d.value==null?{time:d.time}:{time:d.time,value:d.mid??d.value}));
+    stUpMid.setData(stUpData);
+    stDownMid.setData(stDownData);
+  }
+  if(data.supertrend_i_up!==undefined){
+    const stIUpData=(data.supertrend_i_up||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
+    const stIDownData=(data.supertrend_i_down||[]).map(d=>d.value==null||Number.isNaN(Number(d.value))?{time:d.time}:d);
+    clearSupertrendISegments();
+    stIUpSeries=buildSupertrendSegments(stIUpData,'#00d084');
+    stIDownSeries=buildSupertrendSegments(stIDownData,'#ff3d71');
+  }
+  if(data.volumes!==undefined)volumeSeries.setData(data.volumes||[]);
+  if(data.sma_50!==undefined){
+    sma50Series.setData(data.sma_50||[]);sma100Series.setData(data.sma_100||[]);
+    sma180Series.setData(data.sma_180||[]);sma200Series.setData(data.sma_200||[]);
+    sma50wSeries.setData(data.sma_50w||[]);sma100wSeries.setData(data.sma_100w||[]);sma200wSeries.setData(data.sma_200w||[]);
+  }
+  if(data.ema9!==undefined){ema9Series.setData(data.ema9||[]);ema21Series.setData(data.ema21||[]);}
+  if(ov.bb){bbUpperSeries.setData(ov.bb.upper||[]);bbMidSeries.setData(ov.bb.mid||[]);bbLowerSeries.setData(ov.bb.lower||[]);}
+  if(ov.cci)cciLineSeries.setData(ov.cci.cci||[]);
+  if(ov.ribbon){
+    // Trend ribbon with per-bar colors (area series)
+    const rUpper=ov.ribbon.upper||[],rLower=ov.ribbon.lower||[];
+    ribbonUpperSeries.setData(rUpper.map(d=>{
+      const a=parseFloat(d.color?.match(/[\d.]+(?=\)$)/)?.[0]||'0.25');
+      return{time:d.time,value:d.value,lineColor:d.lineColor||d.color,topColor:d.color,bottomColor:d.color?.replace(/[\d.]+\)$/,Math.max(0.03,a*0.2).toFixed(2)+')')};
+    }));
+    ribbonLowerSeries.setData(rLower.map(d=>({time:d.time,value:d.value})));
+    ribbonCenterSeries.setData(ov.ribbon.center||[]);
+  }
+  if(data.vol_profile!==undefined)renderVolProfile(data.vol_profile||[]);
   syncAutoMovingAverages();
+  updateOverlaysFromSignals();
+  updateLegendValues(null);
+}
+
+function applySharedChartPayload(ticker,interval,period,mult,data,selectedStrategy,{resetRange=false}={}){
+  // Candles are owned by the candles_only request; strategy payloads no
+  // longer duplicate them, so fall back to what is already on the chart.
+  const candles=data.candles||_lastCandles||[];
+  if(data.candles!==undefined){
+    candleSeries.setData(candles);
+    _lastCandles=candles;
+  }
+  syncChartHeader(ticker,interval,period,mult,data.ticker_name||lastData?.ticker_name||'');
+  updateChartPriceDisplay(ticker,candles);
+  applySelectedStrategyPayload(data,selectedStrategy);
+  const{strategies:_ignoredStrategies,buy_hold_equity_curve:_ignoredBuyHold,candles:_ignoredCandles,...rest}=data;
+  lastData={...(lastData||{}),...rest,candles};
+  applyOverlayPayload(data);
   // Trend flip dates
   updateFlipInfo();
-  // Volume profile
-  renderVolProfile(data.vol_profile||[]);
   // Redraw S/R lines if chip is active
   clearSRLines();
   redrawActiveSRLines();
   updateLegendValues(null);
-  updateChartPriceDisplay(ticker,data.candles);
-  if(resetRange)applyDefaultVisibleRange(interval,data.candles);
+  if(resetRange)applyDefaultVisibleRange(interval,candles);
   switchStrategy(document.getElementById('strategy-select').value);
   updateMarkers();
+}
+
+// Fetch overlay families that are toggled on but missing from lastData
+// (they are shipped separately from the strategy payload).
+let overlayFetchToken=0;
+async function ensureOverlayFamilies(fams){
+  const present=typeof FAMILY_DATA_PRESENT!=='undefined'?FAMILY_DATA_PRESENT:{};
+  const missing=[...fams].filter(f=>present[f]&&!present[f](lastData));
+  if(!missing.length)return;
+  const ticker=document.getElementById('ticker').value.toUpperCase();
+  const interval=document.getElementById('interval').value;
+  const period=document.getElementById('period').value,mult=document.getElementById('multiplier').value;
+  const token=++overlayFetchToken;
+  const loadTokenAtRequest=chartLoadRequestToken;
+  const url=buildChartRequestUrl(ticker,interval,chartStart,chartEnd,period,mult,{overlaysOnly:true,overlays:missing.sort().join(','),includeMM:false});
+  try{
+    const data=await fetch(url).then(r=>r.json());
+    if(token!==overlayFetchToken||loadTokenAtRequest!==chartLoadRequestToken)return;
+    if(data?.error)return;
+    applyOverlayPayload(data);
+  }catch(_e){}
+}
+
+function ensureActiveOverlayData(){
+  if(typeof currentOverlayFamilies==='function')ensureOverlayFamilies(currentOverlayFamilies());
 }
 
 async function loadChart(){
@@ -232,6 +278,8 @@ async function loadChart(){
   const candlesUrl=buildChartRequestUrl(ticker,interval,start,end,period,mult,{candlesOnly:true,includeMM:false});
   const nameRefreshUrl=candlesUrl;
   const selectedStrategyUrl=buildChartRequestUrl(ticker,interval,start,end,period,mult,{strategyOnly:true,strategy:selectedStrategy,includeMM:true,includeShared:true});
+  const overlaysCsv=(typeof currentOverlayFamilies==='function')?[...currentOverlayFamilies()].sort().join(','):'ribbon,volumes';
+  const overlaysUrl=overlaysCsv?buildChartRequestUrl(ticker,interval,start,end,period,mult,{overlaysOnly:true,overlays:overlaysCsv,includeMM:false}):null;
   let candlesLoaded=false;
   try{
     syncChartHeader(ticker,interval,period,mult,'');
@@ -256,12 +304,19 @@ async function loadChart(){
     return;
   }
   if(loadingLabel)loadingLabel.textContent='Loading strategy…';
+  // Strategy and overlay payloads are independent server modes — fetch them
+  // concurrently and apply each as it lands.
+  const overlaysPromise=overlaysUrl?fetch(overlaysUrl).then(r=>r.json()).then(od=>{
+    if(requestToken!==chartLoadRequestToken)return;
+    if(od&&!od.error)applyOverlayPayload(od);
+  }).catch(()=>{}):Promise.resolve();
   try{
     const data=await fetch(selectedStrategyUrl).then(r=>r.json());
     if(requestToken!==chartLoadRequestToken)return;
     if(data.error)throw new Error(data.error);
     applySharedChartPayload(ticker,interval,period,mult,data,selectedStrategy);
     if(data.ticker_name)syncTickerNameLabel(data.ticker_name);
+    await overlaysPromise;
   }catch(e){alert('Error: '+e.message)}
   finally{
     if(typeof setBacktestLoading==='function')setBacktestLoading(false);
@@ -286,6 +341,7 @@ async function switchStrategy(name){
   activeBacktestStrat=name;
   updateMarkers();
   showOverlaysForStrategy(name);
+  if(typeof ensureActiveOverlayData==='function')ensureActiveOverlayData();
   if(btOpen){
     ensureBTChart();
   }

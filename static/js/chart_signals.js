@@ -437,6 +437,7 @@ function toggleSignal(el,name){
   if(el.classList.contains('on'))activeSignals.add(name);else activeSignals.delete(name);
   updateMarkers();
   updateOverlaysFromSignals();
+  if(el.classList.contains('on')&&typeof ensureActiveOverlayData==='function')ensureActiveOverlayData();
   updateFlipInfo();
   pushURLParams();
 }

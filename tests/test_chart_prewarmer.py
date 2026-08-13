@@ -44,7 +44,7 @@ def test_run_one_pass_hits_each_ticker_for_every_interval():
 
     warmer._run_one_pass()
 
-    assert len(stub_client.requests) == 6
+    assert len(stub_client.requests) == 10
     assert any("ticker=AAA" in url and "interval=1d" in url for url in stub_client.requests)
     assert any("ticker=AAA" in url and "interval=1wk" in url for url in stub_client.requests)
     assert any("ticker=BBB" in url and "interval=1d" in url for url in stub_client.requests)
@@ -56,6 +56,13 @@ def test_run_one_pass_hits_each_ticker_for_every_interval():
         assert "start=2015-01-01" in url
         assert "prewarm=1" in url
     assert sum("candles_only=1" in url for url in stub_client.requests) == 4
+    # One overlays warm per (ticker, interval), mirroring the browser's default set.
+    assert sum("overlays_only=1" in url for url in stub_client.requests) == 4
+    assert all(
+        "overlays=ribbon%2Cvolumes" in url
+        for url in stub_client.requests
+        if "overlays_only=1" in url
+    )
     assert sum("strategy_only=1" in url and "include_shared=1" in url for url in stub_client.requests) == 2
     assert all("strategy=ribbon" in url for url in stub_client.requests if "strategy_only=1" in url)
     assert all("interval=1d" in url for url in stub_client.requests if "strategy_only=1" in url)
@@ -74,12 +81,12 @@ def test_build_watchlist_chart_artifacts_builds_full_ui_artifact_set():
     assert summary == {
         "tickers": 2,
         "strategies": 1,
-        "requests": 6,
-        "ok": 6,
+        "requests": 10,
+        "ok": 10,
         "failed": 0,
         "aborted": 0,
     }
-    assert len(stub_client.requests) == 6
+    assert len(stub_client.requests) == 10
     assert all("prewarm=1" in url for url in stub_client.requests)
     assert all("cache_only=1" not in url for url in stub_client.requests)
     assert any("ticker=AAA" in url and "candles_only=1" in url for url in stub_client.requests)
@@ -98,8 +105,8 @@ def test_build_watchlist_chart_artifacts_defaults_to_all_ui_strategies_on_daily_
     assert summary == {
         "tickers": 1,
         "strategies": len(DEFAULT_CHART_STRATEGIES),
-        "requests": 2 + (2 * len(DEFAULT_CHART_STRATEGIES)),
-        "ok": 2 + (2 * len(DEFAULT_CHART_STRATEGIES)),
+        "requests": 4 + (2 * len(DEFAULT_CHART_STRATEGIES)),
+        "ok": 4 + (2 * len(DEFAULT_CHART_STRATEGIES)),
         "failed": 0,
         "aborted": 0,
     }
@@ -134,9 +141,9 @@ def test_build_watchlist_chart_artifacts_counts_failed_responses():
     assert summary == {
         "tickers": 1,
         "strategies": 1,
-        "requests": 2,
+        "requests": 3,
         "ok": 0,
-        "failed": 2,
+        "failed": 3,
         "aborted": 0,
     }
 
@@ -186,7 +193,7 @@ def test_run_one_pass_waits_for_interactive_idle():
     warmer._run_one_pass()
 
     assert calls >= 2
-    assert len(stub_client.requests) == 2
+    assert len(stub_client.requests) == 3
 
 
 def test_run_one_pass_short_circuits_when_stopped():
@@ -240,8 +247,8 @@ def test_run_one_pass_swallows_client_errors_and_continues():
 
     warmer._run_one_pass()
 
-    # First call raised, the paired strategy request and next ticker should still fire.
-    assert flaky.calls == 4
+    # First call raised; the remaining warm URLs and next ticker should still fire.
+    assert flaky.calls == 6
 
 
 def test_run_one_pass_skips_prewarm_when_user_is_active():

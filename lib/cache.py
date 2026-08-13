@@ -43,8 +43,12 @@ _yf_lock = threading.RLock()
 _yf_last_call = 0.0
 _yf_cooldown_until = 0.0
 _yf_cooldown_reason = ""
+_yf_caution_until = 0.0
 _YF_RATE_DELAY = 1.5
 _YF_RATE_LIMIT_COOLDOWN = 600  # seconds (10 minutes)
+# Inter-call spacing is only enforced for a while after Yahoo actually rate
+# limits us; unconditional spacing cost ~1.5s per download on every cold load.
+_YF_CAUTION_WINDOW = 3600  # seconds (1 hour after a cooldown ends)
 _watchlist_quotes_cache: dict[str, dict[str, object]] = {}
 _watchlist_quotes_lock = threading.Lock()
 _watchlist_quote_refreshing: set[str] = set()
@@ -77,10 +81,32 @@ def _is_yf_rate_limit_error(exc: BaseException) -> bool:
 
 
 def _set_yf_cooldown(exc: BaseException | str, cooldown: int = _YF_RATE_LIMIT_COOLDOWN) -> None:
-    global _yf_cooldown_until, _yf_cooldown_reason
+    global _yf_cooldown_until, _yf_cooldown_reason, _yf_caution_until
     with _yf_lock:
         _yf_cooldown_until = max(_yf_cooldown_until, _time.time() + cooldown)
         _yf_cooldown_reason = str(exc)
+        _yf_caution_until = max(_yf_caution_until, _yf_cooldown_until + _YF_CAUTION_WINDOW)
+
+
+def _yf_caution_active() -> bool:
+    return _time.time() < _yf_caution_until
+
+
+def _yf_reserve_call_slot() -> float:
+    """Return the earliest time the caller may hit Yahoo, updating the schedule.
+
+    The lock is only held to reserve the slot — never across sleeps or network
+    I/O, so a slow metadata fetch can no longer convoy price downloads behind it.
+    """
+    global _yf_last_call
+    with _yf_lock:
+        _raise_if_yf_cooldown_active()
+        now = _time.time()
+        start_at = now
+        if _yf_caution_active():
+            start_at = max(now, _yf_last_call + _YF_RATE_DELAY)
+        _yf_last_call = start_at
+        return start_at
 
 
 def _yf_cooldown_active() -> bool:
@@ -124,40 +150,28 @@ def _write_disk_ticker_info(ticker: str, info: dict):
 
 def _yf_rate_limited_download(tickers, **kwargs):
     """Call yf.download with rate limiting to avoid 429s from Yahoo Finance."""
-    global _yf_last_call
-    with _yf_lock:
-        _raise_if_yf_cooldown_active()
-        elapsed = _time.time() - _yf_last_call
-        if elapsed < _YF_RATE_DELAY:
-            _time.sleep(_YF_RATE_DELAY - elapsed)
-        try:
-            result = yf.download(tickers, **kwargs)
-        except Exception as exc:
-            if _is_yf_rate_limit_error(exc):
-                _set_yf_cooldown(exc)
-            raise
-        finally:
-            _yf_last_call = _time.time()
-    return result
+    wait = _yf_reserve_call_slot() - _time.time()
+    if wait > 0:
+        _time.sleep(wait)
+    try:
+        return yf.download(tickers, **kwargs)
+    except Exception as exc:
+        if _is_yf_rate_limit_error(exc):
+            _set_yf_cooldown(exc)
+        raise
 
 
 def _yf_rate_limited_info(ticker: str):
     """Fetch yf.Ticker(...).info with the same rate limiting as downloads."""
-    global _yf_last_call
-    with _yf_lock:
-        _raise_if_yf_cooldown_active()
-        elapsed = _time.time() - _yf_last_call
-        if elapsed < _YF_RATE_DELAY:
-            _time.sleep(_YF_RATE_DELAY - elapsed)
-        try:
-            result = yf.Ticker(ticker).info
-        except Exception as exc:
-            if _is_yf_rate_limit_error(exc):
-                _set_yf_cooldown(exc)
-            raise
-        finally:
-            _yf_last_call = _time.time()
-    return result
+    wait = _yf_reserve_call_slot() - _time.time()
+    if wait > 0:
+        _time.sleep(wait)
+    try:
+        return yf.Ticker(ticker).info
+    except Exception as exc:
+        if _is_yf_rate_limit_error(exc):
+            _set_yf_cooldown(exc)
+        raise
 
 
 def _get_cached_ticker_info(ticker: str) -> dict:
