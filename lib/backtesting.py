@@ -1711,6 +1711,8 @@ def build_weekly_confirmed_ribbon_direction(
     reentry_cooldown_ratio: float = 0.0,
     weekly_nonbull_confirm_bars: int = 1,
     asymmetric_exit: bool = False,
+    max_dd_exit_gate: float | None = None,
+    price_series: pd.Series | None = None,
 ) -> pd.Series:
     """Build a cycle-level ribbon regime from daily flips and weekly confirmation.
 
@@ -1722,6 +1724,14 @@ def build_weekly_confirmed_ribbon_direction(
     When *asymmetric_exit* is True, exits fire on a daily bear flip alone —
     the weekly non-bull confirmation is skipped. Entries still require weekly
     agreement, giving fast crash protection with filtered entries.
+
+    When *max_dd_exit_gate* is set (e.g. -0.35) and *price_series* is provided,
+    exits are blocked if the current drawdown from the trade's peak price already
+    exceeds the gate. This filters out "too late to sell" exits where the
+    correction has largely played out and selling would lock in losses. The two
+    controls are independent: the gate only ever suppresses an exit that the
+    asymmetric/confirmation rule already triggered, so leaving it at None
+    reproduces the ungated behaviour exactly.
     """
     if daily_direction.empty:
         return pd.Series(dtype=int, index=daily_direction.index)
@@ -1745,6 +1755,14 @@ def build_weekly_confirmed_ribbon_direction(
         .astype(int)
     )
 
+    use_dd_gate = (
+        max_dd_exit_gate is not None
+        and price_series is not None
+        and not price_series.empty
+    )
+    price_vals = price_series.values if use_dd_gate else None
+    dd_gate = float(max_dd_exit_gate) if use_dd_gate else 0.0
+
     confirmed = []
     state = int(initial_direction) if not pd.isna(initial_direction) else 0
     cooldown_remaining = 0
@@ -1753,20 +1771,35 @@ def build_weekly_confirmed_ribbon_direction(
     cooldown_ratio = max(0.0, float(reentry_cooldown_ratio))
     cooldown_floor = max(0, int(reentry_cooldown_bars))
     nonbull_confirm_bars = max(1, int(weekly_nonbull_confirm_bars))
+    trade_peak_price = 0.0
 
-    for daily_value, weekly_value, weekly_raw_value in zip(
+    for i, (daily_value, weekly_value, weekly_raw_value) in enumerate(zip(
         daily_state,
         weekly_state,
         weekly_raw_state,
-    ):
+    )):
         weekly_nonbull_streak = (
             weekly_nonbull_streak + 1 if weekly_raw_value != 1 else 0
         )
+
+        if use_dd_gate and state == 1:
+            p = float(price_vals[i])
+            if p == p:  # not NaN
+                trade_peak_price = max(trade_peak_price, p)
+
+        exit_blocked = False
+        if use_dd_gate and state == 1 and trade_peak_price > 0:
+            p = float(price_vals[i])
+            if p == p and p > 0:
+                dd = (p - trade_peak_price) / trade_peak_price
+                if dd < dd_gate:
+                    exit_blocked = True
 
         exit_triggered = (
             state == 1
             and daily_value == -1
             and (asymmetric_exit or weekly_nonbull_streak >= nonbull_confirm_bars)
+            and not exit_blocked
         )
 
         if exit_triggered:
@@ -1774,9 +1807,14 @@ def build_weekly_confirmed_ribbon_direction(
             ratio_cooldown = int(round(bull_duration_bars * cooldown_ratio))
             cooldown_remaining = max(cooldown_floor, ratio_cooldown)
             bull_duration_bars = 0
+            trade_peak_price = 0.0
         elif state != 1 and cooldown_remaining <= 0 and daily_value == 1 and weekly_value == 1:
             state = 1
             bull_duration_bars = 1
+            if use_dd_gate:
+                p = float(price_vals[i])
+                if p == p:
+                    trade_peak_price = p
         elif cooldown_remaining > 0:
             cooldown_remaining -= 1
         elif state == 1:
@@ -1795,6 +1833,8 @@ def backtest_ribbon_regime(
     reentry_cooldown_ratio=0.0,
     weekly_nonbull_confirm_bars=1,
     asymmetric_exit=False,
+    max_dd_exit_gate=None,
+    price_series=None,
 ):
     """Backtest a weekly-confirmed bull/bear ribbon regime: long in bull, cash in bear."""
     confirmed_direction = build_weekly_confirmed_ribbon_direction(
@@ -1805,6 +1845,8 @@ def backtest_ribbon_regime(
         reentry_cooldown_ratio=reentry_cooldown_ratio,
         weekly_nonbull_confirm_bars=weekly_nonbull_confirm_bars,
         asymmetric_exit=asymmetric_exit,
+        max_dd_exit_gate=max_dd_exit_gate,
+        price_series=price_series,
     )
     return backtest_direction(
         df,

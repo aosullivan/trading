@@ -4,6 +4,8 @@ from routes.pages import bp as pages_bp
 from routes.polymarket import bp as polymarket_bp
 from routes.positions import bp as positions_bp
 from routes.portfolio import bp as portfolio_bp
+from routes.settings import bp as settings_bp
+from routes.signals import bp as signals_bp
 from routes.watchlist import bp as watchlist_bp
 
 ALL_BLUEPRINTS = [
@@ -13,5 +15,7 @@ ALL_BLUEPRINTS = [
     polymarket_bp,
     positions_bp,
     portfolio_bp,
+    settings_bp,
+    signals_bp,
     watchlist_bp,
 ]

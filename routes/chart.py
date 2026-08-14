@@ -2519,6 +2519,10 @@ def chart_data():
                         asymmetric_exit=ribbon_regime_kwargs.get(
                             "asymmetric_exit", False
                         ),
+                        max_dd_exit_gate=ribbon_regime_kwargs.get(
+                            "max_dd_exit_gate"
+                        ),
+                        price_series=df["Close"],
                     )
                     ribbon_backtest_direction = confirmed_ribbon_direction
                     (

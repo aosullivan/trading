@@ -48,6 +48,10 @@ TREND_RIBBON_REGIME_PROFILE = {
     "reentry_cooldown_ratio": 0.05,
     "weekly_nonbull_confirm_bars": 1,
     "asymmetric_exit": True,
+    # Blocks an exit once price is already this far below the trade's peak, on
+    # the view that the correction has mostly played out. None keeps the
+    # ungated behaviour; set e.g. -0.35 to trial it against `asymmetric_exit`.
+    "max_dd_exit_gate": None,
 }
 
 TREND_RIBBON_BACKTEST_PROFILE = {
@@ -166,6 +170,8 @@ def compute_confirmed_ribbon_direction(ticker: str, df: pd.DataFrame) -> pd.Seri
         reentry_cooldown_ratio=regime["reentry_cooldown_ratio"],
         weekly_nonbull_confirm_bars=regime["weekly_nonbull_confirm_bars"],
         asymmetric_exit=regime.get("asymmetric_exit", False),
+        max_dd_exit_gate=regime.get("max_dd_exit_gate"),
+        price_series=df["Close"],
     )
 
 
