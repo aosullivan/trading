@@ -91,12 +91,24 @@ def trend_ribbon_regime_kwargs(ticker: str | None = None) -> dict[str, int | flo
     return _apply_overrides(TREND_RIBBON_REGIME_PROFILE, ticker, "regime")
 
 
+def _drop_inert(profile: dict) -> dict:
+    """Strip knobs left at None so they stay out of the cache signature.
+
+    This signature is baked into every chart payload cache key, so adding a
+    switched-off knob to a profile would otherwise invalidate every cached
+    artifact and force a full prewarm recompute — for a setting that provably
+    changes no output. A knob only earns a new cache key once it is given a
+    value that actually alters results.
+    """
+    return {k: v for k, v in profile.items() if v is not None}
+
+
 def trend_ribbon_profile_signature(ticker: str | None = None) -> str:
     payload = {
-        "signal": trend_ribbon_signal_kwargs(ticker, "daily"),
-        "weekly_signal": trend_ribbon_signal_kwargs(ticker, "weekly"),
-        "backtest": trend_ribbon_backtest_kwargs(ticker),
-        "regime": trend_ribbon_regime_kwargs(ticker),
+        "signal": _drop_inert(trend_ribbon_signal_kwargs(ticker, "daily")),
+        "weekly_signal": _drop_inert(trend_ribbon_signal_kwargs(ticker, "weekly")),
+        "backtest": _drop_inert(trend_ribbon_backtest_kwargs(ticker)),
+        "regime": _drop_inert(trend_ribbon_regime_kwargs(ticker)),
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 

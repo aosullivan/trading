@@ -76,3 +76,24 @@ def test_strategy_regression_thresholds(scenario, sample_df):
         pytest.fail(f"Unknown handler {handler_name!r} in scenario {scenario['id']!r}")
     summary = _HANDLERS[handler_name](sample_df)
     _assert_metrics(summary, scenario["metrics"], scenario["id"])
+
+
+def test_inert_profile_knobs_do_not_change_the_cache_signature():
+    """The signature is baked into every chart payload cache key.
+
+    A knob left at None provably changes no output, so it must not invalidate
+    the cache — otherwise adding one silently forces a full prewarm recompute.
+    """
+    from lib.strategies import ribbon
+
+    baseline = ribbon.trend_ribbon_profile_signature("BTC-USD")
+
+    original = ribbon.TREND_RIBBON_REGIME_PROFILE
+    ribbon.TREND_RIBBON_REGIME_PROFILE = {**original, "some_future_knob": None}
+    try:
+        assert ribbon.trend_ribbon_profile_signature("BTC-USD") == baseline
+        # ...but a knob with a real value must change it.
+        ribbon.TREND_RIBBON_REGIME_PROFILE = {**original, "some_future_knob": -0.35}
+        assert ribbon.trend_ribbon_profile_signature("BTC-USD") != baseline
+    finally:
+        ribbon.TREND_RIBBON_REGIME_PROFILE = original
