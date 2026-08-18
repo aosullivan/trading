@@ -483,3 +483,62 @@ def test_cached_download_returns_stale_disk_cache_after_rate_limit_error(tmp_pat
     )
 
     assert result["Close"].tolist() == [100.0, 101.0]
+
+
+class TestQuoteGapRecovery:
+    """Yahoo's daily-bar endpoint intermittently drops whole sessions.
+
+    On 2026-08-18 it omitted 2026-08-17 for every symbol, so quotes derived
+    from `iloc[-2]` compared against the previous Friday and understated every
+    move (MRVL showed -4% against a true -9.8%).
+    """
+
+    def _frame(self, rows):
+        idx = pd.to_datetime([d for d, _ in rows])
+        return pd.DataFrame({"Close": [c for _, c in rows]}, index=idx)
+
+    def test_missing_session_is_restored_from_cached_history(self):
+        # Live fetch is missing Monday 08-17 entirely.
+        fetched = self._frame([
+            ("2026-08-13", 222.18),
+            ("2026-08-14", 222.02),
+            ("2026-08-18", 213.04),
+        ])
+        # The maintained cache still has it.
+        history = self._frame([
+            ("2026-08-13", 222.18),
+            ("2026-08-14", 222.02),
+            ("2026-08-17", 236.04),
+            ("2026-08-18", 213.04),
+        ])
+
+        gappy = _quote_from_frame("MRVL", fetched)
+        fixed = _quote_from_frame("MRVL", fetched, history=history)
+
+        assert gappy["chg_pct"] == -4.04          # the bug: compares against Friday
+        assert fixed["chg_pct"] == -9.74          # compares against Monday
+        assert fixed["last"] == 213.04
+
+    def test_fetched_values_win_over_stale_cache(self):
+        """The cache must only fill holes, never override fresher prices."""
+        fetched = self._frame([("2026-08-14", 222.02), ("2026-08-18", 213.04)])
+        history = self._frame([("2026-08-14", 222.02), ("2026-08-18", 216.03)])
+
+        q = _quote_from_frame("MRVL", fetched, history=history)
+
+        assert q["last"] == 213.04  # intraday fetch, not the stale cached bar
+
+    def test_no_history_behaves_as_before(self):
+        fetched = self._frame([("2026-08-14", 100.0), ("2026-08-18", 110.0)])
+        assert _quote_from_frame("X", fetched) == _quote_from_frame("X", fetched, history=None)
+
+    def test_tolerates_timezone_aware_and_unsorted_history(self):
+        fetched = self._frame([("2026-08-14", 222.02), ("2026-08-18", 213.04)])
+        history = self._frame([
+            ("2026-08-17", 236.04),
+            ("2026-08-14", 222.02),
+        ]).tz_localize("America/New_York")
+
+        q = _quote_from_frame("MRVL", fetched, history=history)
+
+        assert q["chg_pct"] == -9.74

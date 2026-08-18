@@ -27,6 +27,7 @@ from lib.data_fetching import (
     cached_download,
     normalize_ticker,
     _quote_from_frame,
+    read_cached_history,
     _fetch_treasury_yield_history,
     _fetch_market_quote_frame,
     _fetch_market_quote,
@@ -308,7 +309,11 @@ def _build_watchlist_quotes(tickers: list[str]) -> list[dict]:
                         tdf = df[yf_ticker]
                     if isinstance(tdf.columns, pd.MultiIndex):
                         tdf.columns = tdf.columns.get_level_values(0)
-                    quote = _quote_from_frame(display_ticker, tdf)
+                    quote = _quote_from_frame(
+                        display_ticker,
+                        tdf,
+                        history=read_cached_history(yf_ticker),
+                    )
                     quote = _with_treasury_rate(quote)
                     if quote["last"] is None:
                         needs_retry.append((display_ticker, yf_ticker))
@@ -632,7 +637,7 @@ def watchlist_quote(ticker):
 
     try:
         df = _fetch_market_quote_frame(yf_ticker)
-        result = _quote_from_frame(ticker, df)
+        result = _quote_from_frame(ticker, df, history=read_cached_history(yf_ticker))
     except Exception:
         result = {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
     result = _with_treasury_rate(result)

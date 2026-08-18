@@ -656,8 +656,60 @@ def _fetch_treasury_yield_history(
     return df
 
 
-def _quote_from_frame(ticker: str, df: pd.DataFrame) -> dict:
+def read_cached_history(ticker: str, interval: str = "1d") -> pd.DataFrame | None:
+    """Read the maintained OHLCV cache for a ticker without touching the network."""
+    path = _disk_cache_path(ticker, interval)
+    if not os.path.exists(path):
+        return None
+    try:
+        df = pd.read_csv(path, index_col=0, parse_dates=True)
+    except (OSError, ValueError):
+        return None
+    if df.empty or "Close" not in df.columns:
+        return None
+    return df
+
+
+def _normalize_session_index(df: pd.DataFrame) -> pd.DataFrame:
+    """Key a frame by calendar session so two sources can be aligned."""
+    idx = pd.DatetimeIndex(df.index)
+    if idx.tz is not None:
+        idx = idx.tz_localize(None)
+    out = df.copy()
+    out.index = idx.normalize()
+    return out[~out.index.duplicated(keep="last")].sort_index()
+
+
+def _fill_missing_sessions(df: pd.DataFrame, history: pd.DataFrame | None) -> pd.DataFrame:
+    """Restore sessions the live fetch dropped, using the maintained cache.
+
+    Yahoo's daily-bar endpoint intermittently omits entire sessions — an
+    outage dropped 2026-08-17 for every symbol — and a quote derived from the
+    gappy frame silently compares against whatever session precedes the hole.
+    The fetched frame wins wherever it has data (it is fresher, and carries
+    today's partial bar); the cache only supplies sessions missing from it.
+    """
+    if history is None or history.empty:
+        return df
+    try:
+        fetched = _normalize_session_index(df)
+        cached = _normalize_session_index(history)
+    except (TypeError, ValueError):
+        return df
+    cached = cached[cached.index <= fetched.index[-1]] if len(fetched) else cached
+    merged = fetched.combine_first(cached[["Close"]] if "Close" in cached else cached)
+    return merged.sort_index()
+
+
+def _quote_from_frame(
+    ticker: str,
+    df: pd.DataFrame,
+    *,
+    history: pd.DataFrame | None = None,
+) -> dict:
     df = df.dropna(subset=["Close"])
+    if history is not None:
+        df = _fill_missing_sessions(df, history).dropna(subset=["Close"])
     if len(df) < 2:
         return {"ticker": ticker, "last": None, "chg": None, "chg_pct": None}
     last = round(float(df["Close"].iloc[-1]), 2)
@@ -681,4 +733,8 @@ def _fetch_market_quote_frame(yf_ticker: str) -> pd.DataFrame:
 
 
 def _fetch_market_quote(display_ticker: str, yf_ticker: str) -> dict:
-    return _quote_from_frame(display_ticker, _fetch_market_quote_frame(yf_ticker))
+    return _quote_from_frame(
+        display_ticker,
+        _fetch_market_quote_frame(yf_ticker),
+        history=read_cached_history(yf_ticker),
+    )

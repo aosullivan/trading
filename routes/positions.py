@@ -2,7 +2,12 @@ import pandas as pd
 from flask import Blueprint, current_app, jsonify, render_template, request
 
 from lib.cache import _cache_get, _cache_set, _yf_rate_limited_download
-from lib.data_fetching import _fetch_market_quote, _quote_from_frame, normalize_ticker
+from lib.data_fetching import (
+    _fetch_market_quote,
+    _quote_from_frame,
+    normalize_ticker,
+    read_cached_history,
+)
 from lib.positions import (
     allocation_plan,
     load_imported_positions,
@@ -87,7 +92,9 @@ def position_quotes():
                     tdf = df if len(yf_tickers) == 1 else df[yf_ticker]
                     if isinstance(tdf.columns, pd.MultiIndex):
                         tdf.columns = tdf.columns.get_level_values(0)
-                    quote = _quote_from_frame(symbol, tdf)
+                    quote = _quote_from_frame(
+                        symbol, tdf, history=read_cached_history(yf_ticker)
+                    )
                 except Exception:
                     quote = None
             if quote is None:
